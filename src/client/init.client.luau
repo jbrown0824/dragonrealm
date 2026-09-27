@@ -1,0 +1,52 @@
+-- Dragon Realm client entry point. Wires up every UI screen and controller.
+
+local StarterGui = game:GetService("StarterGui")
+
+pcall(function()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+end)
+
+local Controllers = script:WaitForChild("Controllers")
+local UI = script:WaitForChild("UI")
+
+local App = {}
+App.State = require(Controllers.State)
+App.Sfx = require(Controllers.Sfx)
+App.VFX = require(Controllers.VFX)
+App.Movement = require(Controllers.Movement)
+App.Combat = require(Controllers.Combat)
+App.Animator = require(Controllers.Animator)
+App.WorldView = require(Controllers.WorldView)
+App.Windows = require(UI.Windows)
+App.Notifications = require(UI.Notifications)
+App.HUD = require(UI.HUD)
+App.ClassSelect = require(UI.ClassSelect)
+App.SkillTree = require(UI.SkillTree)
+App.Inventory = require(UI.Inventory)
+App.Shop = require(UI.Shop)
+App.QuestUI = require(UI.QuestUI)
+App.SeedPicker = require(UI.SeedPicker)
+App.BossUI = require(UI.BossUI)
+App.Help = require(UI.Help)
+
+App.Windows.init()
+App.Sfx.init()
+App.Notifications.init(App)
+App.VFX.init(App)
+App.Movement.init(App)
+App.Combat.init(App)
+App.Animator.init()
+App.HUD.init(App)
+App.ClassSelect.init(App)
+App.SkillTree.init(App)
+App.Inventory.init(App)
+App.Shop.init(App)
+App.QuestUI.init(App)
+App.SeedPicker.init(App)
+App.BossUI.init(App)
+App.Help.init(App)
+task.spawn(App.WorldView.init, App)
+
+-- Load the profile last so every screen is listening when it arrives.
+App.State.init()

@@ -1,0 +1,7 @@
+# Rojo build output. Rebuild with: rojo build -o DragonRealm.rbxlx
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+.DS_Store
