@@ -48,6 +48,7 @@ Game.BOSS_WARNING = 3 * 60 -- warning + queue window before the boss spawns
 Game.BOSS_FIGHT_DURATION = 5 * 60
 Game.BOSS_TARGET_FIGHT_SECONDS = 100 -- boss HP is tuned so the queued group kills it in about this long
 Game.BOSS_HIT_FRACTION = 0.1 -- a basic boss hit takes about this fraction of the group's average max health
+Game.BOSS_LIVES = 3 -- deaths allowed per player in a boss fight before they're knocked out
 
 -- Enemies
 Game.ENEMY_RESPAWN = 18

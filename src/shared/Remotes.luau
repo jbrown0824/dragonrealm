@@ -38,6 +38,7 @@ local FUNCTIONS = {
 	"TurnInQuest",
 	"AbandonQuest",
 	"BossQueue",
+	"LeaveBossFight",
 	"Transform",
 	"TeleportHome",
 }

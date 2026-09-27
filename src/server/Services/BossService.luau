@@ -52,6 +52,11 @@ local function broadcastState()
 	if fight then
 		data.participants = listUserIds(fight.participants)
 		data.endsAt = fight.endsAt
+		data.maxLives = Game.BOSS_LIVES
+		data.lives = {}
+		for player, lives in pairs(fight.lives) do
+			data.lives[tostring(player.UserId)] = lives
+		end
 		if fight.boss and not fight.boss.dead then
 			data.hp = fight.boss.humanoid.Health
 			data.maxHp = fight.boss.humanoid.MaxHealth
@@ -81,6 +86,45 @@ function BossService.getArenaSpawn(player: Player): CFrame?
 	local angle = math.random() * math.pi * 2
 	local pos = c + Vector3.new(math.cos(angle) * 70, 6, math.sin(angle) * 70)
 	return CFrame.lookAt(pos, Vector3.new(c.X, pos.Y, c.Z))
+end
+
+-- Take a player out of the current fight (knocked out or left) and send them back to town.
+local function removeFromFight(player: Player, reason: string)
+	if not fight or not fight.participants[player] then
+		return
+	end
+	fight.participants[player] = nil
+	fight.out[player] = reason
+	player:SetAttribute("InBossFight", false)
+	if S.PlayerService.getCharacter(player) then
+		S.PlayerService.teleport(player, S.PlayerService.getSpawnCFrame(player))
+	end
+	broadcastState()
+end
+
+-- Called by PlayerService whenever a dragon dies.
+function BossService.onPlayerDied(player: Player)
+	if not fight or phase ~= "fight" or not fight.participants[player] then
+		return
+	end
+	local left = (fight.lives[player] or Game.BOSS_LIVES) - 1
+	fight.lives[player] = left
+	if left <= 0 then
+		removeFromFight(player, "lives")
+		S.PlayerService.notify(player, "You're out of lives! You'll wake up back in town.", Color3.fromRGB(255, 120, 110), "💔")
+	else
+		S.PlayerService.notify(player, string.format("You have %d %s left in this fight!", left, left == 1 and "life" or "lives"), Color3.fromRGB(255, 170, 120), "❤️")
+		broadcastState()
+	end
+end
+
+local function leaveFight(player: Player)
+	if not fight or not fight.participants[player] then
+		return false, "You're not in a boss fight."
+	end
+	removeFromFight(player, "left")
+	S.PlayerService.notify(player, "You fled the boss fight.", Color3.fromRGB(220, 220, 230), "🚪")
+	return true
 end
 
 ---------------------------------------------------------------- queue
@@ -167,7 +211,7 @@ local function bossAttack(name: string, cfg, target)
 			end
 		end)
 	elseif name == "GroundSlam" then
-		local center = S.EnemyService.groundAt(root.Position)
+		local center = S.EnemyService.groundAt(root.Position, 10)
 		telegraph(center, cfg.radius, cfg.delay, Color3.fromRGB(255, 60, 40))
 		boss.model:SetAttribute("Swing", os.clock() + cfg.delay - 0.3)
 		task.delay(cfg.delay, function()
@@ -183,7 +227,7 @@ local function bossAttack(name: string, cfg, target)
 			local p = players[((i - 1) % math.max(1, #players)) + 1]
 			if p then
 				local jitter = i > #players and Vector3.new(math.random(-25, 25), 0, math.random(-25, 25)) or Vector3.new()
-				local pos = S.EnemyService.groundAt(p.root.Position + jitter)
+				local pos = S.EnemyService.groundAt(p.root.Position + jitter, 10)
 				telegraph(pos, cfg.radius, cfg.delay, Enemies.Bosses[currentBossId].color)
 				task.delay(cfg.delay, function()
 					if boss.dead or not fight then
@@ -295,6 +339,17 @@ local function endFight(victory: boolean)
 				S.QuestService.progress(player, "bossKill", nil, 1)
 			end
 		end
+		-- Dragons knocked out along the way still get a share of XP and gold.
+		for player, reason in pairs(fight.out) do
+			local profile = player.Parent and reason == "lives" and S.PlayerService.getProfile(player)
+			if profile then
+				S.LootService.grant(player, {
+					xp = math.floor(Game.xpToNext(profile.level) * 0.2) + 150,
+					gold = 120 + 25 * profile.level,
+				})
+				S.PlayerService.notify(player, "Your team beat the boss! You get a share of the rewards.", Color3.fromRGB(255, 215, 80), "🏆")
+			end
+		end
 		announce("🏆 VICTORY!", string.format("%s was defeated by %s!", def.name, table.concat(names, ", ")), Color3.fromRGB(255, 215, 80), 8)
 	else
 		for _, player in ipairs(players) do
@@ -358,6 +413,8 @@ local function startFight()
 
 	fight = {
 		participants = {},
+		lives = {},
+		out = {},
 		adds = {},
 		level = level,
 		hit = avgHealth * Game.BOSS_HIT_FRACTION * 1.3,
@@ -370,6 +427,7 @@ local function startFight()
 	}
 	for _, player in ipairs(players) do
 		fight.participants[player] = true
+		fight.lives[player] = Game.BOSS_LIVES
 		player:SetAttribute("InBossFight", true)
 	end
 
@@ -447,6 +505,13 @@ local function thinkBoss()
 		fight.enraged = true
 		boss.baseSpeed = def.speed * 1.35
 		announce("😡 ENRAGED", def.name .. " is enraged!", Color3.fromRGB(255, 60, 60), 3)
+	end
+
+	-- Safety net: if the boss ever ends up outside the arena, put it back in the middle.
+	local bp = boss.root.Position
+	local c = Zones.BossArena.center
+	if Vector3.new(bp.X - c.X, 0, bp.Z - c.Z).Magnitude > Zones.BossArena.radius + 10 or bp.Y > c.Y + Zones.BossArena.wallHeight - 5 or bp.Y < c.Y - 40 then
+		boss.model:PivotTo(CFrame.new(S.EnemyService.groundAt(c, 20) + Vector3.new(0, boss.humanoid.HipHeight + boss.root.Size.Y / 2 + 1, 0)))
 	end
 
 	local speedMult = S.CombatService.speedMultiplier(boss.model)
@@ -562,6 +627,7 @@ function BossService.start()
 	Remotes.func("BossQueue").OnServerInvoke = function(player, join)
 		return joinQueue(player, join == true)
 	end
+	Remotes.func("LeaveBossFight").OnServerInvoke = leaveFight
 
 	local horn = workspace:WaitForChild("Map"):FindFirstChild("WarHornPrompt", true)
 	if horn then

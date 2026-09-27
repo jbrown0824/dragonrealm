@@ -45,6 +45,9 @@ local function terrainPath(a: Vector3, b: Vector3, width: number, material: Enum
 	terrain:FillBlock(cf, Vector3.new(width, 4, len + width), material)
 end
 
+-- Note: Roblox only honors CanQuery = false on parts with CanCollide = false, so solid invisible
+-- walls still block raycasts. That's why barriers live in workspace.Barriers, outside Map:
+-- the services raycast against Map + Terrain and never see them.
 local function invisibleWall(parent: Instance, size: Vector3, cf: CFrame)
 	local p = Props.part(parent, size, cf, Color3.new(1, 1, 1))
 	p.Transparency = 1
@@ -176,16 +179,22 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 	Props.part(model, Vector3.new(22, 0.8, 16), cf * CFrame.new(0, 0.4, 2), Color3.fromRGB(150, 130, 110), Enum.Material.WoodPlanks)
 	local counter = Props.part(model, Vector3.new(16, 3.6, 2.6), cf * CFrame.new(0, 2.2, -3), Props.WOOD, Enum.Material.WoodPlanks)
 	Props.part(model, Vector3.new(16.6, 0.5, 3.2), cf * CFrame.new(0, 4.2, -3), Props.DARK_WOOD, Enum.Material.Wood)
-	Props.part(model, Vector3.new(20, 12, 1), cf * CFrame.new(0, 6.4, 9.5), Color3.fromRGB(110, 80, 55), Enum.Material.WoodPlanks)
-	for _, x in ipairs({ -10, 10 }) do
-		for _, z in ipairs({ -5, 9 }) do
-			Props.column(model, (cf * CFrame.new(x, 0, z)).Position, 13, 1, Props.DARK_WOOD, Enum.Material.Wood)
-		end
+	Props.part(model, Vector3.new(20, 15, 1), cf * CFrame.new(0, 7.5, 9.5), Color3.fromRGB(110, 80, 55), Enum.Material.WoodPlanks)
+	-- Striped awning sloping from 12 studs high at the front (z = -6.5) to 15.4 at the back (z = 10).
+	local frontZ, backZ, frontY, backY = -6.5, 10, 12.2, 15.4
+	local slope = math.atan((backY - frontY) / (backZ - frontZ))
+	local length = math.sqrt((backZ - frontZ) ^ 2 + (backY - frontY) ^ 2)
+	local function awningUnderside(z)
+		return frontY - 0.2 + (z - frontZ) / (backZ - frontZ) * (backY - frontY)
 	end
-	-- striped awning
 	for i = 0, 7 do
 		local color = i % 2 == 0 and awningColor or Color3.fromRGB(245, 235, 215)
-		Props.part(model, Vector3.new(2.75, 0.4, 16), cf * CFrame.new(-9.6 + i * 2.75, 13.4, 2) * CFrame.Angles(math.rad(-12), 0, 0), color, Enum.Material.Fabric)
+		Props.part(model, Vector3.new(2.75, 0.4, length), cf * CFrame.new(-9.625 + i * 2.75, (frontY + backY) / 2, (frontZ + backZ) / 2) * CFrame.Angles(-slope, 0, 0), color, Enum.Material.Fabric)
+	end
+	for _, x in ipairs({ -10, 10 }) do
+		for _, z in ipairs({ -5, 9 }) do
+			Props.column(model, (cf * CFrame.new(x, 0, z)).Position, awningUnderside(z), 1, Props.DARK_WOOD, Enum.Material.Wood)
+		end
 	end
 	-- shelves with goods
 	for row = 0, 1 do
@@ -196,8 +205,9 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 		end
 	end
 
-	-- name board hanging from the front of the awning
-	local board = Props.part(model, Vector3.new(18, 3.4, 0.5), cf * CFrame.new(0, 16.2, -5.2), Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
+	-- name board hanging in front of the awning's lower edge
+	local board = Props.part(model, Vector3.new(18, 2.6, 0.4), cf * CFrame.new(0, 13.3, -6.95), Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
+	board.Name = "Sign"
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = Enum.NormalId.Front
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
@@ -235,7 +245,11 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 	end
 
 	model.Parent = parent
-	placeDragon(parent, keeperClass, (cf * CFrame.new(0, 0.8, 3.5)).Position, shop.facing, { scale = 0.6, name = shop.name .. " Keeper" })
+	-- raised step behind the counter so the shopkeeper can see over it
+	Props.part(model, Vector3.new(16, 1.6, 7), cf * CFrame.new(0, 1.6, 4.6), Color3.fromRGB(125, 95, 65), Enum.Material.WoodPlanks)
+	-- turned a little to one side so the tail fits inside the stall
+	local keeperFacing = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(28)) * shop.facing
+	placeDragon(parent, keeperClass, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
 end
 
 local function buildQuestGivers(parent: Instance)
@@ -305,7 +319,7 @@ local function buildWarHorn(parent: Instance)
 	Props.ellipsoid(model, Vector3.new(0.5, 2.4, 2.4), CFrame.new(d) * CFrame.Angles(0, 0, math.rad(40)), Color3.fromRGB(200, 170, 60), Enum.Material.Metal)
 	Props.banner(model, pos + Vector3.new(-8, 0.9, 2), Color3.fromRGB(190, 40, 40), Vector3.new(0, 0, 1))
 	Props.banner(model, pos + Vector3.new(8, 0.9, 2), Color3.fromRGB(190, 40, 40), Vector3.new(0, 0, 1))
-	Props.sign(model, CFrame.lookAt(pos + Vector3.new(0, 3.2, -7.5), pos + Vector3.new(0, 3.2, -20)), "📯 WAR HORN\nJoin boss fights here!", Vector2.new(11, 4))
+	Props.sign(model, CFrame.lookAt(pos + Vector3.new(0, 2.4, -10), pos + Vector3.new(0, 2.4, -30)), "📯 WAR HORN\nJoin boss fights here!", Vector2.new(10, 3))
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "WarHornPrompt"
@@ -336,7 +350,6 @@ local function buildTown(map: Folder)
 		local a = (i / 12) * math.pi * 2
 		Props.flowers(town, Vector3.new(math.cos(a) * 12, 0, math.sin(a) * 12), ({ Color3.fromRGB(255, 120, 150), Color3.fromRGB(255, 220, 90), Color3.fromRGB(170, 120, 255) })[i % 3 + 1])
 	end
-	Props.sign(town, CFrame.lookAt(Vector3.new(-24, 3.5, 54), Vector3.new(0, 3.5, 32)), "🐉 Welcome to Dragon Town!", Vector2.new(16, 3.5))
 
 	-- Shops
 	local keepers = { Armory = "Stormwing", Exchange = "Shadowstalker", Forge = "Behemoth" }
@@ -368,7 +381,7 @@ local function buildTown(map: Folder)
 	end
 
 	-- Lamps along the main road
-	for z = 60, 230, 34 do
+	for z = 60, 200, 35 do
 		Props.lamp(town, Vector3.new(-12, 0, z))
 		Props.lamp(town, Vector3.new(12, 0, z))
 	end
@@ -379,7 +392,7 @@ local function buildTown(map: Folder)
 
 	-- Trees around the edges of town
 	for x = -265, 265, 24 do
-		if math.abs(x) > 22 then
+		if math.abs(x) > 40 then
 			Props.tree(town, Vector3.new(x + rng:NextNumber(-4, 4), 0, 236 + rng:NextNumber(-3, 3)), rng:NextNumber(0.8, 1.2), "oak")
 		end
 		if math.abs(x) > 110 then
@@ -405,8 +418,42 @@ local function buildTown(map: Folder)
 	end
 	Props.fence(bridge, Vector3.new(-8.5, 1, 238), Vector3.new(-8.5, 1, 314))
 	Props.fence(bridge, Vector3.new(8.5, 1, 238), Vector3.new(8.5, 1, 314))
-	Props.sign(town, CFrame.lookAt(Vector3.new(16, 3.5, 236), Vector3.new(16, 3.5, 200)), "⚠️ Viking Lands ahead!\nRaider Camp: Lv 1-4", Vector2.new(12, 4.5))
-	Props.sign(town, CFrame.lookAt(Vector3.new(-16, 3.5, 318), Vector3.new(-16, 3.5, 360)), "🐉 Dragon Town\n(safe from vikings)", Vector2.new(12, 4.5))
+	-- Welcome arch where the road meets the bridge. Each face has its own text.
+	local archZ = 234
+	for _, x in ipairs({ -14, 14 }) do
+		Props.column(town, Vector3.new(x, 0, archZ), 13, 3.2, Color3.fromRGB(150, 145, 140), Enum.Material.Slate)
+		local flame = Props.part(town, Vector3.new(1.4, 1.4, 1.4), CFrame.new(x, 17.3, archZ), Color3.fromRGB(255, 160, 60), Enum.Material.Neon)
+		Props.fire(flame, 3)
+		Props.light(flame, Color3.fromRGB(255, 170, 90), 20, 1.5)
+	end
+	local arch = Props.part(town, Vector3.new(31.5, 3.6, 1.2), CFrame.new(0, 14.8, archZ), Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
+	arch.Name = "Sign"
+	for face, text in pairs({
+		[Enum.NormalId.Front] = "⚠️ Viking Lands ahead  •  Raider Camp Lv 1-4",
+		[Enum.NormalId.Back] = "🐉 Welcome to Dragon Town  •  safe from vikings",
+	}) do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 40
+		gui.LightInfluence = 0
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.FredokaOne
+		label.TextScaled = true
+		label.TextColor3 = Color3.fromRGB(255, 225, 150)
+		label.TextStrokeTransparency = 0.4
+		label.Text = text
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0.12, 0)
+		pad.PaddingBottom = UDim.new(0.12, 0)
+		pad.PaddingLeft = UDim.new(0.03, 0)
+		pad.PaddingRight = UDim.new(0.03, 0)
+		pad.Parent = label
+		label.Parent = gui
+		gui.Parent = arch
+	end
 end
 
 ---------------------------------------------------------------- player bases
@@ -493,9 +540,20 @@ local function buildBattleZone(map: Folder)
 	local line = Props.part(bz, Vector3.new(32, 0.2, 1.2), CFrame.new(0, 0.15, max.Z), Color3.fromRGB(255, 60, 60), Enum.Material.Neon)
 	line.CanCollide = false
 
-	for _, p in ipairs({ Vector3.new(min.X + 4, 0, min.Z + 4), Vector3.new(max.X - 4, 0, min.Z + 4), Vector3.new(min.X + 4, 0, max.Z - 4), Vector3.new(max.X - 4, 0, max.Z - 4), Vector3.new(-20, 0, max.Z + 2), Vector3.new(20, 0, max.Z + 2) }) do
-		Props.banner(bz, p, red, Vector3.new(0, 0, 1))
-		Props.torch(bz, p + Vector3.new(0, 0, -3), Color3.fromRGB(255, 90, 60))
+	-- corner banners stand well inside the walls, with a torch toward the middle
+	for _, spot in ipairs({
+		{ Vector3.new(min.X + 9, 0, min.Z + 9), Vector3.new(1, 0, 1) },
+		{ Vector3.new(max.X - 9, 0, min.Z + 9), Vector3.new(-1, 0, 1) },
+		{ Vector3.new(min.X + 9, 0, max.Z - 9), Vector3.new(1, 0, -1) },
+		{ Vector3.new(max.X - 9, 0, max.Z - 9), Vector3.new(-1, 0, -1) },
+	}) do
+		Props.banner(bz, spot[1], red, spot[2])
+		Props.torch(bz, spot[1] + spot[2].Unit * 4, Color3.fromRGB(255, 90, 60))
+	end
+	-- the entrance gap (x = -16..16) gets torches and banners just outside the wall
+	for _, x in ipairs({ -1, 1 }) do
+		Props.torch(bz, Vector3.new(19 * x, 0, max.Z + 4), Color3.fromRGB(255, 90, 60))
+		Props.banner(bz, Vector3.new(26 * x, 0, max.Z + 4), red, Vector3.new(0, 0, 1))
 	end
 
 	-- cover to fight around
@@ -511,7 +569,7 @@ local function buildBattleZone(map: Folder)
 	emblem.CanCollide = false
 	emblem.Transparency = 0.5
 
-	Props.sign(bz, CFrame.lookAt(Vector3.new(-26, 4, max.Z + 6), Vector3.new(-26, 4, max.Z + 40)), "⚔️ BATTLE ZONE ⚔️\nPvP: dragons can fight here!", Vector2.new(16, 5), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
+	Props.sign(bz, CFrame.lookAt(Vector3.new(-44, 4, max.Z + 7), Vector3.new(-44, 4, max.Z + 40)), "⚔️ BATTLE ZONE ⚔️\nPvP: dragons can fight here!", Vector2.new(16, 5), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
 end
 
 ---------------------------------------------------------------- viking lands
@@ -683,7 +741,7 @@ end
 
 ---------------------------------------------------------------- boss arena
 
-local function buildBossArena(map: Folder)
+local function buildBossArena(map: Folder, barriers: Folder)
 	local arena = folder("BossArena", map)
 	local c = Zones.BossArena.center
 	local r = Zones.BossArena.radius
@@ -709,12 +767,12 @@ local function buildBossArena(map: Folder)
 	for i = 0, segments - 1 do
 		local a = (i + 0.5) / segments * math.pi * 2
 		local p = c + Vector3.new(math.cos(a) * (r + 2), h / 2, math.sin(a) * (r + 2))
-		local wall = Props.part(arena, Vector3.new(2 * math.pi * (r + 2) / segments + 2, h, 2), CFrame.lookAt(p, Vector3.new(c.X, p.Y, c.Z)), Color3.fromRGB(255, 70, 50), Enum.Material.ForceField)
+		local wall = Props.part(barriers, Vector3.new(2 * math.pi * (r + 2) / segments + 2, h, 2), CFrame.lookAt(p, Vector3.new(c.X, p.Y, c.Z)), Color3.fromRGB(255, 70, 50), Enum.Material.ForceField)
 		wall.Transparency = 0.6
 		wall.CanQuery = false
 		wall.CastShadow = false
 	end
-	invisibleWall(arena, Vector3.new(r * 2 + 40, 2, r * 2 + 40), CFrame.new(c + Vector3.new(0, h + 1, 0)))
+	invisibleWall(barriers, Vector3.new(r * 2 + 40, 2, r * 2 + 40), CFrame.new(c + Vector3.new(0, h + 1, 0)))
 	for _, off in ipairs({ Vector3.new(-40, 0, -85), Vector3.new(40, 0, -85), Vector3.new(-40, 0, 85), Vector3.new(40, 0, 85) }) do
 		Props.banner(arena, c + off, Color3.fromRGB(150, 20, 20), Vector3.new(0, 0, -off.Z))
 	end
@@ -722,8 +780,8 @@ end
 
 ---------------------------------------------------------------- world bounds
 
-local function buildBounds(map: Folder)
-	local bounds = folder("Bounds", map)
+local function buildBounds(barriers: Folder)
+	local bounds = folder("Bounds", barriers)
 	local b = Zones.WorldBounds
 	local cx, cz = (b.min.X + b.max.X) / 2, (b.min.Z + b.max.Z) / 2
 	local w, d = b.max.X - b.min.X, b.max.Z - b.min.Z
@@ -743,8 +801,11 @@ function WorldBuilder.build()
 	buildBases(map)
 	buildBattleZone(map)
 	buildVikingLands(map)
-	buildBossArena(map)
-	buildBounds(map)
+	local barriers = Instance.new("Folder")
+	barriers.Name = "Barriers"
+	buildBossArena(map, barriers)
+	buildBounds(barriers)
+	barriers.Parent = workspace
 	map.Parent = workspace
 end
 

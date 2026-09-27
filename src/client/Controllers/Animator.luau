@@ -1,26 +1,39 @@
--- Procedural animation: flapping wings, swaying tails, walking legs for dragons, and walking /
--- chopping / throwing for vikings. Runs on each client by setting Motor6D.Transform.
+-- Procedural animation, run on each client by setting Motor6D.Transform:
+--   dragons: poses from Shared/DragonRig (folded wings at rest, hard wing beats when jumping,
+--            gliding when falling, flapping in flight, jaw + frill when breathing fire, blinking,
+--            walking with knees, a pulsing ember core), blended smoothly between states
+--   vikings: walking, chopping and throwing
 
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local Animator = {}
+local DragonRig = require(ReplicatedStorage:WaitForChild("Shared").DragonRig)
 
-local rigs = {} -- [Model] = { kind, motors, phase, root, swingAt, throwAt }
+local Animator = {}
+local App
+
+local rigs = {} -- [Model] = { kind, motors, current, phase, root, info, coreLight, swingAt, throwAt }
 
 local function register(model: Instance, kind: string)
 	if not model:IsA("Model") or rigs[model] then
 		return
 	end
-	local rig = { kind = kind, motors = {}, phase = math.random() * 10, root = nil, swingAt = -10, throwAt = -10 }
+	local rig = { kind = kind, motors = {}, current = {}, phase = math.random() * 10, root = nil, swingAt = -10, throwAt = -10 }
 	rigs[model] = rig
 	task.spawn(function()
-		rig.root = model:WaitForChild("HumanoidRootPart", 10)
+		local root = model:WaitForChild("HumanoidRootPart", 10)
 		for _, d in ipairs(model:GetDescendants()) do
 			if d:IsA("Motor6D") then
 				rig.motors[d.Name] = d
+			elseif d.Name == "CoreLight" and d:IsA("PointLight") then
+				rig.coreLight = d
 			end
 		end
+		if kind == "dragon" then
+			rig.info = DragonRig.info(model)
+		end
+		rig.root = root
 	end)
 	if kind == "viking" then
 		model:GetAttributeChangedSignal("Swing"):Connect(function()
@@ -39,41 +52,35 @@ local function set(rig, name: string, cf: CFrame)
 	end
 end
 
-local function animateDragon(model: Model, rig, now: number)
+local function animateDragon(model: Model, rig, now: number, dt: number)
 	local root = rig.root
-	local flying = model:GetAttribute("Flying") == true
 	local vel = root.AssemblyLinearVelocity
-	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
 	local t = now + rig.phase
-
-	local flap, sweep
-	if flying then
-		flap = math.sin(t * 6.5) * 0.8 + 0.1
-		sweep = 0.05
-	else
-		flap = 0.3 + math.sin(t * 1.4) * 0.05
-		sweep = 0.85
+	local breathing = App ~= nil and App.VFX.isBreathing(model)
+	local pose = DragonRig.pose(rig.info, {
+		t = t,
+		mode = DragonRig.modeFor(model:GetAttribute("Flying") == true, vel.Y),
+		vy = vel.Y,
+		speed = Vector3.new(vel.X, 0, vel.Z).Magnitude,
+		breathing = breathing,
+		blink = (t % 4.7) < 0.14,
+	})
+	-- Blend toward the target pose so switching between folded / flapping / gliding is smooth.
+	-- Jaw, eyelids and flapping wings react fast; everything else eases.
+	local alpha = math.clamp(dt * 10, 0, 1)
+	local fast = math.clamp(dt * 25, 0, 1)
+	for name, target in pairs(pose) do
+		local motor = rig.motors[name]
+		if motor then
+			local current = rig.current[name] or target
+			local a = (name == "Jaw" or name == "LidL" or name == "LidR" or name == "WingR" or name == "WingL") and fast or alpha
+			current = current:Lerp(target, a)
+			rig.current[name] = current
+			motor.Transform = current
+		end
 	end
-	set(rig, "WingR", CFrame.Angles(0, -sweep, 0) * CFrame.Angles(0, 0, flap))
-	set(rig, "WingL", CFrame.Angles(0, sweep, 0) * CFrame.Angles(0, 0, -flap))
-
-	for i = 1, 4 do
-		local sway = math.sin(t * 2 - i * 0.8) * (flying and 0.08 or 0.14)
-		set(rig, "Tail" .. i, CFrame.Angles(flying and 0.04 or 0, sway, 0))
-	end
-
-	if flying then
-		set(rig, "LegFL", CFrame.Angles(-0.5, 0, 0))
-		set(rig, "LegFR", CFrame.Angles(-0.5, 0, 0))
-		set(rig, "LegBL", CFrame.Angles(-0.9, 0, 0))
-		set(rig, "LegBR", CFrame.Angles(-0.9, 0, 0))
-	else
-		local amount = math.clamp(speed / 14, 0, 1)
-		local swing = math.sin(t * (4 + speed * 0.25)) * 0.55 * amount
-		set(rig, "LegFL", CFrame.Angles(swing, 0, 0))
-		set(rig, "LegBR", CFrame.Angles(swing, 0, 0))
-		set(rig, "LegFR", CFrame.Angles(-swing, 0, 0))
-		set(rig, "LegBL", CFrame.Angles(-swing, 0, 0))
+	if rig.coreLight then
+		rig.coreLight.Brightness = 0.8 + math.sin(t * 2.2) * 0.35 + (breathing and 1.8 or 0)
 	end
 end
 
@@ -108,7 +115,8 @@ local function animateViking(model: Model, rig, now: number)
 	set(rig, "ArmR", CFrame.Angles(arm, 0, 0))
 end
 
-function Animator.init()
+function Animator.init(app)
+	App = app
 	for _, model in ipairs(CollectionService:GetTagged("Dragon")) do
 		register(model, "dragon")
 	end
@@ -128,7 +136,7 @@ function Animator.init()
 		rigs[m] = nil
 	end)
 
-	RunService.Stepped:Connect(function()
+	RunService.Stepped:Connect(function(_, dt)
 		local now = os.clock()
 		local camera = workspace.CurrentCamera
 		local camPos = camera and camera.CFrame.Position or Vector3.zero
@@ -137,7 +145,7 @@ function Animator.init()
 				rigs[model] = nil
 			elseif rig.root and rig.root.Parent and (rig.root.Position - camPos).Magnitude < 320 then
 				if rig.kind == "dragon" then
-					animateDragon(model, rig, now)
+					animateDragon(model, rig, now, dt)
 				else
 					animateViking(model, rig, now)
 				end

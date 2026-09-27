@@ -247,6 +247,11 @@ function VFX.breath(character: Model, dir: Vector3, classId: string, duration: n
 	end
 end
 
+function VFX.isBreathing(character: Model): boolean
+	local b = breaths[character]
+	return b ~= nil and os.clock() < b.untilTime
+end
+
 local function updateBreaths()
 	local now = os.clock()
 	for character, b in pairs(breaths) do

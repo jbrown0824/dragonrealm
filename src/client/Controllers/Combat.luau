@@ -53,7 +53,7 @@ function Combat.aimPoint(): Vector3
 		screen = UserInputService:GetMouseLocation()
 	end
 	local ray = camera:ViewportPointToRay(screen.X, screen.Y)
-	local ignore = { workspace:FindFirstChild("ClientEffects"), workspace:FindFirstChild("Loot") }
+	local ignore = { workspace:FindFirstChild("ClientEffects"), workspace:FindFirstChild("Loot"), workspace:FindFirstChild("Barriers") }
 	if player.Character then
 		table.insert(ignore, player.Character)
 	end

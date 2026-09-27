@@ -20,6 +20,8 @@ local S
 local enemies = {} -- [Model] = info
 local folder: Folder
 local mapParams = RaycastParams.new()
+local terrainParams = RaycastParams.new()
+local propParams = OverlapParams.new()
 local THROW_SPEED = 75
 
 local aliveCache = {}
@@ -123,14 +125,31 @@ end
 
 ---------------------------------------------------------------- spawning
 
-local function groundAt(pos: Vector3): Vector3
-	local ray = workspace:Raycast(Vector3.new(pos.X, 150, pos.Z), Vector3.new(0, -400, 0), mapParams)
+-- The first surface below a point (props included). Casts from `fromAbove` studs above `pos`
+-- so roofs and tree tops higher up are ignored.
+local function groundAt(pos: Vector3, fromAbove: number?): Vector3
+	local origin = pos + Vector3.new(0, fromAbove or 40, 0)
+	local ray = workspace:Raycast(origin, Vector3.new(0, -400, 0), mapParams)
 	if ray then
 		return ray.Position
 	end
 	return Vector3.new(pos.X, 0, pos.Z)
 end
 EnemyService.groundAt = groundAt
+
+-- The terrain surface only (spawn points: never on a roof, tent or tree).
+local function terrainGround(pos: Vector3): Vector3
+	local ray = workspace:Raycast(pos + Vector3.new(0, 120, 0), Vector3.new(0, -400, 0), terrainParams)
+	if ray then
+		return ray.Position
+	end
+	return Vector3.new(pos.X, 0, pos.Z)
+end
+
+local function spotIsClear(ground: Vector3): boolean
+	local parts = workspace:GetPartBoundsInBox(CFrame.new(ground + Vector3.new(0, 5, 0)), Vector3.new(7, 8, 7), propParams)
+	return #parts == 0
+end
 
 -- opts: camp, scale, healthMult, damageMult, customAI, isBoss, displayName, look, leash, aggroRange,
 --       arena (only targets boss-fight participants), noRewards, onDeath
@@ -169,7 +188,7 @@ function EnemyService.spawn(typeId: string, level: number, position: Vector3, op
 		end
 	end
 
-	local ground = groundAt(position)
+	local ground = terrainGround(position)
 	model:PivotTo(CFrame.new(ground + Vector3.new(0, hipHeight + scale + 0.5, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	model.Parent = folder
 	local root = model.PrimaryPart
@@ -220,9 +239,15 @@ function EnemyService.spawn(typeId: string, level: number, position: Vector3, op
 end
 
 local function spawnInCamp(camp, typeId: string)
-	local angle = math.random() * math.pi * 2
-	local dist = math.sqrt(math.random()) * camp.radius
-	local pos = camp.center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	local pos = camp.center
+	for _ = 1, 15 do
+		local angle = math.random() * math.pi * 2
+		local dist = math.sqrt(math.random()) * camp.radius
+		pos = camp.center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+		if spotIsClear(terrainGround(pos)) then
+			break
+		end
+	end
 	local def = Enemies.Vikings[typeId]
 	local level = def and def.elite and camp.levels[2] or math.random(camp.levels[1], camp.levels[2])
 	EnemyService.spawn(typeId, level, pos, { camp = camp })
@@ -528,6 +553,11 @@ function EnemyService.start()
 	mapParams.FilterType = Enum.RaycastFilterType.Include
 	mapParams.FilterDescendantsInstances = { map, workspace.Terrain }
 	mapParams.IgnoreWater = true
+	terrainParams.FilterType = Enum.RaycastFilterType.Include
+	terrainParams.FilterDescendantsInstances = { workspace.Terrain }
+	terrainParams.IgnoreWater = true
+	propParams.FilterType = Enum.RaycastFilterType.Include
+	propParams.FilterDescendantsInstances = { map }
 
 	RunService.Heartbeat:Connect(function()
 		frame += 1

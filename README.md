@@ -45,12 +45,14 @@ On mobile, on-screen buttons handle breath, abilities, flying, up and down.
 
 ## What's in the game
 
-- **5 dragon types**, each with its own look, fire color and fire style, stats and skill tree:
-  - **Shadowstalker** (stealthy): purple shadowflame, crits, Vanish
-  - **Stormwing** (agile): lightning breath, fastest flyer, dodges
-  - **Behemoth** (strong but slow): magma breath, huge health and defense
-  - **Frostwyrm** (control): frost breath that slows, freezes and shields
-  - **Venomspine** (poison): toxic fire whose damage keeps ticking after each hit
+- **5 dragon types**, each with its own body shape, fire color and fire style, stats and skill tree:
+  - **Shadowstalker** (stealthy): a feline hunter with blade horns and a bladed tail fan. Purple shadowflame, crits, Vanish
+  - **Stormwing** (agile): a two-legged wyvern with a fin crest and a kite tail. Lightning breath, fastest flyer, dodges
+  - **Behemoth** (strong but slow): an armored hulk with a spiked rock shell, lava seams, tusks and a club tail. Magma breath, huge health and defense
+  - **Frostwyrm** (control): a long serpentine wyrm with crystal spines and glass wings. Frost breath that slows, freezes and shields
+  - **Venomspine** (poison): a frilled lizard whose neck frill flares when it breathes, with a curling scorpion stinger. Toxic fire whose damage keeps ticking
+
+  Every dragon also shares the Dragon Realm signature look: a glowing ember core between the belly plates, rune markings, scalloped two-part wings and a hinged jaw. They're animated in code: wings fold at rest, beat hard on a jump, glide when falling and flap in flight. The jaw opens to breathe fire, the eyes blink, the core pulses and the knees bend when walking. Body plans live in `src/shared/DragonBuilder.luau` and poses in `src/shared/DragonRig.luau`.
 
   Elder Pyrrhus can transform you into a different type later. Your level and gear stay the same, and your skill points are refunded.
 - **Skill trees**: 3 branches × 5 tiers per dragon. Each tier needs 4 points spent in that branch. You get 29 points by level 30, but each tree holds 63 ranks. That's enough for one capstone ultimate plus part of a second branch.
@@ -59,7 +61,7 @@ On mobile, on-screen buttons handle breath, abilities, flying, up and down.
 - **Shops** on the town square: the Emberforge Armory (buy), the Hoard Exchange (sell) and the Anvil of Ages (upgrade items up to +10).
 - **Lairs and farming**: every player gets a base with 6 planting spots, and up to 12 can be unlocked. Plants grow Seed → Seedling → Sprout → Flower. Above each plant is a sign showing when it needs 💧 or ☀️ and how long you have to give it. Ignore it or give the wrong thing and the plant loses health. You can harvest at any stage; bigger plants are worth more gold, and full Flowers give seeds back (with a small chance of a rarer seed).
 - **Quests** from 4 village dragons: a main story, combat bounties, gardening and adventure chains. ❗ means a new quest, ❓ means one is ready to turn in.
-- **World bosses** (Jarl Ragnar, Grimhilda, Hrothgar): the whole server gets a 3-minute warning, and anyone can join the queue from the banner or the War Horn. The boss's health scales with the group's damage and its hits scale with the group's health. Fights include telegraphed slams, rune strikes, axe volleys, summoned vikings and an enrage phase. Rewards are Epic or Legendary gear, boss-only uniques, rare seeds, big XP and gold.
+- **World bosses** (Jarl Ragnar, Grimhilda, Hrothgar): the whole server gets a 3-minute warning, and anyone can join the queue from the banner or the War Horn. The boss's health scales with the group's damage and its hits scale with the group's health. Fights include telegraphed slams, rune strikes, axe volleys, summoned vikings and an enrage phase. Each dragon gets 3 lives per fight, and you can leave at any time. Rewards are Epic or Legendary gear, boss-only uniques, rare seeds, big XP and gold.
 - **Battle Zone**: the walled arena at the north end of town is PvP. Wins earn Glory and gold, and kill streaks get announced to the server.
 
 ## Tuning

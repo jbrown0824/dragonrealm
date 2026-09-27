@@ -325,6 +325,7 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	end)
 
 	humanoid.Died:Connect(function()
+		S.BossService.onPlayerDied(player)
 		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
 		Remotes.event("VFX"):FireAllClients({ kind = "enemyDeath", pos = root.Position })
 		task.delay(Game.RESPAWN_TIME, function()

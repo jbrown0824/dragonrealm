@@ -164,7 +164,7 @@ function LootService.spawnOrb(player: Player, position: Vector3, kind: string, p
 	-- Pop up out of the body, then settle.
 	local start = position + Vector3.new(0, 2, 0)
 	local offset = Vector3.new(math.random(-40, 40) / 10, 0, math.random(-40, 40) / 10)
-	local ground = S.EnemyService.groundAt(start + offset)
+	local ground = S.EnemyService.groundAt(start + offset, 6)
 	orb.Position = start
 	orb.Parent = folder
 	TweenService:Create(orb, TweenInfo.new(0.6, Enum.EasingStyle.Bounce), { Position = ground + Vector3.new(0, 1.5, 0) }):Play()

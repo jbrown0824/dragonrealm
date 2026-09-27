@@ -166,9 +166,11 @@ local function buildPlant(plant, base: CFrame): Model
 end
 
 local function makeBillboard(plotPart: BasePart)
+	-- Sized in studs (scale units) so the signs shrink with distance instead of piling on top of
+	-- each other when you look at a whole garden from far away.
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "PlotInfo"
-	gui.Size = UDim2.fromOffset(170, 78)
+	gui.Size = UDim2.fromScale(8.5, 3.9)
 	gui.StudsOffset = Vector3.new(0, 7.5, 0)
 	gui.MaxDistance = 70
 	gui.LightInfluence = 0
@@ -181,15 +183,15 @@ local function makeBillboard(plotPart: BasePart)
 	frame.BackgroundTransparency = 0.35
 	frame.Parent = gui
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
+	corner.CornerRadius = UDim.new(0.12, 0)
 	corner.Parent = frame
 
 	local function label(name: string, y: number, h: number, font: Enum.Font)
 		local l = Instance.new("TextLabel")
 		l.Name = name
 		l.BackgroundTransparency = 1
-		l.Position = UDim2.fromOffset(6, y)
-		l.Size = UDim2.new(1, -12, 0, h)
+		l.Position = UDim2.fromScale(0.04, y)
+		l.Size = UDim2.fromScale(0.92, h)
 		l.Font = font
 		l.TextScaled = true
 		l.TextColor3 = Color3.new(1, 1, 1)
@@ -197,12 +199,12 @@ local function makeBillboard(plotPart: BasePart)
 		l.Parent = frame
 		return l
 	end
-	label("Title", 3, 18, Enum.Font.FredokaOne)
-	label("Stage", 22, 15, Enum.Font.GothamBold)
+	label("Title", 0.03, 0.23, Enum.Font.FredokaOne)
+	label("Stage", 0.28, 0.19, Enum.Font.GothamBold)
 	local bar = Instance.new("Frame")
 	bar.Name = "Bar"
-	bar.Position = UDim2.fromOffset(10, 39)
-	bar.Size = UDim2.new(1, -20, 0, 6)
+	bar.Position = UDim2.fromScale(0.07, 0.5)
+	bar.Size = UDim2.fromScale(0.86, 0.08)
 	bar.BackgroundColor3 = Color3.fromRGB(50, 45, 60)
 	bar.BorderSizePixel = 0
 	bar.Parent = frame
@@ -212,8 +214,8 @@ local function makeBillboard(plotPart: BasePart)
 	fill.BackgroundColor3 = Color3.fromRGB(120, 220, 90)
 	fill.BorderSizePixel = 0
 	fill.Parent = bar
-	label("Need", 48, 16, Enum.Font.GothamBold)
-	label("Health", 64, 12, Enum.Font.Gotham)
+	label("Need", 0.61, 0.2, Enum.Font.GothamBold)
+	label("Health", 0.82, 0.15, Enum.Font.Gotham)
 
 	gui.Parent = plotPart
 	return gui

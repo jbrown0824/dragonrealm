@@ -5,3 +5,9 @@
 *.rbxlx.lock
 
 .DS_Store
+
+# Offline preview outputs
+tools/preview/*.jsonl
+tools/preview/*.png
+tools/preview/_*
+tools/checks/_*

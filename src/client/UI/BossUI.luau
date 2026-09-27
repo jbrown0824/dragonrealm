@@ -49,15 +49,22 @@ local function update()
 		queueButton.BackgroundColor3 = inQueue and Color3.fromRGB(120, 60, 60) or Color3.fromRGB(190, 70, 40)
 		hpBar.Visible = false
 	else
-		queueButton.Visible = false
 		local fighting = contains(data.participants, me)
+		queueButton.Visible = fighting and data.phase == "fight"
+		queueButton.Text = "🚪 Leave Fight"
+		queueButton.BackgroundColor3 = Color3.fromRGB(90, 70, 110)
 		titleLabel.Text = (data.phase == "ending" and "🏁 " or "⚔️ ") .. data.name
 		if fighting or data.phase == "ending" then
 			hpBar.Visible = true
 			local pct = (data.maxHp or 1) > 0 and math.clamp((data.hp or 0) / data.maxHp, 0, 1) or 0
 			hpFill.Size = UDim2.fromScale(pct, 1)
 			hpText.Text = string.format("%s / %s", Util.formatNumber(data.hp or 0), Util.formatNumber(data.maxHp or 0))
-			infoLabel.Text = data.phase == "ending" and "The battle is over!" or string.format("%s  •  Time left: <b>%s</b>", data.title or "", Util.formatTime((data.endsAt or now) - now))
+			local hearts = ""
+			local lives = data.lives and data.lives[tostring(me)]
+			if fighting and lives and data.maxLives then
+				hearts = string.rep("❤️", lives) .. string.rep("🖤", math.max(0, data.maxLives - lives)) .. "  •  "
+			end
+			infoLabel.Text = data.phase == "ending" and "The battle is over!" or string.format("%sTime left: <b>%s</b>", hearts, Util.formatTime((data.endsAt or now) - now))
 		else
 			hpBar.Visible = false
 			infoLabel.Text = string.format("%d dragon%s battling the boss right now!", data.participants and #data.participants or 0, (data.participants and #data.participants == 1) and " is" or "s are")
@@ -102,8 +109,14 @@ function BossUI.init(app)
 		busy = true
 		task.spawn(function()
 			local data = App.State.boss
-			local inQueue = data and contains(data.queue, Players.LocalPlayer.UserId)
-			local ok, err = Remotes.func("BossQueue"):InvokeServer(not inQueue)
+			local me = Players.LocalPlayer.UserId
+			local ok, err
+			if data and data.phase == "fight" and contains(data.participants, me) then
+				ok, err = Remotes.func("LeaveBossFight"):InvokeServer()
+			else
+				local inQueue = data and contains(data.queue, me)
+				ok, err = Remotes.func("BossQueue"):InvokeServer(not inQueue)
+			end
 			if not ok and err then
 				App.Notifications.toast(err, C.bad, "⚔️")
 			end

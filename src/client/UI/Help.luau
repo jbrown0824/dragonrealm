@@ -20,7 +20,7 @@ local TEXT = [[
 • Each level gives a <b>skill point</b>. You can't learn every skill — choose a path!
 • Buy, sell and upgrade gear at the three shops around the town square.
 • Your base has <b>planting spots</b>. Plants ask for 💧 or ☀️ — give them the right one in time!
-• When the <b>war horn</b> sounds, join the boss queue. Bosses scale to your group and drop amazing loot.
+• When the <b>war horn</b> sounds, join the boss queue. Bosses scale to your group and drop amazing loot. You get <b>3 lives</b> per boss fight, and you can leave any time from the boss banner.
 • The <b>Battle Zone</b> (north end of town) is PvP: other dragons can fight you there for Glory.
 ]]
 
