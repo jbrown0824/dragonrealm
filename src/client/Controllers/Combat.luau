@@ -100,7 +100,8 @@ function Combat.cast(abilityId: string?)
 	if cd and now < cd.readyAt then
 		return
 	end
-	cooldowns[abilityId] = { readyAt = now + ability.cooldown, total = ability.cooldown }
+	local cdTime = player:GetAttribute("NoCooldowns") and math.min(ability.cooldown, 0.2) or ability.cooldown
+	cooldowns[abilityId] = { readyAt = now + cdTime, total = cdTime }
 
 	local aim = Combat.aimPoint()
 	local projectileId = nil
@@ -180,6 +181,12 @@ function Combat.init(app)
 			App.Windows.toggle("QuestLog")
 		elseif input.KeyCode == Enum.KeyCode.H then
 			App.HUD.goHome()
+		elseif input.KeyCode == Enum.KeyCode.P then
+			App.Windows.toggle("Pets")
+		elseif input.KeyCode == Enum.KeyCode.M then
+			App.Windows.toggle("Map")
+		elseif input.KeyCode == Enum.KeyCode.G then
+			App.HUD.eat()
 		elseif input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
 			App.Windows.close()
 		end

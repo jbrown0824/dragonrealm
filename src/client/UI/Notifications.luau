@@ -21,6 +21,8 @@ local deathFrame
 local numberFolder
 local announceToken = 0
 local zoneToken = 0
+local TOAST_SECONDS = 9
+local TOAST_TOP = 140 -- below the player card
 
 local NUMBER_STYLES = {
 	hit = { color = Color3.fromRGB(255, 255, 255), size = 26 },
@@ -63,10 +65,10 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 	table.sort(items, function(a, b)
 		return a.LayoutOrder < b.LayoutOrder
 	end)
-	for i = 7, #items do
+	for i = 6, #items do
 		items[i]:Destroy()
 	end
-	task.delay(5, function()
+	task.delay(TOAST_SECONDS, function()
 		if frame.Parent then
 			TweenService:Create(frame, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
 			TweenService:Create(label, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
@@ -74,6 +76,11 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 			frame:Destroy()
 		end
 	end)
+end
+
+-- Push the toast column down so it never covers something above it (the tutorial panel).
+function Notifications.setTopInset(bottomOfAbove: number?)
+	toastHolder.Position = UDim2.fromOffset(12, math.max(TOAST_TOP, (bottomOfAbove or 0) + 10))
 end
 
 function Notifications.announce(data)
@@ -186,8 +193,7 @@ function Notifications.init(app)
 
 	toastHolder = Theme.make("Frame", {
 		Name = "Toasts",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, 20),
+		Position = UDim2.fromOffset(12, TOAST_TOP),
 		Size = UDim2.fromOffset(330, 300),
 		BackgroundTransparency = 1,
 		Parent = overlay,

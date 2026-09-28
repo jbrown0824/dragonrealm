@@ -48,6 +48,15 @@ Enemies.Vikings = {
 		scale = 1.05,
 		look = { shirt = rgb(120, 90, 60), pants = rgb(60, 40, 30), beard = rgb(160, 40, 20), weapon = "twinAxe", shield = false, warpaint = true },
 	},
+	Hornblower = {
+		id = "Hornblower", name = "Hornblower", alarm = true,
+		health = 60, damage = 8, speed = 13, defense = 4,
+		attackRange = 7, attackCooldown = 1.7,
+		throwDamage = 0.6, throwCooldown = 5, throwRange = 50, preferredRange = 0,
+		xpMult = 1.3, gearChance = 0.2, seedChance = 0.03, goldMult = 1.3,
+		scale = 1.0, aggroRange = 60,
+		look = { shirt = rgb(150, 120, 40), pants = rgb(60, 50, 40), beard = rgb(220, 170, 90), weapon = "horn", shield = false, cape = rgb(120, 90, 30) },
+	},
 	Chieftain = {
 		id = "Chieftain", name = "Viking Chieftain", elite = true,
 		health = 280, damage = 16, speed = 14, defense = 20,
@@ -58,6 +67,37 @@ Enemies.Vikings = {
 		look = { shirt = rgb(110, 20, 20), pants = rgb(40, 30, 25), beard = rgb(240, 240, 240), weapon = "greatAxe", shield = true, cape = rgb(160, 20, 20), crown = true },
 	},
 }
+
+-- One mini-boss lives in each camp (keyed by camp id). They're big versions of a viking type
+-- with a skull on their health bar, a telegraphed slam, better loot and a long respawn.
+--   slam: radius, mult (x their damage), cooldown, delay (telegraph time)
+Enemies.MiniBosses = {
+	RaiderCamp = {
+		id = "BjornBruiser", base = "Raider", name = "Bjorn the Bruiser", level = 5,
+		healthMult = 7, damageMult = 1.5, scale = 1.75, respawn = 180,
+		slam = { radius = 13, mult = 1.8, cooldown = 9, delay = 1.3 },
+		look = { shirt = rgb(120, 30, 30), pants = rgb(70, 50, 35), beard = rgb(230, 120, 40), weapon = "greatAxe", shield = false, cape = rgb(90, 20, 20), warpaint = true },
+	},
+	FishingVillage = {
+		id = "OldSaltSigrid", base = "AxeThrower", name = "Old Salt Sigrid", level = 11,
+		healthMult = 6.5, damageMult = 1.5, scale = 1.7, respawn = 200,
+		slam = { radius = 14, mult = 1.8, cooldown = 9, delay = 1.3 },
+		look = { shirt = rgb(40, 80, 110), pants = rgb(60, 55, 45), hair = rgb(235, 235, 240), weapon = "twinAxe", shield = false, cape = rgb(30, 60, 90), quiver = true },
+	},
+	LonghouseHold = {
+		id = "ThaneUlfric", base = "Shieldbearer", name = "Thane Ulfric Ironside", level = 18,
+		healthMult = 6.5, damageMult = 1.55, scale = 1.8, respawn = 220,
+		slam = { radius = 15, mult = 2.0, cooldown = 8, delay = 1.2 },
+		look = { shirt = rgb(50, 60, 110), pants = rgb(45, 45, 50), beard = rgb(170, 170, 180), weapon = "hammer", shield = true, bigShield = true, cape = rgb(40, 50, 100), crown = true },
+	},
+	JarlsFortress = {
+		id = "HildaBloodaxe", base = "Berserker", name = "Hilda Bloodaxe", level = 29,
+		healthMult = 7, damageMult = 1.6, scale = 1.9, respawn = 240,
+		slam = { radius = 16, mult = 2.1, cooldown = 7, delay = 1.1 },
+		look = { shirt = rgb(110, 20, 30), pants = rgb(40, 25, 25), hair = rgb(200, 60, 30), weapon = "twinAxe", shield = false, cape = rgb(80, 10, 20), warpaint = true, crown = true },
+	},
+}
+Enemies.MINI_BOSS_LOOT = { minRarity = "Rare", seedChance = 0.3, eggChance = 0.12, goldMult = 10, xpMult = 8 }
 
 -- Boss attacks are shared building blocks; each boss picks a set and tunes them.
 --   Cleave:      melee swing in front of the boss

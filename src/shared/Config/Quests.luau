@@ -5,7 +5,9 @@
 -- objective.type:
 --   kill (target = viking id or "any")  plant  care  harvest (target = "Flower" or "any")
 --   buy  sell  upgrade  pvpKill  bossJoin  bossKill  visitZone (target = zone id)  level
--- rewards: xp, gold, seeds = { SeedId = count }, gear = { rarity = "Epic" } (item level = your level)
+--   hunt (target = animal id or "any")  fish  eat  openChest  miniBoss  hatch  potion
+-- rewards: xp, gold, seeds = { SeedId = count }, gear = { rarity = "Epic" } (item level = your level),
+--          eggs = { EggId = count }
 
 local Quests = {}
 
@@ -26,7 +28,7 @@ Quests.Givers = {
 	},
 	Gardener = {
 		id = "Gardener", name = "Gardener Fernscale", title = "Keeper of Seeds",
-		greeting = "Oh! A new gardener? Every plant needs love... and the right amount of water and sun.",
+		greeting = "Oh! A new gardener? Every plant needs love... and a drink of water when it's thirsty.",
 		idle = "Go tend your garden, dear. Plants don't grow by themselves!",
 		look = "Venomspine",
 	},
@@ -92,6 +94,10 @@ Quests.List = {
 		desc = "Defeat 15 Shieldbearers.",
 		objective = { type = "kill", target = "Shieldbearer", count = 15 },
 		rewards = { xp = 2000, gold = 800, gear = { rarity = "Rare" } } },
+	{ id = "C5", giver = "Captain", name = "Big Game", minLevel = 4, after = "C1",
+		desc = "Every viking camp has a champion with a 💀 on its health bar. Defeat any one of them.",
+		objective = { type = "miniBoss", count = 1 },
+		rewards = { xp = 700, gold = 350, gear = { rarity = "Rare" } } },
 	{ id = "C4", giver = "Captain", name = "Bounty: Viking Horde", minLevel = 5, after = "C3", repeatable = true,
 		desc = "Standing bounty: defeat 25 vikings. You can take this one again and again.",
 		objective = { type = "kill", target = "any", count = 25 },
@@ -103,13 +109,17 @@ Quests.List = {
 		objective = { type = "plant", count = 1 },
 		rewards = { xp = 100, gold = 50, seeds = { Emberbloom = 1 } } },
 	{ id = "G2", giver = "Gardener", name = "Tender Care", minLevel = 1, after = "G1",
-		desc = "Give your plants exactly what they ask for (water or sun) 5 times.",
+		desc = "Water your plants when they get thirsty (💧 over the plot) 5 times.",
 		objective = { type = "care", count = 5 },
 		rewards = { xp = 200, gold = 100, seeds = { Frostpetal = 1 } } },
 	{ id = "G3", giver = "Gardener", name = "First Bloom", minLevel = 1, after = "G2",
 		desc = "Grow a plant all the way to a Flower and harvest it.",
 		objective = { type = "harvest", target = "Flower", count = 1 },
 		rewards = { xp = 400, gold = 200, seeds = { SunfireLily = 1 } } },
+	{ id = "G6", giver = "Gardener", name = "Gone Fishing", minLevel = 1, after = "G1",
+		desc = "Gardening is hungry work! Catch 5 fish at the 🎣 fishing spots on the river and lakes.",
+		objective = { type = "fish", count = 5 },
+		rewards = { xp = 250, gold = 120, seeds = { Frostpetal = 1 } } },
 	{ id = "G4", giver = "Gardener", name = "Green Thumb", minLevel = 5, after = "G3",
 		desc = "Harvest 5 fully grown Flowers.",
 		objective = { type = "harvest", target = "Flower", count = 5 },
@@ -140,6 +150,14 @@ Quests.List = {
 		desc = "Defeat 3 bosses.",
 		objective = { type = "bossKill", count = 3 },
 		rewards = { xp = 5000, gold = 3000, gear = { rarity = "Epic" } } },
+	{ id = "S7", giver = "Scout", name = "The Hunt", minLevel = 1,
+		desc = "Hungry? Hunt 5 wild animals in Elk Meadows (west of town) or Whisperwood (east). Eat what you catch!",
+		objective = { type = "hunt", target = "any", count = 5 },
+		rewards = { xp = 200, gold = 100 } },
+	{ id = "S8", giver = "Scout", name = "Treasure Hunter", minLevel = 3, after = "S7",
+		desc = "Every viking camp hides a treasure chest in the middle. Open one! (Opening it alerts the whole camp.)",
+		objective = { type = "openChest", count = 1 },
+		rewards = { xp = 500, gold = 250, eggs = { EmberEgg = 1 } } },
 	{ id = "S6", giver = "Scout", name = "Sell Your Spoils", minLevel = 2,
 		desc = "Sell 3 pieces of gear at the Hoard Exchange.",
 		objective = { type = "sell", count = 3 },

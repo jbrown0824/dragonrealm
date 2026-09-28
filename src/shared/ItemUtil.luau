@@ -126,4 +126,24 @@ function ItemUtil.score(item): number
 	return (s.attack or 0) * 3 + (s.health or 0) * 0.35 + (s.defense or 0) * 2 + (s.crit or 0) * 6 + (s.speed or 0) * 4
 end
 
+-- Is `item` an upgrade over what's in its slot? (`equipped` = the worn item or nil)
+function ItemUtil.isUpgrade(item, equipped): boolean
+	if equipped == nil then
+		return true
+	end
+	return item.id ~= equipped.id and ItemUtil.score(item) > ItemUtil.score(equipped) + 0.01
+end
+
+-- The best item for every slot from a list of items: { [slot] = item }
+function ItemUtil.bestPerSlot(items)
+	local best = {}
+	for _, item in ipairs(items) do
+		local current = best[item.slot]
+		if not current or ItemUtil.score(item) > ItemUtil.score(current) then
+			best[item.slot] = item
+		end
+	end
+	return best
+end
+
 return ItemUtil

@@ -1,4 +1,5 @@
 -- Boss warning banner with the queue button, and the boss health bar during the fight.
+-- It can be minimized to a small pill at the top of the screen (click the pill to open it).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +17,10 @@ local App
 
 local banner, titleLabel, infoLabel, queueButton
 local hpBar, hpFill, hpText
+local pill
 local busy = false
+local minimized = false
+local lastFighting = false
 
 local function contains(list, value): boolean
 	if not list then
@@ -35,10 +39,27 @@ local function update()
 	local me = Players.LocalPlayer.UserId
 	if not data or data.phase == "idle" or not data.name then
 		banner.Visible = false
+		pill.Visible = false
+		minimized = false
 		return
 	end
-	banner.Visible = true
 	local now = workspace:GetServerTimeNow()
+	local fightingNow = contains(data.participants, me)
+	-- Pop back open when your own fight starts.
+	if fightingNow and not lastFighting then
+		minimized = false
+	end
+	lastFighting = fightingNow
+	banner.Visible = not minimized
+	pill.Visible = minimized
+	if minimized then
+		if data.phase == "warning" then
+			pill.Text = string.format("⚔️ %s in %s  (open)", data.name, Util.formatTime(data.spawnAt - now))
+		else
+			pill.Text = string.format("⚔️ Boss fight: %s  (open)", Util.formatTime((data.endsAt or now) - now))
+		end
+		return
+	end
 
 	if data.phase == "warning" then
 		local inQueue = contains(data.queue, me)
@@ -131,10 +152,29 @@ function BossUI.init(app)
 	})
 	hpBar, hpFill, hpText = Theme.bar(banner, Color3.fromRGB(220, 50, 50), UDim2.new(1, -28, 0, 22), UDim2.fromOffset(14, 64))
 	hpBar.Visible = false
+	local hide = Theme.button("➖", C.panel3, function()
+		minimized = true
+		update()
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(26, 22), TextSize = 12, ZIndex = 3, Parent = banner })
+	Theme.corner(hide, 11)
+	queueButton.Position = UDim2.new(1, -34, 0, 38)
+	pill = Theme.button("", Color3.fromRGB(60, 25, 30), function()
+		minimized = false
+		update()
+	end, {
+		Name = "BossPill",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 8),
+		Size = UDim2.fromOffset(300, 32),
+		TextSize = 14,
+		Visible = false,
+		Parent = App.Windows.guis.HUD,
+	})
+	Theme.stroke(pill, Color3.fromRGB(255, 90, 60), 2)
 
 	App.State.bossChanged:Connect(update)
 	RunService.RenderStepped:Connect(function()
-		if banner.Visible then
+		if banner.Visible or pill.Visible then
 			update()
 		end
 	end)

@@ -1,5 +1,7 @@
--- The three town shops: Emberforge Armory (buy), Hoard Exchange (sell) and the Anvil of Ages
--- (upgrade). Shop stalls have ProximityPrompts that open the shop UI on the matching tab.
+-- The three gear shops in town: Emberforge Armory (buy), Hoard Exchange (sell) and the Anvil of
+-- Ages (upgrade). Shop stalls have ProximityPrompts that open the shop UI on the matching tab.
+-- Other stalls (the Bubbling Cauldron, the Hatchery) are tagged "PanelPrompt" and just open
+-- their window; PotionService and PetService handle the buying.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,17 +21,23 @@ local SHOP_RANGE = 45
 
 local stock = {} -- [Player] = { level, items = { item } }
 
-local function nearShop(player: Player): boolean
+-- Is the player standing near one of these shops (by id)? With no ids: any gear shop.
+function ShopService.isNear(player: Player, ids: { string }?): boolean
 	local _, _, root = S.PlayerService.getCharacter(player)
 	if not root then
 		return false
 	end
 	for _, shop in ipairs(Zones.Shops) do
-		if (root.Position - shop.position).Magnitude <= SHOP_RANGE then
+		local match = if ids then table.find(ids, shop.id) ~= nil else shop.tab ~= nil
+		if match and (root.Position - shop.position).Magnitude <= SHOP_RANGE then
 			return true
 		end
 	end
 	return false
+end
+
+local function nearShop(player: Player): boolean
+	return ShopService.isNear(player, nil)
 end
 
 local function getStock(player: Player)
@@ -153,6 +161,11 @@ function ShopService.start()
 	for _, prompt in ipairs(CollectionService:GetTagged("ShopPrompt")) do
 		prompt.Triggered:Connect(function(player)
 			Remotes.event("OpenShop"):FireClient(player, prompt:GetAttribute("ShopTab"), prompt:GetAttribute("ShopName"))
+		end)
+	end
+	for _, prompt in ipairs(CollectionService:GetTagged("PanelPrompt")) do
+		prompt.Triggered:Connect(function(player)
+			Remotes.event("OpenPanel"):FireClient(player, prompt:GetAttribute("Panel"))
 		end)
 	end
 

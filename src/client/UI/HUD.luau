@@ -1,5 +1,5 @@
--- The always-on HUD: player card, health / stamina / XP bars, ability bar with cooldowns,
--- menu buttons, quest tracker, and touch controls on mobile.
+-- The always-on HUD: player card, health / stamina / hunger / XP bars, ability bar with
+-- cooldowns, menu buttons, quest tracker, garden reminder, and touch controls on mobile.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +23,8 @@ local App
 
 local root
 local card = {}
+local menuButtons = {}
+local gardenLabel
 local bars = {}
 local slots = {}
 local tooltip
@@ -30,7 +32,7 @@ local tracker
 local skillBadge
 local mobile = {}
 
-local SLOT_KEYS = { "LMB", "Q", "1", "2", "3", "4" }
+local SLOT_KEYS = { "Mouse", "Q", "1", "2", "3", "4" }
 
 local function abilityForSlot(i: number): string?
 	local p = App.State.profile
@@ -107,7 +109,7 @@ local function buildBars()
 		Name = "Bars",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -104),
-		Size = UDim2.fromOffset(width, 40),
+		Size = UDim2.fromOffset(width, 56),
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
@@ -115,6 +117,19 @@ local function buildBars()
 	bars.hpText.TextSize = 14
 	bars.stamina, bars.staminaFill, bars.staminaText = Theme.bar(holder, C.stamina, UDim2.fromOffset(width, 10), UDim2.fromOffset(0, 26))
 	bars.staminaText.TextSize = 9
+	-- Hunger: click it (or press G) to eat something from your food bag.
+	bars.hunger, bars.hungerFill, bars.hungerText = Theme.bar(holder, Color3.fromRGB(230, 150, 70), UDim2.fromOffset(width, 14), UDim2.fromOffset(0, 40))
+	bars.hungerText.TextSize = 11
+	local eatButton = Theme.make("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 4,
+		Parent = bars.hunger,
+	})
+	eatButton.Activated:Connect(function()
+		HUD.eat()
+	end)
 
 	bars.xp, bars.xpFill, bars.xpText = Theme.bar(root, C.xp, UDim2.new(0, width, 0, 14), UDim2.new(0.5, -width / 2, 1, -18))
 	bars.xpText.TextSize = 11
@@ -181,7 +196,18 @@ local function buildAbilityBar()
 			ZIndex = 4,
 			Parent = button,
 		})
-		local slot = { button = button, icon = icon, cd = cd, cdText = cdText, key = key, stroke = stroke, index = i }
+		local note = Theme.label({
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -2),
+			Size = UDim2.new(1, -4, 0, 16),
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextStrokeTransparency = 0.3,
+			Text = "",
+			ZIndex = 4,
+			Parent = button,
+		})
+		local slot = { button = button, icon = icon, cd = cd, cdText = cdText, key = key, note = note, stroke = stroke, index = i }
 		slots[i] = slot
 
 		button.InputBegan:Connect(function(input)
@@ -206,7 +232,20 @@ local function buildAbilityBar()
 		button.MouseEnter:Connect(function()
 			local id = abilityForSlot(i)
 			local a = id and Abilities.get(id)
-			if a then
+			if not a then
+				-- explain empty slots
+				local p = App.State.profile
+				local class = p and Classes.get(p.class)
+				if i == 3 and class and p.level < Game.SIGNATURE_LEVEL then
+					local sig = Abilities.get(class.signature)
+					tooltip.Title.Text = "🔒 " .. sig.icon .. " " .. sig.name .. " (level " .. Game.SIGNATURE_LEVEL .. ")"
+					tooltip.Body.Text = sig.desc
+				else
+					tooltip.Title.Text = "🌟 Empty slot"
+					tooltip.Body.Text = "Learn new abilities in your skill tree (press K). Look for the big icons in each branch."
+				end
+				tooltip.Visible = true
+			elseif a then
 				local p = App.State.profile
 				local fire = id == "Breath" and p and Classes.get(p.class)
 				tooltip.Title.Text = (a.icon or "") .. " " .. (fire and fire.fire.name or a.name)
@@ -241,25 +280,33 @@ local function buildMenu()
 		Name = "Menu",
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -12, 0, 10),
-		Size = UDim2.fromOffset(64, 330),
+		Size = UDim2.fromOffset(64, 600),
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Theme.list(holder, 8)
+	Theme.list(holder, 6)
 	local entries = {
-		{ icon = "🌟", label = "Skills [K]", action = function() App.Windows.toggle("SkillTree") end },
-		{ icon = "🎒", label = "Bag [B]", action = function() App.Windows.toggle("Inventory") end },
-		{ icon = "📜", label = "Quests [J]", action = function() App.Windows.toggle("QuestLog") end },
-		{ icon = "🏠", label = "Home [H]", action = function() HUD.goHome() end },
-		{ icon = "❓", label = "Help", action = function() App.Windows.toggle("Help") end },
+		{ id = "skills", icon = "🌟", label = "Skills [K]", action = function() App.Windows.toggle("SkillTree") end },
+		{ id = "bag", icon = "🎒", label = "Bag [B]", action = function() App.Windows.toggle("Inventory") end },
+		{ id = "pets", icon = "🐲", label = "Pets [P]", action = function() App.Windows.toggle("Pets") end },
+		{ id = "quests", icon = "📜", label = "Quests [J]", action = function() App.Windows.toggle("QuestLog") end },
+		{ id = "map", icon = "🗺️", label = "Map [M]", action = function() App.Windows.toggle("Map") end },
+		{ id = "home", icon = "🏠", label = "Home [H]", action = function() HUD.goHome() end },
+		{ id = "codes", icon = "🎁", label = "Codes", action = function() App.Windows.toggle("Codes") end },
+		{ id = "help", icon = "❓", label = "Help", action = function() App.Windows.toggle("Help") end },
+		{ id = "admin", icon = "🛠️", label = "Admin", action = function() App.Windows.toggle("Admin") end },
 	}
 	for i, e in ipairs(entries) do
 		local b = Theme.button(e.icon, C.panel2, e.action, {
-			Size = UDim2.fromOffset(60, 60),
-			TextSize = 30,
+			Size = UDim2.fromOffset(58, 58),
+			TextSize = 28,
 			LayoutOrder = i,
 			Parent = holder,
 		})
+		menuButtons[e.id] = b
+		if e.id == "admin" then
+			b.Visible = false
+		end
 		Theme.stroke(b, C.accentDark, 2, 0.2)
 		Theme.label({
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -294,7 +341,7 @@ local function buildTracker()
 	tracker = Theme.make("Frame", {
 		Name = "QuestTracker",
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -86, 0, 110),
+		Position = UDim2.new(1, -86, 0, 236), -- under the minimap
 		Size = UDim2.fromOffset(250, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
@@ -318,8 +365,8 @@ local function buildMobile()
 	mobile.fly = Theme.button("🦅 Fly", C.blue, function()
 		App.Movement.toggleFlight()
 	end, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 140), Parent = holder })
-	mobile.up = Theme.button("▲", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 20), Parent = holder, Visible = false })
-	mobile.down = Theme.button("▼", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 80), Parent = holder, Visible = false })
+	mobile.up = Theme.button("⬆️ Up", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 20), Parent = holder, Visible = false })
+	mobile.down = Theme.button("⬇️ Down", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 80), Parent = holder, Visible = false })
 	for button, dir in pairs({ [mobile.up] = 1, [mobile.down] = -1 }) do
 		button.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -331,6 +378,21 @@ local function buildMobile()
 				App.Movement.setVertical(0)
 			end
 		end)
+	end
+end
+
+function HUD.eat()
+	task.spawn(function()
+		local ok, err = Remotes.func("EatFood"):InvokeServer(nil)
+		if not ok and err then
+			App.Notifications.toast(err, Color3.fromRGB(255, 190, 110), "🍖")
+		end
+	end)
+end
+
+function HUD.setAdmin(isAdmin: boolean)
+	if menuButtons.admin then
+		menuButtons.admin.Visible = isAdmin
 	end
 end
 
@@ -355,27 +417,39 @@ local function refreshTracker(p)
 	table.sort(order, function(a, b)
 		return a.quest.order < b.quest.order
 	end)
+	local tracked = App.Waypoint.trackedQuestId()
 	for i, entry in ipairs(order) do
 		local done = entry.progress >= entry.quest.objective.count
-		local row = Theme.make("Frame", {
+		local isTracked = tracked == entry.quest.id
+		-- click a quest to put a waypoint on it
+		local row = Theme.make("TextButton", {
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundColor3 = C.panel,
+			BackgroundColor3 = isTracked and Color3.fromRGB(70, 35, 40) or C.panel,
 			BackgroundTransparency = 0.3,
+			AutoButtonColor = false,
+			Text = "",
 			LayoutOrder = i,
 			Parent = tracker,
 		})
 		Theme.corner(row, 8)
 		Theme.pad(row, 6)
+		if isTracked then
+			Theme.stroke(row, Color3.fromRGB(235, 90, 80), 1.5)
+		end
 		local giver = Quests.Givers[entry.quest.giver]
 		Theme.label({
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			TextSize = 14,
 			TextColor3 = done and C.good or C.text,
-			Text = done and string.format("✅ %s — return to %s", entry.quest.name, giver.name) or QuestUtil.objectiveText(entry.quest, entry.progress),
+			Text = (isTracked and "📍 " or "") .. (done and string.format("✅ %s: return to %s", entry.quest.name, giver.name) or QuestUtil.objectiveText(entry.quest, entry.progress)),
 			Parent = row,
 		})
+		local questId = entry.quest.id
+		row.Activated:Connect(function()
+			App.Waypoint.trackQuest(questId)
+		end)
 	end
 end
 
@@ -401,12 +475,35 @@ local function refresh()
 
 	skillBadge.Visible = p.talentPoints > 0
 	skillBadge.Text = tostring(p.talentPoints)
+	HUD.setAdmin(p.isAdmin == true)
+
+	-- Remind gardeners about thirsty plants.
+	local thirsty = 0
+	for _, plant in ipairs(p.garden or {}) do
+		if plant.thirsty then
+			thirsty += 1
+		end
+	end
+	gardenLabel.Visible = thirsty > 0 and not (p.robots and p.robots.water)
+	gardenLabel.Text = string.format("💧 %d plant%s thirsty at your lair!", thirsty, thirsty == 1 and " is" or "s are")
 
 	for i, slot in ipairs(slots) do
 		local id = abilityForSlot(i)
 		local a = id and Abilities.get(id)
 		slot.icon.Text = a and a.icon or ""
+		slot.icon.TextTransparency = 0
+		slot.note.Text = ""
 		slot.button.BackgroundTransparency = a and 0 or 0.6
+		if not a then
+			-- A locked signature slot shows its level; other empty slots hint at the skill tree.
+			if i == 3 and class and p.level < Game.SIGNATURE_LEVEL then
+				slot.icon.Text = "🔒"
+				slot.note.Text = "Lv " .. Game.SIGNATURE_LEVEL
+			else
+				slot.icon.Text = "🌟"
+				slot.icon.TextTransparency = 0.75
+			end
+		end
 		slot.stroke.Color = (a and a.ultimate) and Color3.fromRGB(255, 120, 60) or C.accentDark
 		if id == "Breath" and class then
 			slot.icon.Text = ({ Shadowstalker = "💜", Stormwing = "⚡", Behemoth = "🔥", Frostwyrm = "❄️", Venomspine = "🧪" })[class.id] or "🔥"
@@ -420,6 +517,15 @@ function HUD.init(app)
 	App = app
 	root = App.Windows.guis.HUD
 	buildCard()
+	gardenLabel = Theme.label({
+		Position = UDim2.fromOffset(14, 106),
+		Size = UDim2.fromOffset(300, 20),
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(130, 200, 255),
+		TextStrokeTransparency = 0.4,
+		Visible = false,
+		Parent = root,
+	})
 	buildBars()
 	buildAbilityBar()
 	buildMenu()
@@ -427,6 +533,12 @@ function HUD.init(app)
 	buildMobile()
 	root.Enabled = false
 	App.State.changed:Connect(refresh)
+	App.Waypoint.changed:Connect(function()
+		local p = App.State.profile
+		if p then
+			refreshTracker(p)
+		end
+	end)
 	refresh()
 
 	RunService.RenderStepped:Connect(function()
@@ -436,6 +548,13 @@ function HUD.init(app)
 			local pct = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
 			bars.hpFill.Size = UDim2.fromScale(pct, 1)
 			bars.hpText.Text = string.format("❤️ %d / %d", math.ceil(humanoid.Health), humanoid.MaxHealth)
+		end
+		local hunger = Players.LocalPlayer:GetAttribute("Hunger")
+		if hunger then
+			local lvl = Game.hungerLevel(hunger)
+			bars.hungerFill.Size = UDim2.fromScale(math.clamp(hunger / Game.HUNGER_MAX, 0, 1), 1)
+			bars.hungerFill.BackgroundColor3 = lvl and lvl.color or Color3.fromRGB(230, 150, 70)
+			bars.hungerText.Text = string.format("🍖 Hunger %d%%%s", math.floor(hunger + 0.5), lvl and ("  —  " .. lvl.icon .. " " .. lvl.id .. "! Press G to eat") or "")
 		end
 		local stamina, maxStamina = App.Movement.getStamina()
 		bars.staminaFill.Size = UDim2.fromScale(maxStamina > 0 and math.clamp(stamina / maxStamina, 0, 1) or 0, 1)

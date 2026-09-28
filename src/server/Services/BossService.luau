@@ -330,11 +330,16 @@ local function endFight(victory: boolean)
 					seeds[bonusSeed] = (seeds[bonusSeed] or 0) + 1
 					S.PlayerService.notify(player, "Top damage! +50% gold and a bonus seed.", Color3.fromRGB(255, 200, 60), "🥇")
 				end
+				local eggs = nil
+				if math.random() < 0.35 then
+					eggs = { [S.LootService.rollEgg(2)] = 1 }
+				end
 				S.LootService.grant(player, {
 					xp = math.floor(Game.xpToNext(profile.level) * 0.6) + 500,
 					gold = gold,
 					items = items,
 					seeds = seeds,
+					eggs = eggs,
 				})
 				S.QuestService.progress(player, "bossKill", nil, 1)
 			end
@@ -612,9 +617,26 @@ local function startWarning()
 	queue = {}
 	phase = "warning"
 	local def = Enemies.Bosses[currentBossId]
-	local minutes = math.max(1, math.floor(Game.BOSS_WARNING / 60 + 0.5))
-	announce("⚠️ A BOSS APPROACHES", string.format("%s is coming in %d minute%s! Join the queue to fight for epic loot.", def.name, minutes, minutes == 1 and "" or "s"), def.color, 8)
+	local seconds = math.max(0, nextSpawnAt - serverNow())
+	local minutes = math.floor(seconds / 60 + 0.5)
+	local when = minutes >= 1 and string.format("%d minute%s", minutes, minutes == 1 and "" or "s") or string.format("%d seconds", math.floor(seconds))
+	announce("⚠️ A BOSS APPROACHES", string.format("%s is coming in %s! Join the queue to fight for epic loot.", def.name, when), def.color, 8)
 	broadcastState()
+end
+
+-- Admin panel: bring the next boss in `warningSeconds` (starting the warning now, or cutting
+-- short a warning that's already counting down).
+function BossService.adminStart(warningSeconds: number)
+	if phase == "idle" then
+		nextSpawnAt = serverNow() + warningSeconds
+		startWarning()
+		return true, "Boss warning started."
+	elseif phase == "warning" then
+		nextSpawnAt = math.min(nextSpawnAt, serverNow() + warningSeconds)
+		broadcastState()
+		return true, "The boss will arrive sooner."
+	end
+	return false, "A boss fight is already happening."
 end
 
 function BossService.init(services)

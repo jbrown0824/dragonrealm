@@ -1,10 +1,11 @@
 -- Generates the whole map at server start: terrain, Dragon Town (plaza, shops, quest givers,
--- player bases, Battle Zone), the Viking Lands camps, and the Boss Arena.
+-- training grounds, player bases, Battle Zone), the wilds around it (river, lakes, hunting
+-- grounds: see Wilds), the viking camps (see Camps), and the Boss Arena.
 -- Positions come from Config/Zones so gameplay and scenery always line up.
 --
--- Want to hand-build the map in Studio instead? Keep the tags/attributes this file sets
--- (PlayerBase, ShopPrompt, QuestPrompt, WarHornPrompt, Plots/Plot1..12, HomeSpawn, Sign)
--- and the services will keep working.
+-- Want to hand-build the map in Studio instead? Keep the tags/attributes these files set
+-- (PlayerBase, ShopPrompt, PanelPrompt, QuestPrompt, WarHornPrompt, Plots/Plot1..12, HomeSpawn,
+-- BotDock, Sign, CampChest, TrainingDummy, FishingSpot) and the services will keep working.
 
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
@@ -14,62 +15,39 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
 local Game = require(Shared.Config.Game)
-local DragonBuilder = require(Shared.DragonBuilder)
 
 local Props = require(script.Parent.Props)
+local WorldUtil = require(script.Parent.WorldUtil)
+local Wilds = require(script.Parent.Wilds)
+local Camps = require(script.Parent.Camps)
 
 local WorldBuilder = {}
 
-local terrain = workspace.Terrain
-local rng = Random.new(20260926)
+local terrain = WorldUtil.terrain
+local rng = WorldUtil.rng
+local folder = WorldUtil.folder
+local facingCF = WorldUtil.facingCF
+local terrainPath = WorldUtil.terrainPath
+local invisibleWall = WorldUtil.invisibleWall
+local placeDragon = WorldUtil.placeDragon
 
-local function folder(name: string, parent: Instance): Folder
-	local f = Instance.new("Folder")
-	f.Name = name
-	f.Parent = parent
-	return f
-end
 
-local function facingCF(pos: Vector3, facing: Vector3): CFrame
-	local dir = Vector3.new(facing.X, 0, facing.Z)
-	if dir.Magnitude < 0.01 then
-		dir = Vector3.new(0, 0, -1)
+local function nearCamp(p: Vector3, extra: number): boolean
+	for _, camp in ipairs(Zones.Camps) do
+		if (Vector3.new(p.X, 0, p.Z) - camp.center).Magnitude < camp.radius + extra then
+			return true
+		end
 	end
-	return CFrame.lookAt(pos, pos + dir.Unit)
+	return false
 end
 
-local function terrainPath(a: Vector3, b: Vector3, width: number, material: Enum.Material)
-	local mid = (a + b) / 2
-	local len = (b - a).Magnitude
-	local cf = CFrame.lookAt(Vector3.new(mid.X, -2, mid.Z), Vector3.new(b.X, -2, b.Z))
-	terrain:FillBlock(cf, Vector3.new(width, 4, len + width), material)
-end
-
--- Note: Roblox only honors CanQuery = false on parts with CanCollide = false, so solid invisible
--- walls still block raycasts. That's why barriers live in workspace.Barriers, outside Map:
--- the services raycast against Map + Terrain and never see them.
-local function invisibleWall(parent: Instance, size: Vector3, cf: CFrame)
-	local p = Props.part(parent, size, cf, Color3.new(1, 1, 1))
-	p.Transparency = 1
-	p.CanQuery = false
-	p.CanTouch = false
-	p.CastShadow = false
-	return p
-end
-
--- A decorative / NPC dragon standing on the ground at `pos`.
-local function placeDragon(parent: Instance, classId: string, pos: Vector3, facing: Vector3, options)
-	options = options or {}
-	options.anchored = true
-	local model, hipHeight = DragonBuilder.build(classId, options)
-	local root = model.PrimaryPart
-	local height = hipHeight + root.Size.Y / 2
-	model:PivotTo(facingCF(pos + Vector3.new(0, height, 0), facing))
-	model.Parent = parent
-	if not options.tint then
-		CollectionService:AddTag(model, "Dragon") -- clients animate wings/tail (statues stay still)
+local function nearPath(p: Vector3, margin: number): boolean
+	for _, path in ipairs(Zones.Paths) do
+		if WorldUtil.flatDistToSegment(p, path.a, path.b) < path.width / 2 + margin then
+			return true
+		end
 	end
-	return model
+	return false
 end
 
 ---------------------------------------------------------------- lighting
@@ -111,45 +89,33 @@ local function buildTerrain()
 	-- Ground for the whole map (top surface at y = 0).
 	terrain:FillBlock(CFrame.new(0, -8, 350), Vector3.new(1320, 16, 1720), Enum.Material.Grass)
 
-	-- River between town and the viking lands, with sandy banks.
-	terrain:FillBlock(CFrame.new(0, -4, 276), Vector3.new(1320, 16, 48), Enum.Material.Air)
-	terrain:FillBlock(CFrame.new(0, -10, 276), Vector3.new(1320, 12, 48), Enum.Material.Water)
-	terrain:FillBlock(CFrame.new(0, -3, 248), Vector3.new(1320, 6, 8), Enum.Material.Sand)
-	terrain:FillBlock(CFrame.new(0, -3, 304), Vector3.new(1320, 6, 8), Enum.Material.Sand)
-
 	-- Town roads and plaza
 	terrain:FillCylinder(CFrame.new(0, -2, 0), 4, 50, Enum.Material.Cobblestone)
-	terrainPath(Vector3.new(0, 0, 40), Vector3.new(0, 0, 244), 18, Enum.Material.Cobblestone)
-	terrainPath(Vector3.new(0, 0, -40), Vector3.new(0, 0, -196), 16, Enum.Material.Cobblestone)
-	terrainPath(Vector3.new(-140, 0, 0), Vector3.new(140, 0, 0), 14, Enum.Material.Cobblestone)
-	terrainPath(Vector3.new(-140, 0, -225), Vector3.new(-140, 0, 225), 12, Enum.Material.Cobblestone)
-	terrainPath(Vector3.new(140, 0, -225), Vector3.new(140, 0, 225), 12, Enum.Material.Cobblestone)
+	for _, road in ipairs(Zones.Roads) do
+		terrainPath(road.a, road.b, road.width, Enum.Material[road.material])
+	end
 
-	-- Battle Zone floor
+	-- Battle Zone floor and the training yard
 	terrain:FillBlock(CFrame.new(0, -2, -265), Vector3.new(190, 4, 140), Enum.Material.Sand)
+	terrain:FillBlock(CFrame.new(100, -2, 176), Vector3.new(70, 4, 104), Enum.Material.Sand)
 
 	-- Viking lands: colder, muddier ground
 	terrain:FillBlock(CFrame.new(0, -2, 710), Vector3.new(1320, 4, 800), Enum.Material.LeafyGrass)
-	terrainPath(Vector3.new(0, 0, 305), Vector3.new(0, 0, 400), 14, Enum.Material.Mud)
-	terrainPath(Vector3.new(0, 0, 440), Vector3.new(-280, 0, 570), 12, Enum.Material.Mud)
-	terrainPath(Vector3.new(0, 0, 440), Vector3.new(280, 0, 610), 12, Enum.Material.Mud)
-	terrainPath(Vector3.new(0, 0, 440), Vector3.new(0, 0, 840), 14, Enum.Material.Mud)
-	for _ = 1, 60 do
-		local p = Vector3.new(rng:NextNumber(-540, 540), -7, rng:NextNumber(320, 1100))
-		local clear = math.abs(p.X) > 26
-		for _, camp in ipairs(Zones.Camps) do
-			if (Vector3.new(p.X, 0, p.Z) - camp.center).Magnitude < camp.radius + 30 then
-				clear = false
-			end
-		end
-		if clear then
-			terrain:FillBall(p, rng:NextNumber(9, 18), Enum.Material.Snow)
-		end
+	for _, path in ipairs(Zones.Paths) do
+		terrainPath(path.a, path.b, path.width, Enum.Material[path.material])
 	end
 
-	-- Fishing village pond
-	terrain:FillBlock(CFrame.new(-440, -4, 590), Vector3.new(110, 16, 190), Enum.Material.Air)
-	terrain:FillBlock(CFrame.new(-440, -10, 590), Vector3.new(110, 12, 190), Enum.Material.Water)
+	-- The river and lakes (curvy basins filled with water)
+	Wilds.buildWater()
+
+	-- Snowy mounds in the viking lands, kept off the paths, camps and water
+	for _ = 1, 70 do
+		local p = Vector3.new(rng:NextNumber(-540, 540), -7, rng:NextNumber(330, 1100))
+		local r = rng:NextNumber(9, 18)
+		if not nearCamp(p, 30) and not nearPath(p, r + 4) and not Wilds.inAnyLake(p, r + 6) and not Wilds.inRiver(p, r + 10) then
+			terrain:FillBall(p, r, Enum.Material.Snow)
+		end
+	end
 
 	-- Mountains around the edge of the world
 	for i = 0, 13 do
@@ -171,7 +137,68 @@ end
 
 ---------------------------------------------------------------- town
 
-local function buildStall(parent: Instance, shop, keeperClass: string, awningColor: Color3)
+local SHOP_STYLE = {
+	Armory = { keeper = "Stormwing", awning = Color3.fromRGB(190, 50, 50) },
+	Exchange = { keeper = "Shadowstalker", awning = Color3.fromRGB(200, 160, 40) },
+	Forge = { keeper = "Behemoth", awning = Color3.fromRGB(60, 90, 170) },
+	Alchemist = { keeper = "Venomspine", awning = Color3.fromRGB(90, 170, 80) },
+	Hatchery = { keeper = "Frostwyrm", awning = Color3.fromRGB(240, 150, 190) },
+}
+
+local function stallGoods(model: Model, cf: CFrame, shopId: string)
+	for row = 0, 1 do
+		Props.part(model, Vector3.new(16, 0.4, 2), cf * CFrame.new(0, 5 + row * 3, 8.5), Props.DARK_WOOD, Enum.Material.Wood)
+		for i = -3, 3 do
+			if shopId == "Alchemist" then
+				-- potion bottles
+				local color = ({ Color3.fromRGB(255, 90, 110), Color3.fromRGB(110, 220, 255), Color3.fromRGB(255, 200, 70), Color3.fromRGB(150, 255, 110), Color3.fromRGB(200, 120, 255) })[(i + row * 2) % 5 + 1]
+				local bottle = Props.part(model, Vector3.new(1.6, 1, 1), cf * CFrame.new(i * 2, 6 + row * 3, 8.5) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.Material.Neon)
+				bottle.Shape = Enum.PartType.Cylinder
+				Props.part(model, Vector3.new(0.4, 0.6, 0.4), cf * CFrame.new(i * 2, 7.1 + row * 3, 8.5), Color3.fromRGB(140, 100, 60), Enum.Material.Wood)
+			elseif shopId == "Hatchery" then
+				local color = ({ Color3.fromRGB(255, 150, 90), Color3.fromRGB(120, 180, 255), Color3.fromRGB(255, 220, 110), Color3.fromRGB(200, 140, 255) })[(i + row) % 4 + 1]
+				Props.ellipsoid(model, Vector3.new(1.3, 1.8, 1.3), cf * CFrame.new(i * 2, 6.1 + row * 3, 8.5), color, Enum.Material.SmoothPlastic)
+			else
+				local color = ({ Color3.fromRGB(200, 60, 60), Color3.fromRGB(80, 160, 255), Color3.fromRGB(255, 200, 60), Color3.fromRGB(180, 90, 255) })[(i + row) % 4 + 1]
+				Props.ellipsoid(model, Vector3.new(1.2, 1.4, 1.2), cf * CFrame.new(i * 2, 5.9 + row * 3, 8.5), color, Enum.Material.Glass)
+			end
+		end
+	end
+	if shopId == "Forge" then
+		Props.part(model, Vector3.new(5, 4, 4), cf * CFrame.new(7, 2, 5), Color3.fromRGB(90, 85, 85), Enum.Material.Slate)
+		local glow = Props.part(model, Vector3.new(3, 0.6, 2.6), cf * CFrame.new(7, 4.2, 5), Color3.fromRGB(255, 120, 30), Enum.Material.Neon)
+		Props.fire(glow, 4)
+		Props.light(glow, Color3.fromRGB(255, 140, 60), 20, 2)
+		Props.part(model, Vector3.new(3, 1.2, 1.4), cf * CFrame.new(-6, 4.9, -3), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+	elseif shopId == "Alchemist" then
+		-- a big bubbling cauldron in front of the counter
+		local pot = Props.part(model, Vector3.new(5, 4, 5), cf * CFrame.new(-8.5, 2.4, -9), Color3.fromRGB(45, 45, 50), Enum.Material.Metal, "Part")
+		pot.Shape = Enum.PartType.Ball
+		local brew = Props.part(model, Vector3.new(0.4, 4.2, 4.2), cf * CFrame.new(-8.5, 3.7, -9) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(120, 255, 90), Enum.Material.Neon)
+		brew.Shape = Enum.PartType.Cylinder
+		brew.CastShadow = false
+		Props.fire(brew, 3, Color3.fromRGB(110, 255, 90))
+		Props.light(brew, Color3.fromRGB(120, 255, 100), 18, 1.6)
+		for i = 0, 3 do
+			local a = i / 4 * math.pi * 2
+			Props.rock(model, (cf * CFrame.new(-8.5 + math.cos(a) * 3, 0.4, -9 + math.sin(a) * 3)).Position, 1.2, Color3.fromRGB(90, 90, 95))
+		end
+	elseif shopId == "Hatchery" then
+		-- a warm straw nest of eggs on the counter, under heat lamps
+		local nest = cf * CFrame.new(-5, 4.6, -3)
+		local straw = Props.part(model, Vector3.new(0.8, 4.6, 4.6), nest * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(215, 185, 110), Enum.Material.Fabric)
+		straw.Shape = Enum.PartType.Cylinder
+		for i = 1, 3 do
+			local a = i / 3 * math.pi * 2
+			Props.ellipsoid(model, Vector3.new(1.3, 1.8, 1.3), nest * CFrame.new(math.cos(a) * 1.1, 1.1, math.sin(a) * 1.1), ({ Color3.fromRGB(255, 150, 90), Color3.fromRGB(120, 180, 255), Color3.fromRGB(255, 220, 110) })[i], Enum.Material.SmoothPlastic)
+		end
+		local lamp = Props.part(model, Vector3.new(1.6, 0.8, 1.6), cf * CFrame.new(-5, 10.2, -3), Color3.fromRGB(255, 170, 90), Enum.Material.Neon)
+		Props.light(lamp, Color3.fromRGB(255, 170, 100), 16, 1.5)
+	end
+end
+
+local function buildStall(parent: Instance, shop)
+	local style = SHOP_STYLE[shop.id]
 	local model = Instance.new("Model")
 	model.Name = shop.id
 	local cf = facingCF(shop.position, shop.facing)
@@ -188,7 +215,7 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 		return frontY - 0.2 + (z - frontZ) / (backZ - frontZ) * (backY - frontY)
 	end
 	for i = 0, 7 do
-		local color = i % 2 == 0 and awningColor or Color3.fromRGB(245, 235, 215)
+		local color = i % 2 == 0 and style.awning or Color3.fromRGB(245, 235, 215)
 		Props.part(model, Vector3.new(2.75, 0.4, length), cf * CFrame.new(-9.625 + i * 2.75, (frontY + backY) / 2, (frontZ + backZ) / 2) * CFrame.Angles(-slope, 0, 0), color, Enum.Material.Fabric)
 	end
 	for _, x in ipairs({ -10, 10 }) do
@@ -196,14 +223,7 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 			Props.column(model, (cf * CFrame.new(x, 0, z)).Position, awningUnderside(z), 1, Props.DARK_WOOD, Enum.Material.Wood)
 		end
 	end
-	-- shelves with goods
-	for row = 0, 1 do
-		Props.part(model, Vector3.new(16, 0.4, 2), cf * CFrame.new(0, 5 + row * 3, 8.5), Props.DARK_WOOD, Enum.Material.Wood)
-		for i = -3, 3 do
-			local color = ({ Color3.fromRGB(200, 60, 60), Color3.fromRGB(80, 160, 255), Color3.fromRGB(255, 200, 60), Color3.fromRGB(180, 90, 255) })[(i + row) % 4 + 1]
-			Props.ellipsoid(model, Vector3.new(1.2, 1.4, 1.2), cf * CFrame.new(i * 2, 5.9 + row * 3, 8.5), color, Enum.Material.Glass)
-		end
-	end
+	stallGoods(model, cf, shop.id)
 
 	-- name board hanging in front of the awning's lower edge
 	local board = Props.part(model, Vector3.new(18, 2.6, 0.4), cf * CFrame.new(0, 13.3, -6.95), Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
@@ -225,31 +245,29 @@ local function buildStall(parent: Instance, shop, keeperClass: string, awningCol
 	gui.Parent = board
 
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = shop.tab == "Buy" and "Browse Gear" or (shop.tab == "Sell" and "Sell Gear" or "Upgrade Gear")
 	prompt.ObjectText = shop.name
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 16
 	prompt.RequiresLineOfSight = false
-	prompt:SetAttribute("ShopTab", shop.tab)
-	prompt:SetAttribute("ShopName", shop.name)
-	prompt.Parent = counter
-	CollectionService:AddTag(prompt, "ShopPrompt")
-
-	if shop.id == "Forge" then
-		Props.part(model, Vector3.new(5, 4, 4), cf * CFrame.new(7, 2, 5), Color3.fromRGB(90, 85, 85), Enum.Material.Slate)
-		local glow = Props.part(model, Vector3.new(3, 0.6, 2.6), cf * CFrame.new(7, 4.2, 5), Color3.fromRGB(255, 120, 30), Enum.Material.Neon)
-		Props.fire(glow, 4)
-		Props.light(glow, Color3.fromRGB(255, 140, 60), 20, 2)
-		Props.part(model, Vector3.new(3, 1.2, 1.4), cf * CFrame.new(-6, 4.9, -3), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+	if shop.tab then
+		prompt.ActionText = shop.tab == "Buy" and "Browse Gear" or (shop.tab == "Sell" and "Sell Gear & Food" or "Upgrade Gear")
+		prompt:SetAttribute("ShopTab", shop.tab)
+		prompt:SetAttribute("ShopName", shop.name)
+		CollectionService:AddTag(prompt, "ShopPrompt")
+	else
+		prompt.ActionText = shop.panel == "Potions" and "Browse Potions" or "Buy Dragon Eggs"
+		prompt:SetAttribute("Panel", shop.panel)
+		CollectionService:AddTag(prompt, "PanelPrompt")
 	end
+	prompt.Parent = counter
 
 	model.Parent = parent
 	-- raised step behind the counter so the shopkeeper can see over it
 	Props.part(model, Vector3.new(16, 1.6, 7), cf * CFrame.new(0, 1.6, 4.6), Color3.fromRGB(125, 95, 65), Enum.Material.WoodPlanks)
 	-- turned a little to one side so the tail fits inside the stall
 	local keeperFacing = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(28)) * shop.facing
-	placeDragon(parent, keeperClass, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
+	placeDragon(parent, style.keeper, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
 end
 
 local function buildQuestGivers(parent: Instance)
@@ -319,7 +337,7 @@ local function buildWarHorn(parent: Instance)
 	Props.ellipsoid(model, Vector3.new(0.5, 2.4, 2.4), CFrame.new(d) * CFrame.Angles(0, 0, math.rad(40)), Color3.fromRGB(200, 170, 60), Enum.Material.Metal)
 	Props.banner(model, pos + Vector3.new(-8, 0.9, 2), Color3.fromRGB(190, 40, 40), Vector3.new(0, 0, 1))
 	Props.banner(model, pos + Vector3.new(8, 0.9, 2), Color3.fromRGB(190, 40, 40), Vector3.new(0, 0, 1))
-	Props.sign(model, CFrame.lookAt(pos + Vector3.new(0, 2.4, -10), pos + Vector3.new(0, 2.4, -30)), "📯 WAR HORN\nJoin boss fights here!", Vector2.new(10, 3))
+	Props.sign(model, CFrame.lookAt(pos + Vector3.new(0, 5.5, -11), pos + Vector3.new(0, 5.5, -30)), "📯 WAR HORN\nJoin boss fights here!", Vector2.new(10, 3.4))
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "WarHornPrompt"
@@ -331,6 +349,44 @@ local function buildWarHorn(parent: Instance)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = bell
 	model.Parent = parent
+end
+
+local function buildTraining(parent: Instance)
+	local f = folder("Training", parent)
+	local tr = Zones.Training
+	for _, pos in ipairs(tr.dummies) do
+		local dummy = Props.dummy(f, pos, Vector3.new(0, 0, -1))
+		CollectionService:AddTag(dummy, "TrainingDummy")
+	end
+	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 130), Vector3.new(0, 5, 130)), "🎯 TRAINING DUMMIES\nHit one to see your DPS!", Vector2.new(13, 4))
+
+	-- Sparring pen: a fence with a red danger line inside. The golem throws at anyone in it.
+	local pen = tr.pen
+	local x0, x1, z0, z1 = pen.min.X, pen.max.X, pen.min.Z, pen.max.Z
+	local gateHalf = 7
+	local mx = (x0 + x1) / 2
+	Props.fence(f, Vector3.new(x0, 0, z0), Vector3.new(mx - gateHalf, 0, z0), Color3.fromRGB(150, 60, 50))
+	Props.fence(f, Vector3.new(mx + gateHalf, 0, z0), Vector3.new(x1, 0, z0), Color3.fromRGB(150, 60, 50))
+	Props.fence(f, Vector3.new(x0, 0, z1), Vector3.new(x1, 0, z1), Color3.fromRGB(150, 60, 50))
+	Props.fence(f, Vector3.new(x0, 0, z0), Vector3.new(x0, 0, z1), Color3.fromRGB(150, 60, 50))
+	Props.fence(f, Vector3.new(x1, 0, z0), Vector3.new(x1, 0, z1), Color3.fromRGB(150, 60, 50))
+	for _, edge in ipairs({
+		{ Vector3.new(mx, 0.1, z0 + 1.5), Vector3.new(x1 - x0 - 3, 0.2, 0.6) },
+		{ Vector3.new(mx, 0.1, z1 - 1.5), Vector3.new(x1 - x0 - 3, 0.2, 0.6) },
+		{ Vector3.new(x0 + 1.5, 0.1, (z0 + z1) / 2), Vector3.new(0.6, 0.2, z1 - z0 - 3) },
+		{ Vector3.new(x1 - 1.5, 0.1, (z0 + z1) / 2), Vector3.new(0.6, 0.2, z1 - z0 - 3) },
+	}) do
+		local line = Props.part(f, edge[2], CFrame.new(edge[1]), Color3.fromRGB(255, 70, 50), Enum.Material.Neon)
+		line.CanCollide = false
+		line.Transparency = 0.3
+		line.CastShadow = false
+	end
+	for _, x in ipairs({ mx - gateHalf - 1, mx + gateHalf + 1 }) do
+		Props.torch(f, Vector3.new(x, 0, z0 - 1.5), Color3.fromRGB(255, 90, 60))
+	end
+	local golem = Props.golem(f, tr.golem, Vector3.new(0, 0, -1))
+	CollectionService:AddTag(golem, "TrainingDummy")
+	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 176), Vector3.new(0, 5, 176)), "🥊 SPARRING PEN\nThe golem throws back!", Vector2.new(11, 4), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
 end
 
 local function buildTown(map: Folder)
@@ -351,33 +407,30 @@ local function buildTown(map: Folder)
 		Props.flowers(town, Vector3.new(math.cos(a) * 12, 0, math.sin(a) * 12), ({ Color3.fromRGB(255, 120, 150), Color3.fromRGB(255, 220, 90), Color3.fromRGB(170, 120, 255) })[i % 3 + 1])
 	end
 
-	-- Shops
-	local keepers = { Armory = "Stormwing", Exchange = "Shadowstalker", Forge = "Behemoth" }
-	local awnings = { Armory = Color3.fromRGB(190, 50, 50), Exchange = Color3.fromRGB(200, 160, 40), Forge = Color3.fromRGB(60, 90, 170) }
 	for _, shop in ipairs(Zones.Shops) do
-		buildStall(town, shop, keepers[shop.id], awnings[shop.id])
+		buildStall(town, shop)
 	end
-
 	buildQuestGivers(town)
 	buildWarHorn(town)
+	buildTraining(town)
 
-	-- Houses
+	-- Dragon-sized houses (wide arched doors, tall walls, perch beams on the roofs)
 	local houseSpots = {
-		{ Vector3.new(-42, 0, 100), Vector3.new(1, 0, 0) },
-		{ Vector3.new(-42, 0, 150), Vector3.new(1, 0, 0) },
-		{ Vector3.new(-42, 0, 200), Vector3.new(1, 0, 0) },
-		{ Vector3.new(42, 0, 100), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(42, 0, 150), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(42, 0, 200), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(-70, 0, -150), Vector3.new(1, 0, 0) },
-		{ Vector3.new(105, 0, -130), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(-95, 0, 100), Vector3.new(0, 0, -1) },
-		{ Vector3.new(95, 0, 100), Vector3.new(0, 0, -1) },
+		{ Vector3.new(-42, 0, 112), Vector3.new(1, 0, 0) },
+		{ Vector3.new(-42, 0, 162), Vector3.new(1, 0, 0) },
+		{ Vector3.new(-42, 0, 212), Vector3.new(1, 0, 0) },
+		{ Vector3.new(42, 0, 112), Vector3.new(-1, 0, 0) },
+		{ Vector3.new(42, 0, 162), Vector3.new(-1, 0, 0) },
+		{ Vector3.new(42, 0, 212), Vector3.new(-1, 0, 0) },
+		{ Vector3.new(-72, 0, -152), Vector3.new(1, 0, 0) },
+		{ Vector3.new(108, 0, -132), Vector3.new(-1, 0, 0) },
+		{ Vector3.new(-96, 0, 102), Vector3.new(0, 0, -1) },
+		{ Vector3.new(96, 0, 100), Vector3.new(0, 0, -1) },
 	}
 	local walls = { Color3.fromRGB(235, 220, 190), Color3.fromRGB(215, 200, 230), Color3.fromRGB(200, 225, 210) }
 	local roofs = { Color3.fromRGB(170, 70, 50), Color3.fromRGB(70, 90, 150), Color3.fromRGB(90, 130, 80) }
 	for i, spot in ipairs(houseSpots) do
-		Props.house(town, facingCF(spot[1], spot[2]), 20, 16, 10, walls[i % 3 + 1], roofs[i % 3 + 1])
+		Props.dragonHouse(town, facingCF(spot[1], spot[2]), 32, 24, 16, walls[i % 3 + 1], roofs[i % 3 + 1])
 	end
 
 	-- Lamps along the main road
@@ -390,9 +443,9 @@ local function buildTown(map: Folder)
 		Props.lamp(town, Vector3.new(11, 0, z))
 	end
 
-	-- Trees around the edges of town
+	-- Trees around the edges of town, leaving gaps for the paths out to the hunting grounds
 	for x = -265, 265, 24 do
-		if math.abs(x) > 40 then
+		if math.abs(x) > 64 then
 			Props.tree(town, Vector3.new(x + rng:NextNumber(-4, 4), 0, 236 + rng:NextNumber(-3, 3)), rng:NextNumber(0.8, 1.2), "oak")
 		end
 		if math.abs(x) > 110 then
@@ -400,10 +453,12 @@ local function buildTown(map: Folder)
 		end
 	end
 	for z = -330, 220, 26 do
-		Props.tree(town, Vector3.new(-268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
-		Props.tree(town, Vector3.new(268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
+		if math.abs(z) > 16 then
+			Props.tree(town, Vector3.new(-268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
+			Props.tree(town, Vector3.new(268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
+		end
 	end
-	for _, p in ipairs({ Vector3.new(-80, 0, 60), Vector3.new(80, 0, 60), Vector3.new(-100, 0, -80), Vector3.new(100, 0, -80), Vector3.new(-60, 0, 140), Vector3.new(70, 0, 200) }) do
+	for _, p in ipairs({ Vector3.new(-80, 0, 60), Vector3.new(-100, 0, -80), Vector3.new(100, 0, -80), Vector3.new(-118, 0, 160), Vector3.new(118, 0, 60) }) do
 		Props.tree(town, p, 1.1, "oak")
 		Props.bush(town, p + Vector3.new(6, 0, 4))
 	end
@@ -413,7 +468,7 @@ local function buildTown(map: Folder)
 	Props.part(bridge, Vector3.new(18, 1.2, 80), CFrame.new(0, 0.4, 276), Color3.fromRGB(130, 95, 60), Enum.Material.WoodPlanks)
 	for z = 244, 308, 16 do
 		for _, x in ipairs({ -8, 8 }) do
-			Props.column(bridge, Vector3.new(x, -10, z), 14, 1.6, Props.DARK_WOOD, Enum.Material.Wood)
+			Props.column(bridge, Vector3.new(x, -12, z), 16, 1.6, Props.DARK_WOOD, Enum.Material.Wood)
 		end
 	end
 	Props.fence(bridge, Vector3.new(-8.5, 1, 238), Vector3.new(-8.5, 1, 314))
@@ -458,6 +513,41 @@ end
 
 ---------------------------------------------------------------- player bases
 
+local function buildBotDock(model: Model, cf: CFrame)
+	local dock = Props.part(model, Vector3.new(10, 1, 8), cf * CFrame.new(0, 0.5, 0), Color3.fromRGB(120, 125, 135), Enum.Material.DiamondPlate)
+	dock.Name = "BotDock"
+	for _, x in ipairs({ -3, 3 }) do
+		local pad = Props.part(model, Vector3.new(0.3, 3.4, 3.4), cf * CFrame.new(x, 1.1, 0) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(90, 200, 255), Enum.Material.Neon)
+		pad.Shape = Enum.PartType.Cylinder
+		pad.CastShadow = false
+	end
+	Props.part(model, Vector3.new(0.6, 5, 0.6), cf * CFrame.new(-4.6, 3, 3.6), Color3.fromRGB(80, 80, 90), Enum.Material.Metal)
+	Props.part(model, Vector3.new(0.6, 5, 0.6), cf * CFrame.new(4.6, 3, 3.6), Color3.fromRGB(80, 80, 90), Enum.Material.Metal)
+	local board = Props.part(model, Vector3.new(10, 2.2, 0.4), cf * CFrame.new(0, 5.2, 3.6), Color3.fromRGB(60, 65, 80), Enum.Material.Metal)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front -- toward the road and the village
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.LightInfluence = 0
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Font = Enum.Font.FredokaOne
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(150, 230, 255)
+	label.Text = "🤖 Bot Dock"
+	label.Parent = gui
+	gui.Parent = board
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Robot Workshop"
+	prompt.ObjectText = "Bot Dock"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = dock
+end
+
 local function buildBases(map: Folder)
 	local basesFolder = folder("Bases", map)
 	local eggColors = { Color3.fromRGB(255, 120, 80), Color3.fromRGB(120, 200, 255), Color3.fromRGB(190, 120, 255), Color3.fromRGB(140, 230, 120) }
@@ -468,7 +558,7 @@ local function buildBases(map: Folder)
 		model:SetAttribute("OwnerUserId", 0)
 		CollectionService:AddTag(model, "PlayerBase")
 		local cf = facingCF(info.center, info.facing)
-		local width, depth = 92, 76
+		local depth, width = Zones.BaseSize.X, Zones.BaseSize.Z
 
 		Props.part(model, Vector3.new(width, 1, depth), cf * CFrame.new(0, -0.3, 0), Color3.fromRGB(100, 155, 75), Enum.Material.Grass)
 		-- fence with an opening at the front
@@ -482,8 +572,8 @@ local function buildBases(map: Folder)
 		Props.fence(model, L(-hw, -hd), L(-10, -hd))
 		Props.fence(model, L(10, -hd), L(hw, -hd))
 
-		-- nest with eggs
-		local nest = L(0, 25)
+		-- nest with eggs at the back
+		local nest = L(0, hd - 11)
 		Props.column(model, nest - Vector3.new(0, 0.2, 0), 1.2, 16, Color3.fromRGB(200, 170, 100), Enum.Material.Fabric)
 		for i = 1, 10 do
 			local a = i / 10 * math.pi * 2
@@ -494,11 +584,11 @@ local function buildBases(map: Folder)
 			Props.ellipsoid(model, Vector3.new(2, 2.8, 2), CFrame.new(nest + Vector3.new(math.cos(a) * 2, 2.1, math.sin(a) * 2)), eggColors[(info.index + i) % 4 + 1], Enum.Material.SmoothPlastic)
 		end
 
-		-- planting spots
+		-- planting spots, spaced out so it's always clear which one you're standing at
 		local plots = folder("Plots", model)
 		local index = 0
-		for _, z in ipairs({ -14, 0, 14 }) do
-			for _, x in ipairs({ -21, -7, 7, 21 }) do
+		for _, z in ipairs({ -20, -2, 16 }) do
+			for _, x in ipairs({ -27, -9, 9, 27 }) do
 				index += 1
 				if index <= Game.MAX_PLOTS then
 					local plot = Props.part(plots, Vector3.new(8, 1, 8), cf * CFrame.new(x, 0.2, z), Color3.fromRGB(96, 66, 42), Enum.Material.Ground)
@@ -511,7 +601,9 @@ local function buildBases(map: Folder)
 		local sign = Props.sign(model, cf * CFrame.new(0, 5, -hd - 1), "🏠 Empty Lair", Vector2.new(14, 3.6))
 		sign.Name = "Sign"
 
-		local home = invisibleWall(model, Vector3.new(2, 1, 2), CFrame.lookAt(L(0, -27) + Vector3.new(0, 1, 0), nest + Vector3.new(0, 1, 0)))
+		buildBotDock(model, cf * CFrame.new(-hw + 11, 0, -hd + 11))
+
+		local home = invisibleWall(model, Vector3.new(2, 1, 2), CFrame.lookAt(L(0, -hd + 10) + Vector3.new(0, 1, 0), nest + Vector3.new(0, 1, 0)))
 		home.Name = "HomeSpawn"
 		home.CanCollide = false
 
@@ -569,171 +661,30 @@ local function buildBattleZone(map: Folder)
 	emblem.CanCollide = false
 	emblem.Transparency = 0.5
 
-	Props.sign(bz, CFrame.lookAt(Vector3.new(-44, 4, max.Z + 7), Vector3.new(-44, 4, max.Z + 40)), "⚔️ BATTLE ZONE ⚔️\nPvP: dragons can fight here!", Vector2.new(16, 5), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
+	Props.sign(bz, CFrame.lookAt(Vector3.new(-44, 5, max.Z + 7), Vector3.new(-44, 5, max.Z + 40)), "⚔️ BATTLE ZONE ⚔️\nPvP: dragons can fight here!", Vector2.new(16, 5), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
 end
 
----------------------------------------------------------------- viking lands
-
-local function scatterCamp(parent: Instance, center: Vector3, count: number, radius: number, fn)
-	for i = 1, count do
-		local a = (i / count) * math.pi * 2 + rng:NextNumber(-0.2, 0.2)
-		local r = radius * rng:NextNumber(0.85, 1.1)
-		local p = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
-		fn(p, a)
-	end
-end
+---------------------------------------------------------------- viking lands scenery
 
 local function buildVikingLands(map: Folder)
 	local vl = folder("VikingLands", map)
-	local camps = {}
-	for _, camp in ipairs(Zones.Camps) do
-		camps[camp.id] = camp
-	end
+	Camps.build(vl)
 
-	-- Raider Camp
-	do
-		local f = folder("RaiderCamp", vl)
-		local c = camps.RaiderCamp.center
-		local colors = { Color3.fromRGB(170, 60, 50), Color3.fromRGB(200, 180, 140), Color3.fromRGB(120, 90, 60) }
-		scatterCamp(f, c, 7, 38, function(p, a)
-			Props.tent(f, facingCF(p, c - p), colors[rng:NextInteger(1, #colors)])
-		end)
-		Props.campfire(f, c + Vector3.new(-8, 0, 4))
-		Props.campfire(f, c + Vector3.new(14, 0, -10))
-		for _ = 1, 8 do
-			local p = c + Vector3.new(rng:NextNumber(-45, 45), 0, rng:NextNumber(-45, 45))
-			if rng:NextNumber() < 0.5 then
-				Props.crate(f, p)
-			else
-				Props.barrel(f, p)
-			end
-		end
-		Props.banner(f, c + Vector3.new(0, 0, -30), Color3.fromRGB(170, 30, 30), Vector3.new(0, 0, -1))
-		Props.palisade(f, c + Vector3.new(-60, 0, 20), c + Vector3.new(-30, 0, 55))
-		Props.palisade(f, c + Vector3.new(30, 0, 55), c + Vector3.new(60, 0, 20))
-		Props.palisade(f, c + Vector3.new(-30, 0, 55), c + Vector3.new(30, 0, 55))
-		Props.sign(f, CFrame.lookAt(c + Vector3.new(18, 3.5, -72), c + Vector3.new(18, 3.5, -120)), "Raider Camp\nLevel 1 - 4", Vector2.new(10, 4))
-	end
-
-	-- Fishing Village
-	do
-		local f = folder("FishingVillage", vl)
-		local c = camps.FishingVillage.center
-		for _, off in ipairs({ Vector3.new(-30, 0, -40), Vector3.new(10, 0, -50), Vector3.new(40, 0, -20), Vector3.new(35, 0, 30), Vector3.new(-10, 0, 45), Vector3.new(-45, 0, 25) }) do
-			local p = c + off
-			Props.hut(f, facingCF(p, c - p))
-		end
-		Props.campfire(f, c)
-		Props.longship(f, CFrame.new(-445, -1.5, 560) * CFrame.Angles(0, math.rad(10), 0))
-		Props.longship(f, CFrame.new(-430, -1.5, 640) * CFrame.Angles(0, math.rad(-15), 0))
-		-- docks
-		for _, z in ipairs({ 545, 615 }) do
-			Props.part(f, Vector3.new(40, 1, 6), CFrame.new(-395, 0.6, z), Color3.fromRGB(130, 95, 60), Enum.Material.WoodPlanks)
-			for x = -410, -380, 10 do
-				Props.column(f, Vector3.new(x, -8, z + 3), 9, 1, Props.DARK_WOOD, Enum.Material.Wood)
-			end
-		end
-		-- fish drying racks
-		for _, p in ipairs({ c + Vector3.new(-20, 0, 10), c + Vector3.new(20, 0, 5) }) do
-			Props.column(f, p + Vector3.new(-4, 0, 0), 6, 0.5, Props.DARK_WOOD, Enum.Material.Wood)
-			Props.column(f, p + Vector3.new(4, 0, 0), 6, 0.5, Props.DARK_WOOD, Enum.Material.Wood)
-			Props.beam(f, p + Vector3.new(-4, 5.5, 0), p + Vector3.new(4, 5.5, 0), 0.4, Props.DARK_WOOD, Enum.Material.Wood)
-			for i = -3, 3 do
-				Props.ellipsoid(f, Vector3.new(0.6, 1.8, 0.4), CFrame.new(p + Vector3.new(i, 4.4, 0)), Color3.fromRGB(170, 180, 190), Enum.Material.SmoothPlastic)
-			end
-		end
-		for _ = 1, 6 do
-			Props.barrel(f, c + Vector3.new(rng:NextNumber(-50, 50), 0, rng:NextNumber(-50, 50)))
-		end
-		Props.sign(f, CFrame.lookAt(c + Vector3.new(60, 3.5, -40), c + Vector3.new(120, 3.5, -80)), "Fishing Village\nLevel 5 - 10", Vector2.new(10, 4))
-	end
-
-	-- Longhouse Hold
-	do
-		local f = folder("LonghouseHold", vl)
-		local c = camps.LonghouseHold.center
-		Props.longhouse(f, facingCF(c + Vector3.new(-18, 0, 10), Vector3.new(-1, 0, -1)), 42)
-		Props.longhouse(f, facingCF(c + Vector3.new(24, 0, 26), Vector3.new(-1, 0, -1)), 36)
-		Props.campfire(f, c + Vector3.new(0, 0, -20))
-		Props.watchtower(f, c + Vector3.new(-50, 0, 40))
-		Props.watchtower(f, c + Vector3.new(50, 0, -40))
-		-- palisade ring with a gap facing town (north-west)
-		local segments = 14
-		for i = 0, segments - 1 do
-			local a1 = (i / segments) * math.pi * 2
-			local a2 = ((i + 1) / segments) * math.pi * 2
-			local mid = (a1 + a2) / 2
-			local toTown = math.atan2(-1, -1)
-			local diff = math.abs(math.atan2(math.sin(mid - toTown), math.cos(mid - toTown)))
-			if diff > 0.5 then
-				Props.palisade(f, c + Vector3.new(math.cos(a1) * 82, 0, math.sin(a1) * 82), c + Vector3.new(math.cos(a2) * 82, 0, math.sin(a2) * 82), 12)
-			end
-		end
-		for _, off in ipairs({ Vector3.new(-30, 0, -30), Vector3.new(30, 0, 50), Vector3.new(0, 0, 55) }) do
-			Props.banner(f, c + off, Color3.fromRGB(40, 70, 150), Vector3.new(-1, 0, -1))
-		end
-		for _ = 1, 8 do
-			Props.crate(f, c + Vector3.new(rng:NextNumber(-55, 55), 0, rng:NextNumber(-55, 55)))
-		end
-		Props.sign(f, CFrame.lookAt(c + Vector3.new(-70, 3.5, -75), c + Vector3.new(-120, 3.5, -120)), "Longhouse Hold\nLevel 10 - 17", Vector2.new(10, 4))
-	end
-
-	-- Jarl's Fortress
-	do
-		local f = folder("JarlsFortress", vl)
-		local c = camps.JarlsFortress.center
-		local hx, hz = 95, 85
-		local nw, ne = c + Vector3.new(-hx, 0, -hz), c + Vector3.new(hx, 0, -hz)
-		local sw, se = c + Vector3.new(-hx, 0, hz), c + Vector3.new(hx, 0, hz)
-		Props.stoneWall(f, nw, c + Vector3.new(-16, 0, -hz), 16, 5)
-		Props.stoneWall(f, c + Vector3.new(16, 0, -hz), ne, 16, 5)
-		Props.stoneWall(f, nw, sw, 16, 5)
-		Props.stoneWall(f, ne, se, 16, 5)
-		Props.stoneWall(f, sw, se, 16, 5)
-		for _, p in ipairs({ nw, ne, sw, se, c + Vector3.new(-20, 0, -hz), c + Vector3.new(20, 0, -hz) }) do
-			Props.tower(f, p, 24, 11, Color3.fromRGB(110, 30, 30))
-		end
-		Props.longhouse(f, facingCF(c + Vector3.new(0, 0, 50), Vector3.new(0, 0, -1)), 60, 26)
-		for z = -70, 30, 20 do
-			Props.torch(f, c + Vector3.new(-12, 0, z), Color3.fromRGB(255, 120, 50))
-			Props.torch(f, c + Vector3.new(12, 0, z), Color3.fromRGB(255, 120, 50))
-		end
-		for _, off in ipairs({ Vector3.new(-40, 0, 10), Vector3.new(40, 0, 10), Vector3.new(-25, 0, -60), Vector3.new(25, 0, -60) }) do
-			Props.banner(f, c + off, Color3.fromRGB(120, 40, 160), Vector3.new(0, 0, -1))
-		end
-		Props.campfire(f, c + Vector3.new(-45, 0, -25))
-		Props.campfire(f, c + Vector3.new(45, 0, -25))
-		Props.sign(f, CFrame.lookAt(c + Vector3.new(26, 3.5, -hz - 12), c + Vector3.new(26, 3.5, -hz - 60)), "Jarl's Fortress\nLevel 18 - 28", Vector2.new(10, 4))
-	end
-
-	-- Scattered pines and rocks
-	local function nearCamp(p: Vector3): boolean
-		for _, camp in ipairs(Zones.Camps) do
-			if (Vector3.new(p.X, 0, p.Z) - camp.center).Magnitude < camp.radius + 45 then
-				return true
-			end
-		end
-		if math.abs(p.X) < 22 and p.Z < 850 then
-			return true -- main path
-		end
-		if p.X < -380 and p.Z > 480 and p.Z < 700 then
-			return true -- pond
-		end
-		return false
-	end
+	-- Scattered pines and rocks between the camps
 	local scenery = folder("Scenery", vl)
 	local placed = 0
-	for _ = 1, 400 do
+	for _ = 1, 500 do
 		if placed >= 170 then
 			break
 		end
 		local p = Vector3.new(rng:NextNumber(-530, 530), 0, rng:NextNumber(330, 1090))
-		if not nearCamp(p) then
+		if not nearCamp(p, 45) and not nearPath(p, 6) and not Wilds.inAnyLake(p, 10) and not Wilds.inRiver(p, 10) then
 			placed += 1
+			local ground = Vector3.new(p.X, Props.groundY(p.X, p.Z), p.Z)
 			if rng:NextNumber() < 0.75 then
-				Props.tree(scenery, p, rng:NextNumber(0.9, 1.6), rng:NextNumber() < 0.6 and "snowpine" or "pine")
+				Props.tree(scenery, ground, rng:NextNumber(0.9, 1.6), rng:NextNumber() < 0.6 and "snowpine" or "pine")
 			else
-				Props.rock(scenery, p + Vector3.new(0, 1, 0), rng:NextNumber(4, 11))
+				Props.rock(scenery, ground + Vector3.new(0, 1, 0), rng:NextNumber(4, 11))
 			end
 		end
 	end
@@ -801,6 +752,7 @@ function WorldBuilder.build()
 	buildBases(map)
 	buildBattleZone(map)
 	buildVikingLands(map)
+	Wilds.build(map)
 	local barriers = Instance.new("Folder")
 	barriers.Name = "Barriers"
 	buildBossArena(map, barriers)

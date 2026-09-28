@@ -5,7 +5,9 @@ local Config = script.Parent.Config
 local Classes = require(Config.Classes)
 local Talents = require(Config.Talents)
 local Abilities = require(Config.Abilities)
+local Game = require(Config.Game)
 local ItemUtil = require(script.Parent.ItemUtil)
+local Tuning = require(script.Parent.Tuning)
 
 local StatCalc = {}
 
@@ -18,6 +20,8 @@ StatCalc.STAT_INFO = {
 	critDamage = { label = "Crit Damage", pct = true },
 	speedPct = { label = "Speed", pct = true },
 	staminaPct = { label = "Flight Stamina", pct = true },
+	flightSpeedPct = { label = "Flight Speed", pct = true },
+	hungerPct = { label = "Slower Hunger", pct = true },
 	dodge = { label = "Dodge Chance", pct = true },
 	lifesteal = { label = "Lifesteal", pct = true },
 	regen = { label = "Max Health regenerated per second", pct = true },
@@ -42,12 +46,13 @@ local ADDITIVE_KEYS = {
 	"attackPct", "healthPct", "defensePct", "critChance", "critDamage", "speedPct", "staminaPct",
 	"dodge", "lifesteal", "regen", "cooldownPct", "breathPct", "fireballPct", "abilityPct",
 	"poisonPct", "burnPct", "slowPct", "executePct", "bossPct", "pvpPct", "thorns",
-	"goldPct", "xpPct", "lootPct", "cheatDeath",
+	"goldPct", "xpPct", "lootPct", "cheatDeath", "flightSpeedPct", "hungerPct",
 }
 
-local CAPS = { dodge = 50, cooldownPct = 40, critChance = 75, lifesteal = 30 }
+local CAPS = { dodge = 50, cooldownPct = 40, critChance = 75, lifesteal = 30, hungerPct = 80 }
 
--- equipped: { [slot] = itemRecord }, talents: { [talentId] = rank }, buffs: { { stats = {...} } }
+-- equipped: { [slot] = itemRecord }, talents: { [talentId] = rank },
+-- buffs: { { stats = {...} } } (ability buffs, potions, pets and hunger all come in this way)
 function StatCalc.compute(classId: string, level: number, equipped, talents, buffs)
 	local class = Classes.get(classId) or Classes.get("Shadowstalker")
 	local base = class.stats
@@ -88,8 +93,9 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 		local talent = Talents.byId[talentId]
 		if talent and talent.classId == class.id and rank > 0 then
 			rank = math.min(rank, talent.maxRank)
+			local scale = Tuning.talent(talent.id)
 			for stat, perRank in pairs(talent.effects) do
-				s[stat] = (s[stat] or 0) + perRank * rank
+				s[stat] = (s[stat] or 0) + perRank * rank * scale
 			end
 			if talent.ability then
 				table.insert(branchOrder, talent)
@@ -112,6 +118,9 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 		end
 		return a.tier < b.tier
 	end)
+	if class.signature and level >= Game.SIGNATURE_LEVEL then
+		table.insert(s.abilities, class.signature)
+	end
 	for _, talent in ipairs(branchOrder) do
 		table.insert(s.abilities, talent.ability)
 	end
@@ -185,14 +194,15 @@ function StatCalc.resolveAbility(abilityId: string, classId: string, stats)
 
 	local mods = stats.abilityMods[abilityId] or {}
 	dmgPct += mods.dmgPct or 0
-	a.damageMult = (a.mult or 0) * (1 + dmgPct / 100)
+	local tuneDmg, tuneCd = Tuning.ability(abilityId)
+	a.damageMult = (a.mult or 0) * (1 + dmgPct / 100) * tuneDmg
 
-	local cd = a.cooldown or 1
+	local cd = (a.cooldown or 1) * tuneCd
 	if a.kind ~= "breath" then
 		cd = cd * (1 - stats.cooldownPct / 100)
 	end
 	cd += mods.cdFlat or 0
-	a.cooldown = math.max(cd, (base.cooldown or cd) * 0.3, 0.25)
+	a.cooldown = math.max(cd, (base.cooldown or cd) * 0.3 * tuneCd, 0.2)
 
 	if a.radius and mods.radiusPct then
 		a.radius *= 1 + mods.radiusPct / 100

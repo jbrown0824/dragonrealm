@@ -218,6 +218,13 @@ function VikingBuilder.build(look, scale: number, name: string)
 					local top = hand + V(0, 1.6, -0.7)
 					cylinder(hand + V(0, -0.8, 0.3), top, 0.28 * s, WOOD)
 					part("Part", V(1.1, 0.75, 0.75), CFrame.lookAt(top, top + Vector3.new(0, 1, -0.4)), DARK_METAL, Enum.Material.Metal)
+				elseif weapon == "horn" then
+					-- a great curved war horn, raised to the lips when sounding the alarm
+					local hand = V(1.42, -1.1, 0)
+					local a, b, c = hand + V(-0.2, 0.2, -0.4), hand + V(0.1, 0.9, -1.1), hand + V(0.5, 1.8, -1.4)
+					limb(a, b, 0.32 * s, IVORY)
+					limb(b, c, 0.5 * s, IVORY)
+					ellipsoid(V(0.9, 0.9, 0.3), c + V(0.1, 0.3, -0.1), GOLD, Enum.Material.Metal)
 				elseif weapon == "staff" then
 					local hand = V(1.42, -1.1, 0)
 					local top = hand + V(0, 3.4, -0.4)

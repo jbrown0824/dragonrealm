@@ -282,8 +282,10 @@ function VFX.projectiles(data)
 	for _, entry in ipairs(data.list) do
 		local parts = {}
 		local main
-		if data.abilityId == "GlacialLance" then
+		if data.abilityId == "GlacialLance" or data.abilityId == "FrostShards" then
 			main = part(Vector3.new(0.7, 0.7, size * 3.5), CFrame.lookAt(data.origin, data.origin + entry.dir), Color3.fromRGB(200, 240, 255), Enum.Material.Ice, 0.1)
+		elseif data.abilityId == "SparkBolt" then
+			main = part(Vector3.new(0.5, 0.5, size * 5), CFrame.lookAt(data.origin, data.origin + entry.dir), Color3.fromRGB(230, 250, 255), Enum.Material.Neon, 0)
 		else
 			main = part(Vector3.new(size, size, size), CFrame.new(data.origin), colorA, Enum.Material.Neon, 0.05, Enum.PartType.Ball)
 		end
@@ -566,15 +568,69 @@ function VFX.water(pos: Vector3)
 	Debris:AddItem(anchor, 1.5)
 end
 
-function VFX.sun(pos: Vector3)
-	local beam = part(Vector3.new(24, 4, 4), CFrame.new(pos + Vector3.new(0, 12, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(255, 230, 120), Enum.Material.Neon, 0.4, Enum.PartType.Cylinder)
-	tween(beam, 0.9, { Transparency = 1 })
-	Debris:AddItem(beam, 1)
-	burst(pos + Vector3.new(0, 2, 0), Color3.fromRGB(255, 240, 150), Color3.fromRGB(255, 200, 60), 20, 8, 1, SPARKLE)
-end
-
 function VFX.harvest(pos: Vector3, color: Color3?)
 	burst(pos + Vector3.new(0, 2, 0), color or Color3.fromRGB(255, 200, 120), Color3.fromRGB(255, 255, 200), 35, 18, 1.2, SPARKLE)
+end
+
+---------------------------------------------------------------- survival, camps, pets
+
+-- A Hornblower winding up: rings pulse out from him until the horn sounds.
+function VFX.hornWindup(pos: Vector3, time: number)
+	local pulses = math.max(1, math.floor(time / 0.5))
+	for i = 0, pulses - 1 do
+		task.delay(i * 0.5, function()
+			ring(pos - Vector3.new(0, 2.5, 0), 10 + i * 3, Color3.fromRGB(255, 200, 90), 0.45, 0.4)
+		end)
+	end
+end
+
+function VFX.alarm(pos: Vector3)
+	ring(pos - Vector3.new(0, 2.5, 0), 70, Color3.fromRGB(255, 120, 60), 1.2, 1.5)
+	ring(pos - Vector3.new(0, 2, 0), 40, Color3.fromRGB(255, 200, 90), 0.9, 1)
+	flash(pos, Color3.fromRGB(255, 150, 70), 60, 0.8)
+	App.Sfx.play("Horn", 0.7)
+end
+
+function VFX.eat(character: Model)
+	if not character or not character.Parent then
+		return
+	end
+	local head = character:FindFirstChild("Head")
+	local pos = head and head.Position or character:GetPivot().Position
+	burst(pos, Color3.fromRGB(255, 200, 140), Color3.fromRGB(200, 120, 70), 14, 8, 0.8, SPARKLE)
+end
+
+function VFX.potion(character: Model, color: Color3?)
+	if not character or not character.Parent then
+		return
+	end
+	local pos = character:GetPivot().Position
+	local c = color or Color3.fromRGB(150, 255, 120)
+	burst(pos, c, c:Lerp(Color3.new(1, 1, 1), 0.5), 40, 18, 1.6, SPARKLE)
+	ring(pos - Vector3.new(0, 3, 0), 12, c, 0.6, 0.6)
+end
+
+function VFX.chest(pos: Vector3)
+	local gold = Color3.fromRGB(255, 215, 80)
+	burst(pos + Vector3.new(0, 4, 0), gold, Color3.fromRGB(255, 255, 200), 60, 25, 1.5, SPARKLE)
+	flash(pos, gold, 40, 1)
+	App.Sfx.play("Loot")
+end
+
+function VFX.splash(pos: Vector3, big: boolean?)
+	local anchor = anchorAt(pos + Vector3.new(0, 0.5, 0))
+	local e = emitter(anchor, {
+		Color = ColorSequence.new(Color3.fromRGB(200, 235, 255)),
+		Speed = NumberRange.new(big and 10 or 5, big and 18 or 9),
+		SpreadAngle = Vector2.new(30, 30),
+		Acceleration = Vector3.new(0, -45, 0),
+		Lifetime = NumberRange.new(0.5, 0.8),
+		Size = NS({ { 0, big and 0.7 or 0.4 }, { 1, 0.2 } }),
+		EmissionDirection = Enum.NormalId.Top,
+	})
+	e:Emit(big and 40 or 15)
+	Debris:AddItem(anchor, 1.5)
+	ring(pos, big and 7 or 4, Color3.fromRGB(220, 245, 255), 0.6, 0.3)
 end
 
 ---------------------------------------------------------------- dispatch
@@ -602,11 +658,26 @@ local HANDLERS = {
 	water = function(d)
 		VFX.water(d.pos)
 	end,
-	sun = function(d)
-		VFX.sun(d.pos)
-	end,
 	harvest = function(d)
 		VFX.harvest(d.pos, d.color)
+	end,
+	hornWindup = function(d)
+		VFX.hornWindup(d.pos, d.time or 2.5)
+	end,
+	alarm = function(d)
+		VFX.alarm(d.pos)
+	end,
+	eat = function(d)
+		VFX.eat(d.character)
+	end,
+	potion = function(d)
+		VFX.potion(d.character, d.color)
+	end,
+	chest = function(d)
+		VFX.chest(d.pos)
+	end,
+	splash = function(d)
+		VFX.splash(d.pos, d.big)
 	end,
 }
 

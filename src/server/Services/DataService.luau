@@ -38,6 +38,21 @@ local function defaultProfile()
 		bossKills = 0,
 		vikingKills = 0,
 		flowersHarvested = 0,
+		-- added in the survival / pets update
+		hunger = Game.HUNGER_MAX,
+		food = {}, -- [foodId] = count
+		potions = {}, -- [potionId] = rank
+		eggs = {}, -- [eggId] = count
+		pets = {}, -- list of { uid, species }
+		petsEquipped = {}, -- list of pet uids
+		petCounter = 0,
+		robots = { water = false, harvest = 0 },
+		tutorial = 0, -- step reached; -1 = finished or skipped
+		tutorialRewarded = false,
+		codes = {}, -- [code] = true once redeemed
+		animalsHunted = 0,
+		fishCaught = 0,
+		chestsOpened = 0,
 	}
 end
 
@@ -97,7 +112,12 @@ function DataService.load(player: Player)
 	if type(data) ~= "table" then
 		data = defaultProfile()
 	else
+		-- Dragons from before the tutorial existed don't need the new-player tour.
+		local veteran = data.tutorial == nil and data.class ~= nil
 		data = reconcile(data, defaultProfile())
+		if veteran then
+			data.tutorial = -1
+		end
 	end
 	if not player.Parent then
 		return nil

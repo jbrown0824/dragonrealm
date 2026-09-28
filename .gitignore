@@ -11,3 +11,5 @@ tools/preview/*.jsonl
 tools/preview/*.png
 tools/preview/_*
 tools/checks/_*
+tools/preview/*.txt
+tools/sim/_*

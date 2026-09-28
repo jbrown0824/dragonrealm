@@ -67,6 +67,29 @@ function Util.fmt(n: number): string
 	return tostring(r)
 end
 
+-- A smooth curve through points {x, z} (Catmull-Rom), sampled about every `spacing` studs.
+-- Used for the river (world builder and map).
+function Util.spline(points, spacing: number)
+	local out = {}
+	local n = #points
+	local function P(i)
+		local q = points[math.clamp(i, 1, n)]
+		return Vector3.new(q[1], 0, q[2])
+	end
+	for i = 1, n - 1 do
+		local p0, p1, p2, p3 = P(i - 1), P(i), P(i + 1), P(i + 2)
+		local steps = math.max(1, math.floor((p2 - p1).Magnitude / spacing))
+		for k = 0, steps - 1 do
+			local t = k / steps
+			local t2, t3 = t * t, t * t * t
+			local v = (p1 * 2 + (p2 - p0) * t + (p0 * 2 - p1 * 5 + p2 * 4 - p3) * t2 + (p1 * 3 - p0 - p2 * 3 + p3) * t3) * 0.5
+			table.insert(out, v)
+		end
+	end
+	table.insert(out, P(n))
+	return out
+end
+
 function Util.countKeys(t): number
 	local n = 0
 	for _ in pairs(t) do

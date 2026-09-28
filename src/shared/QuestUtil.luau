@@ -2,6 +2,7 @@
 -- Saved quest state: { active = { [questId] = progress }, done = { [questId] = timesCompleted } }
 
 local Quests = require(script.Parent.Config.Quests)
+local Pets = require(script.Parent.Config.Pets)
 
 local QuestUtil = {}
 
@@ -92,6 +93,12 @@ function QuestUtil.rewardText(quest): string
 	if r.seeds then
 		for seedId, n in pairs(r.seeds) do
 			table.insert(parts, n .. "x " .. seedId .. " Seed")
+		end
+	end
+	if r.eggs then
+		for eggId, n in pairs(r.eggs) do
+			local egg = Pets.Eggs[eggId]
+			table.insert(parts, n .. "x " .. (egg and egg.name or eggId))
 		end
 	end
 	return table.concat(parts, "  •  ")

@@ -2,7 +2,8 @@
 --   dragons: poses from Shared/DragonRig (folded wings at rest, hard wing beats when jumping,
 --            gliding when falling, flapping in flight, jaw + frill when breathing fire, blinking,
 --            walking with knees, a pulsing ember core), blended smoothly between states
---   vikings: walking, chopping and throwing
+--   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers)
+--   animals: trotting legs, head bob and tail wag (AnimalBuilder rigs)
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -35,7 +36,7 @@ local function register(model: Instance, kind: string)
 		end
 		rig.root = root
 	end)
-	if kind == "viking" then
+	if kind == "viking" or kind == "animal" then
 		model:GetAttributeChangedSignal("Swing"):Connect(function()
 			rig.swingAt = os.clock()
 		end)
@@ -97,7 +98,10 @@ local function animateViking(model: Model, rig, now: number)
 	local sinceSwing = now - rig.swingAt
 	local sinceThrow = now - rig.throwAt
 	local arm
-	if sinceSwing >= 0 and sinceSwing < 0.55 then
+	if model:GetAttribute("Blowing") then
+		-- horn raised to the lips, swaying as he blows
+		arm = 2.3 + math.sin(t * 6) * 0.12
+	elseif sinceSwing >= 0 and sinceSwing < 0.55 then
 		if sinceSwing < 0.25 then
 			arm = 2.6 * (sinceSwing / 0.25)
 		else
@@ -115,6 +119,29 @@ local function animateViking(model: Model, rig, now: number)
 	set(rig, "ArmR", CFrame.Angles(arm, 0, 0))
 end
 
+local function animateAnimal(model: Model, rig, now: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health <= 0 then
+		return -- a carcass lies still
+	end
+	local root = rig.root
+	local vel = root.AssemblyLinearVelocity
+	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	local t = now + rig.phase
+	local amt = math.clamp(speed / 14, 0, 1)
+	local stride = math.sin(t * (6 + speed * 0.4)) * 0.6 * amt
+	set(rig, "LegFL", CFrame.Angles(stride, 0, 0))
+	set(rig, "LegBR", CFrame.Angles(stride, 0, 0))
+	set(rig, "LegFR", CFrame.Angles(-stride, 0, 0))
+	set(rig, "LegBL", CFrame.Angles(-stride, 0, 0))
+	local sinceSwing = now - rig.swingAt
+	local lunge = (sinceSwing >= 0 and sinceSwing < 0.4) and math.sin(sinceSwing / 0.4 * math.pi) * 0.5 or 0
+	-- grazing when idle, bobbing when moving, lunging to bite
+	local graze = amt < 0.1 and (math.sin(t * 0.4) > 0.3 and -0.5 or 0) or 0
+	set(rig, "Head", CFrame.Angles(graze + math.sin(t * 7) * 0.08 * amt - lunge, 0, 0))
+	set(rig, "Tail", CFrame.Angles(0, math.sin(t * 3) * 0.4, 0))
+end
+
 function Animator.init(app)
 	App = app
 	for _, model in ipairs(CollectionService:GetTagged("Dragon")) do
@@ -128,6 +155,15 @@ function Animator.init(app)
 	end)
 	CollectionService:GetInstanceAddedSignal("Viking"):Connect(function(m)
 		register(m, "viking")
+	end)
+	for _, model in ipairs(CollectionService:GetTagged("Animal")) do
+		register(model, "animal")
+	end
+	CollectionService:GetInstanceAddedSignal("Animal"):Connect(function(m)
+		register(m, "animal")
+	end)
+	CollectionService:GetInstanceRemovedSignal("Animal"):Connect(function(m)
+		rigs[m] = nil
 	end)
 	CollectionService:GetInstanceRemovedSignal("Dragon"):Connect(function(m)
 		rigs[m] = nil
@@ -146,6 +182,8 @@ function Animator.init(app)
 			elseif rig.root and rig.root.Parent and (rig.root.Position - camPos).Magnitude < 320 then
 				if rig.kind == "dragon" then
 					animateDragon(model, rig, now, dt)
+				elseif rig.kind == "animal" then
+					animateAnimal(model, rig, now)
 				else
 					animateViking(model, rig, now)
 				end

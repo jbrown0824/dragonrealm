@@ -37,7 +37,7 @@ local function refresh()
 				TextSize = 12,
 				Font = Theme.Fonts.body,
 				TextColor3 = C.subtext,
-				Text = string.format("%s • ~%s to bloom • asks for care %d× per stage • full bloom ~%d gold", seed.rarity, Util.formatTime(seed.stageTime * 3), seed.needsPerStage, seed.value),
+				Text = string.format("%s • ~%s to bloom • thirsty %d× per stage • full bloom ~%d gold", seed.rarity, Util.formatTime(seed.stageTime * 3), seed.needsPerStage, seed.value),
 				Parent = row,
 			})
 			Theme.button("Plant", Color3.fromRGB(60, 140, 70), function()
@@ -48,7 +48,7 @@ local function refresh()
 					if not ok then
 						App.Notifications.toast(err or "Couldn't plant there.", C.bad, "🌱")
 					else
-						App.Notifications.toast("Planted " .. seed.name .. "! Watch for 💧 and ☀️ requests.", seed.bloom, "🌱")
+						App.Notifications.toast("Planted " .. seed.name .. "! Water it [R] when it gets thirsty 💧.", seed.bloom, "🌱")
 					end
 				end)
 			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(100, 40), Parent = row })
@@ -68,7 +68,7 @@ function SeedPicker.init(app)
 		Size = UDim2.new(1, 0, 0, 36),
 		TextSize = 13,
 		TextColor3 = C.subtext,
-		Text = "Plants grow Seed → Seedling → Sprout → Flower. Give them 💧 water [R] or ☀️ sun [T] when they ask. Harvest [E] anytime — bigger plants are worth more, and flowers give seeds back!",
+		Text = "Plants grow Seed → Seedling → Sprout → Flower. Water them [R] when they get thirsty 💧 (a missed drink lowers their quality). Harvest [E] anytime: bigger plants are worth more, and flowers give seeds back!",
 		Parent = content,
 	})
 	list = Theme.scroll(content, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })

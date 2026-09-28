@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared.Config.Items)
+local Food = require(Shared.Config.Food)
 local Game = require(Shared.Config.Game)
 local ItemUtil = require(Shared.ItemUtil)
 local Util = require(Shared.Util)
@@ -26,22 +27,39 @@ local busy = false
 
 local TAB_INFO = {
 	Buy = { title = "⚔️ Emberforge Armory", hint = "Fresh gear for your level. Rarer gear drops from vikings and bosses!" },
-	Sell = { title = "💰 Hoard Exchange", hint = "Sell gear you don't need. (Unequip it first.)" },
+	Sell = { title = "💰 Hoard Exchange", hint = "Sell gear you don't need (unequip it first), and extra food." },
 	Upgrade = { title = "🔨 Anvil of Ages", hint = "Each upgrade adds +10% to an item's stats, up to +" .. Game.MAX_UPGRADE .. "." },
 }
 
-local function row(order: number, item, rightText: string, buttonText: string, buttonColor: Color3, enabled: boolean, onClick, extra: string?)
+-- badge: optional { text, color } shown as a tag on the row (EQUIPPED, better than yours...)
+local function row(order: number, item, rightText: string, buttonText: string, buttonColor: Color3, enabled: boolean, onClick, extra: string?, badge)
 	local frame = Theme.make("Frame", {
 		Size = UDim2.new(1, -10, 0, 58),
-		BackgroundColor3 = C.panel2,
+		BackgroundColor3 = badge and badge.color:Lerp(C.panel2, 0.8) or C.panel2,
 		LayoutOrder = order,
 		Parent = list,
 	})
 	Theme.corner(frame, 8)
-	Theme.stroke(frame, ItemUtil.rarityColor(item.rarity), 1.5, 0.4)
+	Theme.stroke(frame, badge and badge.color or ItemUtil.rarityColor(item.rarity), badge and 2.5 or 1.5, badge and 0 or 0.4)
+	if badge then
+		local tag = Theme.label({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -300, 0, 15),
+			Size = UDim2.fromOffset(150, 20),
+			BackgroundTransparency = 0,
+			BackgroundColor3 = badge.color,
+			TextColor3 = Color3.fromRGB(15, 25, 15),
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = badge.text,
+			ZIndex = 3,
+			Parent = frame,
+		})
+		Theme.corner(tag, 6)
+	end
 	Theme.label({
 		Position = UDim2.fromOffset(10, 4),
-		Size = UDim2.new(1, -300, 0, 22),
+		Size = UDim2.new(1, badge and -460 or -300, 0, 22),
 		TextSize = 16,
 		TextColor3 = ItemUtil.rarityColor(item.rarity),
 		TextWrapped = false,
@@ -112,9 +130,11 @@ function Shop.refresh()
 		for i, entry in ipairs(stock) do
 			local item = entry.item
 			local affordable = p.gold >= entry.price
+			local worn = p.equipped[item.slot] and App.State.findItem(p.equipped[item.slot])
+			local badge = ItemUtil.isUpgrade(item, worn) and { text = "⬆️ Better than yours", color = Color3.fromRGB(110, 230, 110) } or nil
 			row(i, item, Util.formatNumber(entry.price) .. " 💰", "Buy", Color3.fromRGB(60, 140, 70), affordable, function()
 				act("BuyItem", entry.index, "Bought " .. ItemUtil.displayName(item) .. "! Equip it from your Bag.")
-			end)
+			end, nil, badge)
 		end
 	elseif tab == "Sell" then
 		local n = 0
@@ -127,7 +147,36 @@ function Shop.refresh()
 			end
 		end
 		if n == 0 then
-			Theme.label({ Size = UDim2.new(1, 0, 0, 40), TextSize = 15, TextColor3 = C.subtext, Text = "Nothing to sell. (Equipped items can't be sold.)", Parent = list })
+			Theme.label({ Size = UDim2.new(1, 0, 0, 40), LayoutOrder = 1, TextSize = 15, TextColor3 = C.subtext, Text = "No gear to sell. (Equipped items can't be sold.)", Parent = list })
+		end
+		-- Food (fish and packed meat)
+		for i, foodId in ipairs(Food.Order) do
+			local count = p.food and p.food[foodId] or 0
+			if count > 0 then
+				local item = Food.get(foodId)
+				local frame = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 50), BackgroundColor3 = C.panel2, LayoutOrder = 1000 + i, Parent = list })
+				Theme.corner(frame, 8)
+				Theme.label({ Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -400, 1, 0), TextSize = 16, TextColor3 = item.color, Text = string.format("%s %s  x%d", item.icon, item.name, count), Parent = frame })
+				Theme.label({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -250, 0.5, 0), Size = UDim2.fromOffset(120, 24), TextSize = 15, TextColor3 = C.gold, TextXAlignment = Enum.TextXAlignment.Right, Text = "+" .. item.sell .. " 💰 each", Parent = frame })
+				Theme.button("Sell 1", Color3.fromRGB(170, 120, 40), function()
+					act("SellFood", foodId)
+				end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -128, 0.5, 0), Size = UDim2.fromOffset(110, 34), Parent = frame })
+				Theme.button("Sell all", Color3.fromRGB(170, 120, 40), function()
+					if busy then
+						return
+					end
+					busy = true
+					task.spawn(function()
+						local ok, result = Remotes.func("SellFood"):InvokeServer(foodId, count)
+						busy = false
+						if ok then
+							App.Sfx.play("Coin")
+						else
+							App.Notifications.toast(result or "Couldn't sell that.", C.bad, "🛒")
+						end
+					end)
+				end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(110, 34), Parent = frame })
+			end
 		end
 	else
 		local items = table.clone(p.inventory)
@@ -147,12 +196,10 @@ function Shop.refresh()
 			local now = ItemUtil.describeStats(ItemUtil.getStats(item))
 			local after = ItemUtil.describeStats(ItemUtil.getStats(nextItem))
 			local extra = maxed and "Fully upgraded!" or (table.concat(now, ", ") .. "  →  <font color=\"#6EDC6E\">" .. table.concat(after, ", ") .. "</font>")
-			if p.equipped[item.slot] == item.id then
-				extra = "<font color=\"#6EDC6E\">✔ worn</font>  " .. extra
-			end
-			row(i, item, maxed and "MAX" or (Util.formatNumber(cost) .. " 💰"), maxed and "Maxed" or ("Upgrade → +" .. nextItem.up), Color3.fromRGB(70, 100, 180), not maxed and p.gold >= cost, function()
+			local badge = p.equipped[item.slot] == item.id and { text = "✅ EQUIPPED", color = Color3.fromRGB(110, 230, 110) } or nil
+			row(i, item, maxed and "MAX" or (Util.formatNumber(cost) .. " 💰"), maxed and "Maxed" or ("Upgrade to +" .. nextItem.up), Color3.fromRGB(70, 100, 180), not maxed and p.gold >= cost, function()
 				act("UpgradeItem", item.id, "Upgraded to " .. ItemUtil.displayName(nextItem) .. "!")
-			end, extra)
+			end, extra, badge)
 		end
 		if #items == 0 then
 			Theme.label({ Size = UDim2.new(1, 0, 0, 40), TextSize = 15, TextColor3 = C.subtext, Text = "You have no gear to upgrade yet.", Parent = list })

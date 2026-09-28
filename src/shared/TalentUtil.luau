@@ -6,6 +6,7 @@ local Talents = require(Config.Talents)
 local Abilities = require(Config.Abilities)
 local StatCalc = require(script.Parent.StatCalc)
 local Util = require(script.Parent.Util)
+local Tuning = require(script.Parent.Tuning)
 
 local TalentUtil = {}
 
@@ -68,6 +69,36 @@ function TalentUtil.canLearn(classId: string, level: number, talents, talentId: 
 	return true
 end
 
+-- Spend as many points as possible down one branch: each tier's skills are filled (left, then
+-- right) before moving on, and passes repeat because filling a tier unlocks the next.
+-- Changes `talents` in place and returns how many ranks were learned.
+function TalentUtil.autoFill(classId: string, level: number, talents, branchIndex: number): number
+	local branch = Talents[classId] and Talents[classId][branchIndex]
+	if not branch then
+		return 0
+	end
+	local order = table.clone(branch.talents)
+	table.sort(order, function(a, b)
+		if a.tier ~= b.tier then
+			return a.tier < b.tier
+		end
+		return a.col < b.col
+	end)
+	local learned = 0
+	local progress = true
+	while progress do
+		progress = false
+		for _, t in ipairs(order) do
+			while TalentUtil.canLearn(classId, level, talents, t.id) do
+				talents[t.id] = (talents[t.id] or 0) + 1
+				learned += 1
+				progress = true
+			end
+		end
+	end
+	return learned
+end
+
 function TalentUtil.respecCost(level: number): number
 	return Game.RESPEC_COST_PER_LEVEL * level
 end
@@ -112,8 +143,9 @@ function TalentUtil.describe(talent, rank: number): string
 		table.insert(keys, stat)
 	end
 	table.sort(keys)
+	local scale = Tuning.talent(talent.id)
 	for _, stat in ipairs(keys) do
-		table.insert(parts, effectLine(stat, talent.effects[stat] * rank))
+		table.insert(parts, effectLine(stat, talent.effects[stat] * rank * scale))
 	end
 	if talent.mods then
 		for abilityId, mod in pairs(talent.mods) do

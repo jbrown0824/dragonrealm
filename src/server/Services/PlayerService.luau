@@ -10,11 +10,14 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local Classes = require(Shared.Config.Classes)
+local Abilities = require(Shared.Config.Abilities)
 local Zones = require(Shared.Config.Zones)
 local Seeds = require(Shared.Config.Seeds)
 local StatCalc = require(Shared.StatCalc)
 local TalentUtil = require(Shared.TalentUtil)
 local ItemUtil = require(Shared.ItemUtil)
+local BonusUtil = require(Shared.BonusUtil)
+local Tuning = require(Shared.Tuning)
 local DragonBuilder = require(Shared.DragonBuilder)
 local Remotes = require(Shared.Remotes)
 
@@ -196,7 +199,7 @@ function PlayerService.recompute(player: Player)
 	if not profile or not st or not profile.class then
 		return
 	end
-	local buffStats = {}
+	local buffStats = BonusUtil.entries(profile)
 	for _, buff in pairs(st.buffs) do
 		if buff.stats then
 			table.insert(buffStats, { stats = buff.stats })
@@ -212,6 +215,7 @@ function PlayerService.recompute(player: Player)
 		humanoid.Health = math.max(1, math.min(st.stats.maxHealth, st.stats.maxHealth * ratio))
 		character:SetAttribute("MaxStamina", st.stats.stamina)
 		character:SetAttribute("BaseSpeed", st.stats.speed)
+		character:SetAttribute("FlightSpeedMult", math.max(0.3, 1 + st.stats.flightSpeedPct / 100))
 		character:SetAttribute("Level", profile.level)
 		PlayerService.refreshMovement(player)
 		updateNametag(player)
@@ -247,6 +251,17 @@ function PlayerService.snapshot(player: Player)
 		vikingKills = profile.vikingKills,
 		baseIndex = st.baseIndex,
 		saveFailed = S.DataService.didLoadFail(player),
+		hunger = profile.hunger,
+		food = profile.food,
+		potions = profile.potions,
+		eggs = profile.eggs,
+		pets = profile.pets,
+		petsEquipped = profile.petsEquipped,
+		petSlots = Game.petSlots(profile.level),
+		robots = profile.robots,
+		garden = S.FarmService.summary(player),
+		tutorial = profile.tutorial,
+		isAdmin = S.AdminService.isAdmin(player),
 	}
 end
 
@@ -307,7 +322,9 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	model:SetAttribute("BaseSpeed", stats.speed)
 	model:SetAttribute("Level", profile.level)
 	model:SetAttribute("SpeedMult", 1)
+	model:SetAttribute("FlightSpeedMult", math.max(0.3, 1 + stats.flightSpeedPct / 100))
 	createNametag(player, model)
+	S.PetService.applyToCharacter(player, model)
 
 	model:PivotTo(atCFrame or PlayerService.getSpawnCFrame(player))
 	model.Parent = workspace
@@ -326,6 +343,7 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 
 	humanoid.Died:Connect(function()
 		S.BossService.onPlayerDied(player)
+		S.SurvivalService.onDied(player)
 		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
 		Remotes.event("VFX"):FireAllClients({ kind = "enemyDeath", pos = root.Position })
 		task.delay(Game.RESPAWN_TIME, function()
@@ -348,7 +366,7 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		return
 	end
 	if not raw and st.stats then
-		amount = amount * (1 + st.stats.xpPct / 100)
+		amount = amount * (1 + st.stats.xpPct / 100) * Tuning.global("xp")
 	end
 	profile.xp += math.floor(amount)
 
@@ -379,6 +397,11 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		end
 		S.QuestService.progress(player, "level", nil, profile.level, true)
 		updateLeaderstats(player)
+		local class = Classes.get(profile.class)
+		if class and class.signature and startLevel < Game.SIGNATURE_LEVEL and profile.level >= Game.SIGNATURE_LEVEL then
+			local a = Abilities.get(class.signature)
+			PlayerService.notify(player, string.format("New ability: %s %s! Use it with key 1.", a.icon, a.name), Color3.fromRGB(255, 215, 80), "✨")
+		end
 	end
 	PlayerService.markDirty(player)
 end
@@ -390,7 +413,7 @@ function PlayerService.addGold(player: Player, amount: number, applyBonus: boole
 		return 0
 	end
 	if applyBonus and st and st.stats then
-		amount = amount * (1 + st.stats.goldPct / 100)
+		amount = amount * (1 + st.stats.goldPct / 100) * Tuning.global("gold")
 	end
 	amount = math.floor(amount)
 	profile.gold += amount
@@ -472,6 +495,40 @@ function PlayerService.addSeeds(player: Player, seedId: string, count: number, s
 	PlayerService.markDirty(player)
 end
 
+-- Change a dragon's level directly (admin tools). Skill points above the new total are refunded.
+function PlayerService.setLevel(player: Player, level: number)
+	local profile = PlayerService.getProfile(player)
+	if not profile then
+		return
+	end
+	profile.level = math.clamp(math.floor(level), 1, Game.LEVEL_CAP)
+	profile.xp = 0
+	if TalentUtil.available(profile.level, profile.talents) < 0 then
+		profile.talents = {}
+	end
+	PlayerService.recompute(player)
+	local _, humanoid = PlayerService.getCharacter(player)
+	if humanoid then
+		humanoid.Health = humanoid.MaxHealth
+	end
+	S.QuestService.progress(player, "level", nil, profile.level, true)
+	updateLeaderstats(player)
+end
+
+-- Switch dragon type in place (used by Transform and the admin panel).
+function PlayerService.setClass(player: Player, classId: string)
+	local profile = PlayerService.getProfile(player)
+	if not profile or not Classes.get(classId) then
+		return
+	end
+	profile.class = classId
+	profile.talents = {}
+	local _, _, root = PlayerService.getCharacter(player)
+	local at = root and root.CFrame or nil
+	PlayerService.recompute(player)
+	PlayerService.spawn(player, at)
+end
+
 ---------------------------------------------------------------- buffs
 
 function PlayerService.addBuff(player: Player, id: string, duration: number, stats)
@@ -519,32 +576,53 @@ local function onTransform(player: Player, classId)
 	if classId == profile.class then
 		return false, "You are already a " .. classId .. "."
 	end
-	local cost = profile.level < Game.TRANSFORM_FREE_UNTIL_LEVEL and 0 or profile.level * Game.TRANSFORM_COST_PER_LEVEL
+	local cost = Game.transformCost(profile.level)
 	if not PlayerService.spendGold(player, cost) then
 		return false, string.format("You need %d gold to transform.", cost)
 	end
-	profile.class = classId
-	profile.talents = {}
-	local _, _, root = PlayerService.getCharacter(player)
-	local at = root and root.CFrame or nil
-	PlayerService.recompute(player)
-	PlayerService.spawn(player, at)
+	PlayerService.setClass(player, classId)
 	PlayerService.notify(player, "You transformed into a " .. Classes.get(classId).name .. "! Your skill points were refunded.", Color3.fromRGB(255, 215, 80), "🐉")
 	return true
 end
 
-local function onSpendTalent(player: Player, talentId)
+-- Learn `count` ranks of one skill (1 by default; "Max" in the UI sends the ranks left).
+local function onSpendTalent(player: Player, talentId, count)
 	local profile = PlayerService.getProfile(player)
 	if not profile or not profile.class or type(talentId) ~= "string" then
 		return false, "Invalid"
 	end
-	local ok, reason = TalentUtil.canLearn(profile.class, profile.level, profile.talents, talentId)
-	if not ok then
-		return false, reason
+	count = math.clamp(math.floor(tonumber(count) or 1), 1, 5)
+	local learned = 0
+	for _ = 1, count do
+		local ok, reason = TalentUtil.canLearn(profile.class, profile.level, profile.talents, talentId)
+		if not ok then
+			if learned == 0 then
+				return false, reason
+			end
+			break
+		end
+		profile.talents[talentId] = (profile.talents[talentId] or 0) + 1
+		learned += 1
 	end
-	profile.talents[talentId] = (profile.talents[talentId] or 0) + 1
 	PlayerService.recompute(player)
-	return true
+	return true, learned
+end
+
+-- Spend every point you can down one branch.
+local function onAutoSpend(player: Player, branchIndex)
+	local profile = PlayerService.getProfile(player)
+	if not profile or not profile.class or type(branchIndex) ~= "number" then
+		return false, "Invalid"
+	end
+	if TalentUtil.available(profile.level, profile.talents) <= 0 then
+		return false, "No skill points left. Level up to earn more!"
+	end
+	local learned = TalentUtil.autoFill(profile.class, profile.level, profile.talents, branchIndex)
+	if learned == 0 then
+		return false, "Nothing more to learn in that branch right now."
+	end
+	PlayerService.recompute(player)
+	return true, learned
 end
 
 local function onResetTalents(player: Player)
@@ -573,6 +651,23 @@ local function onEquip(player: Player, itemId)
 	profile.equipped[item.slot] = item.id
 	PlayerService.recompute(player)
 	return true
+end
+
+-- Wear the best item you own in every slot.
+local function onEquipBest(player: Player)
+	local profile = PlayerService.getProfile(player)
+	if not profile then
+		return false
+	end
+	local changed = 0
+	for slot, item in pairs(ItemUtil.bestPerSlot(profile.inventory)) do
+		if profile.equipped[slot] ~= item.id then
+			profile.equipped[slot] = item.id
+			changed += 1
+		end
+	end
+	PlayerService.recompute(player)
+	return true, changed
 end
 
 local function onUnequip(player: Player, slot)
@@ -672,9 +767,11 @@ function PlayerService.start()
 	Remotes.func("ChooseClass").OnServerInvoke = onChooseClass
 	Remotes.func("Transform").OnServerInvoke = onTransform
 	Remotes.func("SpendTalent").OnServerInvoke = onSpendTalent
+	Remotes.func("AutoSpendBranch").OnServerInvoke = onAutoSpend
 	Remotes.func("ResetTalents").OnServerInvoke = onResetTalents
 	Remotes.func("EquipItem").OnServerInvoke = onEquip
 	Remotes.func("UnequipItem").OnServerInvoke = onUnequip
+	Remotes.func("EquipBest").OnServerInvoke = onEquipBest
 	Remotes.func("TeleportHome").OnServerInvoke = onTeleportHome
 	Remotes.event("SetFlying").OnServerEvent:Connect(function(player, flying)
 		local character = player.Character

@@ -46,13 +46,7 @@ end
 
 local function transformCost(): number
 	local p = App.State.profile
-	if not p then
-		return 0
-	end
-	if p.level < Game.TRANSFORM_FREE_UNTIL_LEVEL then
-		return 0
-	end
-	return p.level * Game.TRANSFORM_COST_PER_LEVEL
+	return p and Game.transformCost(p.level) or 0
 end
 
 local function choose(classId: string)

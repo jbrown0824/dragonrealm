@@ -1,9 +1,12 @@
 -- Player bases and farming. Each player gets a base in town with 6 planting spots (more can
--- be unlocked). Plants grow Seed -> Seedling -> Sprout -> Flower, but only while you give them
--- what they ask for: water or sun, shown above each plot with a countdown.
+-- be unlocked). Plants grow Seed -> Seedling -> Sprout -> Flower. A few times per stage a plant
+-- gets thirsty (shown above the plot with a countdown) and growth pauses until you water it.
+-- Miss the window and it keeps growing anyway, but its quality drops, and quality scales the
+-- harvest value. Garden robots bought at the Bot Dock can water and harvest for you.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
@@ -14,13 +17,16 @@ local Remotes = require(Shared.Remotes)
 local FarmService = {}
 local S
 
-local bases = {} -- [index] = { model, owner, plots = { [i] = plotRuntime }, sign, home }
+local bases = {} -- [index] = { model, owner, plots = { [i] = plotRuntime }, sign, home, dock, bots = {} }
 local playerBase = {} -- [Player] = index
 
 local DIRT = Color3.fromRGB(96, 66, 42)
 local WATER_COLOR = Color3.fromRGB(70, 160, 255)
-local SUN_COLOR = Color3.fromRGB(255, 215, 60)
+local BLOOM_COLOR = Color3.fromRGB(255, 150, 220)
+local OUTLINE_IDLE = Color3.fromRGB(205, 170, 105)
+local OUTLINE_LOCKED = Color3.fromRGB(110, 110, 120)
 local CARE_RANGE = 40
+local WORKSHOP_RANGE = 70
 
 ---------------------------------------------------------------- plant state
 
@@ -36,39 +42,60 @@ local function newPlant(seedId: string)
 		seed = seedId,
 		stage = 1,
 		progress = 0,
-		health = 100,
+		quality = 100,
 		need = false,
 		needLeft = 0,
 		needsDone = 0,
 		nextNeedAt = nextNeedAt(seed, 0),
-		withered = false,
 	}
 end
 
--- Advance a plant by dt seconds. Returns true if it changed in a way that matters.
+-- Saves from before the water-only update had sun needs, health and withering.
+local function migratePlant(plant)
+	if type(plant) ~= "table" then
+		return
+	end
+	if plant.need == "sun" then
+		plant.need = "water"
+	end
+	if plant.health then
+		plant.quality = math.max(Seeds.MIN_QUALITY, plant.health)
+		plant.health = nil
+	end
+	if plant.withered then
+		plant.withered = nil
+		plant.quality = Seeds.MIN_QUALITY
+	end
+	plant.quality = plant.quality or 100
+	-- timestamps from another server's clock mean nothing here
+	plant.thirstyAt = nil
+	plant.bloomAt = nil
+end
+
+-- Advance a plant by dt seconds. Returns true when it got thirsty or reached a new stage.
 local function growPlant(plant, dt: number): boolean
 	local seed = Seeds.get(plant.seed)
-	if not seed or plant.withered or plant.stage >= 4 then
+	if not seed or plant.stage >= 4 then
 		return false
 	end
 	if plant.need then
 		plant.needLeft -= dt
 		if plant.needLeft <= 0 then
-			plant.health -= Seeds.NEED_PENALTY
+			-- Missed it: the plant gets over it and grows on, but it won't be worth as much.
+			plant.quality = math.max(Seeds.MIN_QUALITY, plant.quality - Seeds.MISSED_WATER_LOSS)
 			plant.need = false
+			plant.missed = (plant.missed or 0) + 1
 			plant.needsDone += 1
 			plant.nextNeedAt = nextNeedAt(seed, plant.needsDone)
-			if plant.health <= 0 then
-				plant.health = 0
-				plant.withered = true
-			end
+			return true
 		end
-		return true
+		return false
 	end
 	plant.progress += dt
 	if plant.needsDone < seed.needsPerStage and plant.progress >= plant.nextNeedAt then
-		plant.need = math.random() < seed.sunBias and "sun" or "water"
+		plant.need = "water"
 		plant.needLeft = seed.needWindow
+		plant.thirstyAt = os.clock()
 		return true
 	end
 	if plant.progress >= seed.stageTime and plant.needsDone >= seed.needsPerStage then
@@ -76,16 +103,20 @@ local function growPlant(plant, dt: number): boolean
 		plant.progress = 0
 		plant.needsDone = 0
 		plant.nextNeedAt = nextNeedAt(seed, 0)
+		if plant.stage >= 4 then
+			plant.bloomAt = os.clock()
+		end
+		return true
 	end
-	return true
+	return false
 end
 
 local function harvestValue(plant): number
 	local seed = Seeds.get(plant.seed)
-	if not seed or plant.withered then
+	if not seed then
 		return 0
 	end
-	return math.floor(seed.value * Seeds.StageValue[plant.stage] * (0.4 + 0.6 * plant.health / 100))
+	return math.floor(seed.value * Seeds.StageValue[plant.stage] * plant.quality / 100)
 end
 
 ---------------------------------------------------------------- visuals
@@ -115,8 +146,10 @@ local function buildPlant(plant, base: CFrame): Model
 	local model = Instance.new("Model")
 	model.Name = "Plant"
 	local seed = Seeds.get(plant.seed)
-	local leaf = plant.withered and Color3.fromRGB(110, 85, 50) or seed.leaf
-	local bloom = plant.withered and Color3.fromRGB(90, 70, 50) or seed.bloom
+	-- Neglected plants look a little droopy and faded.
+	local tired = plant.quality < 70
+	local leaf = tired and seed.leaf:Lerp(Color3.fromRGB(150, 130, 70), 0.45) or seed.leaf
+	local bloom = seed.bloom
 	local stage = plant.stage
 
 	makePart(model, Vector3.new(3, 0.8, 3), base * CFrame.new(0, 0.2, 0), Color3.fromRGB(80, 55, 35), Enum.Material.Ground, true)
@@ -126,7 +159,7 @@ local function buildPlant(plant, base: CFrame): Model
 	end
 
 	local height = ({ 0, 1.6, 3.2, 4.6 })[stage]
-	local droop = plant.withered and CFrame.Angles(math.rad(35), 0, 0) or CFrame.new()
+	local droop = tired and CFrame.Angles(math.rad(14), 0, 0) or CFrame.new()
 	local stemCF = base * droop * CFrame.new(0, height / 2 + 0.4, 0)
 	makePart(model, Vector3.new(0.35, height, 0.35), stemCF, leaf, nil, false)
 
@@ -142,25 +175,23 @@ local function buildPlant(plant, base: CFrame): Model
 	if stage == 3 then
 		makePart(model, Vector3.new(0.8, 1.1, 0.8), top, bloom, nil, true)
 	elseif stage == 4 then
-		makePart(model, Vector3.new(0.9, 0.9, 0.9), top, Color3.fromRGB(255, 240, 150), if plant.withered then nil else Enum.Material.Neon, true)
+		makePart(model, Vector3.new(0.9, 0.9, 0.9), top, Color3.fromRGB(255, 240, 150), Enum.Material.Neon, true)
 		for i = 1, 6 do
 			local angle = (i / 6) * math.pi * 2
 			local petalCF = top * CFrame.Angles(0, angle, 0) * CFrame.new(0, 0, -0.95) * CFrame.Angles(math.rad(20), 0, 0)
 			makePart(model, Vector3.new(0.9, 0.2, 1.6), petalCF, bloom, nil, true)
 		end
-		if plant.seed == "Dragonfruit" and not plant.withered then
+		if plant.seed == "Dragonfruit" then
 			for i = 1, 3 do
 				local angle = (i / 3) * math.pi * 2
 				makePart(model, Vector3.new(0.9, 1.1, 0.9), base * CFrame.new(math.cos(angle) * 1.2, height * 0.6, math.sin(angle) * 1.2), Color3.fromRGB(255, 60, 130), nil, true)
 			end
 		end
-		if not plant.withered then
-			local light = Instance.new("PointLight")
-			light.Color = bloom
-			light.Range = 8
-			light.Brightness = 1
-			light.Parent = model:FindFirstChildWhichIsA("BasePart")
-		end
+		local light = Instance.new("PointLight")
+		light.Color = bloom
+		light.Range = 8
+		light.Brightness = 1
+		light.Parent = model:FindFirstChildWhichIsA("BasePart")
 	end
 	return model
 end
@@ -221,10 +252,148 @@ local function makeBillboard(plotPart: BasePart)
 	return gui
 end
 
+-- A raised wooden frame around each planting spot so it's clear where one ends and the next
+-- begins. The frame glows blue when the plant is thirsty and pink when it's ready to harvest.
+local function makeOutline(plotPart: BasePart)
+	local folder = Instance.new("Model")
+	folder.Name = "Outline"
+	local size = plotPart.Size
+	local top = plotPart.CFrame * CFrame.new(0, size.Y / 2 + 0.25, 0)
+	local t = 0.5
+	local parts = {}
+	for _, spec in ipairs({
+		{ Vector3.new(size.X + t, 0.5, t), CFrame.new(0, 0, -size.Z / 2) },
+		{ Vector3.new(size.X + t, 0.5, t), CFrame.new(0, 0, size.Z / 2) },
+		{ Vector3.new(t, 0.5, size.Z - t), CFrame.new(-size.X / 2, 0, 0) },
+		{ Vector3.new(t, 0.5, size.Z - t), CFrame.new(size.X / 2, 0, 0) },
+	}) do
+		local p = makePart(folder, spec[1], top * spec[2], OUTLINE_IDLE, Enum.Material.Wood)
+		table.insert(parts, p)
+	end
+	folder.Parent = plotPart
+	return parts
+end
+
+local function setOutline(plot, color: Color3, glow: boolean)
+	if plot.outlineColor == color and plot.outlineGlow == glow then
+		return
+	end
+	plot.outlineColor = color
+	plot.outlineGlow = glow
+	for _, p in ipairs(plot.outline) do
+		p.Color = color
+		p.Material = glow and Enum.Material.Neon or Enum.Material.Wood
+	end
+end
+
+---------------------------------------------------------------- robots
+
+local function botPart(parent: Instance, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?)
+	local p = makePart(parent, size, cf, color, material)
+	if shape then
+		p.Shape = shape
+	end
+	return p
+end
+
+-- A little hovering garden drone. kind: "Water" or "Harvest".
+local function buildBot(kind: string, at: CFrame): Model
+	local model = Instance.new("Model")
+	model.Name = kind .. "Bot"
+	local main = kind == "Water" and Color3.fromRGB(80, 170, 255) or Color3.fromRGB(120, 200, 90)
+	local trim = kind == "Water" and Color3.fromRGB(230, 245, 255) or Color3.fromRGB(255, 210, 80)
+	local body = botPart(model, Vector3.new(2.6, 2.6, 2.6), at, main, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	body.Name = "Body"
+	model.PrimaryPart = body
+	local parts = {}
+	-- trim band around the middle
+	table.insert(parts, botPart(model, Vector3.new(0.5, 3, 3), at * CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.rad(90)), trim, Enum.Material.Metal, Enum.PartType.Cylinder))
+	table.insert(parts, botPart(model, Vector3.new(1.2, 0.8, 0.3), at * CFrame.new(0, 0.4, -1.2), Color3.fromRGB(20, 30, 40), Enum.Material.Glass))
+	for _, x in ipairs({ -0.3, 0.3 }) do
+		table.insert(parts, botPart(model, Vector3.new(0.25, 0.25, 0.2), at * CFrame.new(x, 0.45, -1.35), trim, Enum.Material.Neon))
+	end
+	-- rotor on top
+	table.insert(parts, botPart(model, Vector3.new(0.3, 1.2, 0.3), at * CFrame.new(0, 1.6, 0), Color3.fromRGB(60, 60, 70), Enum.Material.Metal))
+	table.insert(parts, botPart(model, Vector3.new(3.6, 0.12, 0.5), at * CFrame.new(0, 2.2, 0), Color3.fromRGB(70, 70, 80), Enum.Material.Metal))
+	table.insert(parts, botPart(model, Vector3.new(0.5, 0.12, 3.6), at * CFrame.new(0, 2.2, 0), Color3.fromRGB(70, 70, 80), Enum.Material.Metal))
+	if kind == "Water" then
+		-- watering-can spout
+		table.insert(parts, botPart(model, Vector3.new(0.5, 0.5, 1.8), at * CFrame.new(0, -0.5, -1.6) * CFrame.Angles(math.rad(-30), 0, 0), trim, Enum.Material.Metal))
+		table.insert(parts, botPart(model, Vector3.new(0.3, 0.9, 0.9), at * CFrame.new(0, -1.0, -2.4) * CFrame.Angles(0, math.rad(90), 0), trim, Enum.Material.Metal, Enum.PartType.Cylinder))
+	else
+		-- two little scythe arms
+		for _, x in ipairs({ -1.4, 1.4 }) do
+			table.insert(parts, botPart(model, Vector3.new(0.3, 0.3, 1.6), at * CFrame.new(x, -0.4, -0.6), Color3.fromRGB(90, 90, 100), Enum.Material.Metal))
+			table.insert(parts, botPart(model, Vector3.new(0.15, 1.1, 0.9), at * CFrame.new(x, -0.8, -1.4) * CFrame.Angles(math.rad(25), 0, 0), Color3.fromRGB(210, 215, 225), Enum.Material.Metal))
+		end
+	end
+	local light = Instance.new("PointLight")
+	light.Color = trim
+	light.Range = 8
+	light.Brightness = 1
+	light.Parent = body
+	for _, p in ipairs(parts) do
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = body
+		w.Part1 = p
+		w.Parent = p
+		p.Anchored = false
+	end
+	return model
+end
+
+local function dockCFrame(base, kind: string): CFrame
+	local dock = base.dock
+	local side = kind == "Water" and -3 or 3
+	return dock.CFrame * CFrame.new(side, 6.5, 0)
+end
+
+local function removeBots(base)
+	for kind, bot in pairs(base.bots) do
+		bot.model:Destroy()
+		base.bots[kind] = nil
+	end
+end
+
+local function syncBots(baseIndex: number)
+	local base = bases[baseIndex]
+	local profile = base.owner and S.PlayerService.getProfile(base.owner)
+	if not profile or not base.dock then
+		removeBots(base)
+		return
+	end
+	local wants = { Water = profile.robots.water == true, Harvest = (profile.robots.harvest or 0) > 0 }
+	for kind, want in pairs(wants) do
+		if want and not base.bots[kind] then
+			local model = buildBot(kind, dockCFrame(base, kind))
+			model.Parent = base.model
+			base.bots[kind] = { model = model, busy = false }
+		elseif not want and base.bots[kind] then
+			base.bots[kind].model:Destroy()
+			base.bots[kind] = nil
+		end
+	end
+end
+
+-- Fly a bot to a spot above a plot. Calls done() when it arrives.
+local function flyBot(bot, target: CFrame, time: number, done)
+	local body = bot.model.PrimaryPart
+	local tween = TweenService:Create(body, TweenInfo.new(time, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { CFrame = target })
+	tween.Completed:Once(function()
+		if bot.model.Parent and done then
+			done()
+		end
+	end)
+	tween:Play()
+end
+
 ---------------------------------------------------------------- per-plot refresh
 
 local function setPrompt(prompt: ProximityPrompt, enabled: boolean, action: string?, object: string?, hold: number?)
 	prompt.Enabled = enabled
+	-- Clients show only the prompts of the plot they're facing; they read this to know which
+	-- ones the server allows.
+	prompt:SetAttribute("On", enabled)
 	if action then
 		prompt.ActionText = action
 	end
@@ -233,6 +402,14 @@ local function setPrompt(prompt: ProximityPrompt, enabled: boolean, action: stri
 	end
 	if hold then
 		prompt.HoldDuration = hold
+	end
+end
+
+local function clearVisual(plot)
+	if plot.visual then
+		plot.visual:Destroy()
+		plot.visual = nil
+		plot.visualKey = nil
 	end
 end
 
@@ -245,29 +422,20 @@ local function refreshPlot(baseIndex: number, plotIndex: number)
 
 	if not profile then
 		plot.part.Color = DIRT
-		plot.ring.Transparency = 1
-		if plot.visual then
-			plot.visual:Destroy()
-			plot.visual = nil
-			plot.visualKey = nil
-		end
+		setOutline(plot, OUTLINE_IDLE, false)
+		clearVisual(plot)
 		plot.gui.Enabled = false
 		setPrompt(plot.main, false)
 		setPrompt(plot.water, false)
-		setPrompt(plot.sun, false)
 		return
 	end
 	plot.gui.Enabled = true
 
 	-- Locked plot
 	if plotIndex > profile.plotsUnlocked then
-		if plot.visual then
-			plot.visual:Destroy()
-			plot.visual = nil
-			plot.visualKey = nil
-		end
+		clearVisual(plot)
 		plot.part.Color = Color3.fromRGB(70, 70, 75)
-		plot.ring.Transparency = 1
+		setOutline(plot, OUTLINE_LOCKED, false)
 		local isNext = plotIndex == profile.plotsUnlocked + 1
 		local cost = Game.PLOT_COSTS[profile.plotsUnlocked - Game.START_PLOTS + 1]
 		gui.Title.Text = "🔒 Locked Plot"
@@ -279,20 +447,15 @@ local function refreshPlot(baseIndex: number, plotIndex: number)
 		plot.gui.Enabled = isNext
 		setPrompt(plot.main, isNext and cost ~= nil, "Unlock Plot", cost and (Util.formatNumber(cost) .. " gold") or "", 0.5)
 		setPrompt(plot.water, false)
-		setPrompt(plot.sun, false)
 		return
 	end
 	plot.part.Color = DIRT
 
 	local plant = profile.plots[plotIndex]
 	if not plant then
-		if plot.visual then
-			plot.visual:Destroy()
-			plot.visual = nil
-			plot.visualKey = nil
-		end
-		plot.ring.Transparency = 1
-		gui.Title.Text = "Empty Plot"
+		clearVisual(plot)
+		setOutline(plot, OUTLINE_IDLE, false)
+		gui.Title.Text = "Empty Plot " .. plotIndex
 		gui.Title.TextColor3 = Color3.fromRGB(220, 200, 160)
 		gui.Stage.Text = "Plant a seed here"
 		gui.Need.Text = ""
@@ -300,12 +463,11 @@ local function refreshPlot(baseIndex: number, plotIndex: number)
 		gui.Bar.Visible = false
 		setPrompt(plot.main, true, "Plant Seed", "Planting Spot " .. plotIndex, 0)
 		setPrompt(plot.water, false)
-		setPrompt(plot.sun, false)
 		return
 	end
 
 	local seed = Seeds.get(plant.seed)
-	local key = plant.seed .. plant.stage .. tostring(plant.withered)
+	local key = plant.seed .. plant.stage .. tostring(plant.quality < 70)
 	if plot.visualKey ~= key then
 		if plot.visual then
 			plot.visual:Destroy()
@@ -317,46 +479,29 @@ local function refreshPlot(baseIndex: number, plotIndex: number)
 
 	gui.Title.Text = seed.name
 	gui.Title.TextColor3 = seed.bloom
-	gui.Bar.Visible = plant.stage < 4 and not plant.withered
+	gui.Bar.Visible = plant.stage < 4
 	gui.Stage.Text = string.format("%s %s  (%d/4)", Seeds.StageIcons[plant.stage], Seeds.Stages[plant.stage], plant.stage)
 	gui.Bar.Fill.Size = UDim2.fromScale(math.clamp(plant.progress / seed.stageTime, 0, 1), 1)
-	gui.Health.Text = string.format("❤️ Health %d%%   💰 %d", plant.health, harvestValue(plant))
-
-	if plant.withered then
-		gui.Need.Text = "🥀 Withered..."
-		gui.Need.TextColor3 = Color3.fromRGB(190, 140, 100)
-		plot.ring.Transparency = 1
-		setPrompt(plot.main, true, "Clear Plant", seed.name, 0.5)
-		setPrompt(plot.water, false)
-		setPrompt(plot.sun, false)
-		return
-	end
+	local qualityIcon = plant.quality >= 85 and "⭐" or (plant.quality >= 60 and "🙂" or "🥀")
+	gui.Health.Text = string.format("%s Quality %d%%   💰 %d", qualityIcon, plant.quality, harvestValue(plant))
 
 	if plant.need == "water" then
-		gui.Need.Text = string.format("💧 Needs WATER! %s", Util.formatTime(plant.needLeft))
+		gui.Need.Text = string.format("💧 Thirsty! Water within %s", Util.formatTime(plant.needLeft))
 		gui.Need.TextColor3 = WATER_COLOR
-		plot.ring.Color = WATER_COLOR
-		plot.ring.Transparency = 0.2
-	elseif plant.need == "sun" then
-		gui.Need.Text = string.format("☀️ Needs SUN! %s", Util.formatTime(plant.needLeft))
-		gui.Need.TextColor3 = SUN_COLOR
-		plot.ring.Color = SUN_COLOR
-		plot.ring.Transparency = 0.2
+		setOutline(plot, WATER_COLOR, true)
 	elseif plant.stage >= 4 then
 		gui.Need.Text = "🌸 Fully grown! Harvest for seeds"
-		gui.Need.TextColor3 = Color3.fromRGB(255, 150, 220)
-		plot.ring.Color = Color3.fromRGB(255, 150, 220)
-		plot.ring.Transparency = 0.5
+		gui.Need.TextColor3 = BLOOM_COLOR
+		setOutline(plot, BLOOM_COLOR, true)
 	else
 		gui.Need.Text = "✅ Growing happily"
 		gui.Need.TextColor3 = Color3.fromRGB(140, 230, 120)
-		plot.ring.Transparency = 1
+		setOutline(plot, OUTLINE_IDLE, false)
 	end
 
 	local growing = plant.stage < 4
 	setPrompt(plot.main, true, plant.stage >= 4 and "Harvest" or string.format("Harvest early (%dg)", harvestValue(plant)), seed.name, plant.stage >= 4 and 0.4 or 1.2)
-	setPrompt(plot.water, growing, "💧 Water", seed.name, 0)
-	setPrompt(plot.sun, growing, "☀️ Give Sun", seed.name, 0)
+	setPrompt(plot.water, growing and plant.need == "water", "💧 Water", seed.name, 0)
 end
 
 local function refreshBase(baseIndex: number)
@@ -385,72 +530,88 @@ local function ownerCheck(player: Player, baseIndex: number, plotIndex: number, 
 	return S.PlayerService.getProfile(player), plot
 end
 
-local function care(player: Player, baseIndex: number, plotIndex: number, action: string)
-	local profile = ownerCheck(player, baseIndex, plotIndex, true)
+-- Give a thirsty plant its water. `byBot` skips the range check and the quest credit.
+local function waterPlant(player: Player, baseIndex: number, plotIndex: number, byBot: boolean?): boolean
+	local profile = ownerCheck(player, baseIndex, plotIndex, not byBot)
 	local plant = profile and profile.plots[plotIndex]
-	if not plant or plant.withered or plant.stage >= 4 then
-		return
+	if not plant or plant.stage >= 4 then
+		return false
 	end
 	local seed = Seeds.get(plant.seed)
-	if plant.need == action then
-		plant.need = false
-		plant.needsDone += 1
-		plant.nextNeedAt = nextNeedAt(seed, plant.needsDone)
-		plant.health = math.min(100, plant.health + Seeds.GOOD_CARE_BONUS)
-		S.CombatService.broadcastVFX({ kind = action == "water" and "water" or "sun", pos = bases[baseIndex].plots[plotIndex].part.Position })
+	if plant.need ~= "water" then
+		if not byBot then
+			S.PlayerService.notify(player, seed.name .. " isn't thirsty right now. Wait for the 💧!", Color3.fromRGB(170, 210, 255), "💧")
+		end
+		return false
+	end
+	plant.need = false
+	plant.needsDone += 1
+	plant.nextNeedAt = nextNeedAt(seed, plant.needsDone)
+	S.CombatService.broadcastVFX({ kind = "water", pos = bases[baseIndex].plots[plotIndex].part.Position })
+	if not byBot then
 		S.QuestService.progress(player, "care", nil, 1)
-	elseif plant.need then
-		plant.health -= Seeds.WRONG_CARE_PENALTY
-		S.PlayerService.notify(player, string.format("Oops! %s wanted %s, not %s.", seed.name, plant.need == "sun" and "sun" or "water", action), Color3.fromRGB(255, 140, 90), "⚠️")
-	else
-		plant.health -= 5
-		S.PlayerService.notify(player, string.format("Too much %s! Wait until %s asks for it.", action == "sun" and "sun" or "water", seed.name), Color3.fromRGB(255, 180, 90), "⚠️")
 	end
-	if plant.health <= 0 then
-		plant.health = 0
-		plant.withered = true
-	end
+	S.PlayerService.markDirty(player)
 	refreshPlot(baseIndex, plotIndex)
+	return true
 end
 
-local function harvest(player: Player, baseIndex: number, plotIndex: number)
-	local profile = ownerCheck(player, baseIndex, plotIndex, true)
+-- Harvest a plot. Returns the harvested seed id (for replanting) when a full flower was picked.
+local function harvest(player: Player, baseIndex: number, plotIndex: number, byBot: boolean?): string?
+	local profile = ownerCheck(player, baseIndex, plotIndex, not byBot)
 	local plant = profile and profile.plots[plotIndex]
 	if not plant then
-		return
+		return nil
 	end
 	local seed = Seeds.get(plant.seed)
 	profile.plots[plotIndex] = false
 
-	if plant.withered then
-		S.PlayerService.notify(player, "You cleared the withered plant.", Color3.fromRGB(190, 160, 120), "🥀")
-	else
-		local gold = harvestValue(plant)
-		S.PlayerService.addGold(player, gold)
-		local parts = { string.format("+%d gold", gold) }
-		if plant.stage >= 4 then
-			local seedsBack = 1
-			if plant.health >= 75 and math.random() < 0.5 then
-				seedsBack += 1
-			end
-			S.PlayerService.addSeeds(player, plant.seed, seedsBack, true)
-			table.insert(parts, string.format("%dx %s Seed", seedsBack, seed.name))
-			if math.random() < Seeds.MUTATION_CHANCE then
-				local idx = table.find(Seeds.Order, plant.seed)
-				local better = idx and Seeds.Order[math.min(idx + 1, #Seeds.Order)]
-				if better then
-					S.PlayerService.addSeeds(player, better, 1, true)
-					table.insert(parts, "MUTATION: 1x " .. Seeds[better].name .. " Seed!")
-				end
-			end
-			profile.flowersHarvested += 1
+	local gold = harvestValue(plant)
+	S.PlayerService.addGold(player, gold)
+	local parts = { string.format("+%d gold", gold) }
+	local flower = plant.stage >= 4
+	if flower then
+		local seedsBack = 1
+		if plant.quality >= Seeds.BONUS_SEED_QUALITY and math.random() < 0.5 then
+			seedsBack += 1
 		end
-		S.PlayerService.notify(player, string.format("Harvested %s (%s): %s", seed.name, Seeds.Stages[plant.stage], table.concat(parts, ", ")), seed.bloom, Seeds.StageIcons[plant.stage])
-		S.QuestService.progress(player, "harvest", plant.stage >= 4 and "Flower" or Seeds.Stages[plant.stage], 1)
-		S.CombatService.broadcastVFX({ kind = "harvest", pos = bases[baseIndex].plots[plotIndex].part.Position, color = seed.bloom })
+		S.PlayerService.addSeeds(player, plant.seed, seedsBack, true)
+		table.insert(parts, string.format("%dx %s Seed", seedsBack, seed.name))
+		if math.random() < Seeds.MUTATION_CHANCE then
+			local idx = table.find(Seeds.Order, plant.seed)
+			local better = idx and Seeds.Order[math.min(idx + 1, #Seeds.Order)]
+			if better then
+				S.PlayerService.addSeeds(player, better, 1, true)
+				table.insert(parts, "MUTATION: 1x " .. Seeds[better].name .. " Seed!")
+			end
+		end
+		profile.flowersHarvested += 1
 	end
+	local who = byBot and "Reap-Bot harvested" or "Harvested"
+	S.PlayerService.notify(player, string.format("%s %s (%s, %d%% quality): %s", who, seed.name, Seeds.Stages[plant.stage], plant.quality, table.concat(parts, ", ")), seed.bloom, Seeds.StageIcons[plant.stage])
+	S.QuestService.progress(player, "harvest", flower and "Flower" or Seeds.Stages[plant.stage], 1)
+	S.CombatService.broadcastVFX({ kind = "harvest", pos = bases[baseIndex].plots[plotIndex].part.Position, color = seed.bloom })
 	S.PlayerService.markDirty(player)
 	refreshPlot(baseIndex, plotIndex)
+	return flower and plant.seed or nil
+end
+
+local function plant(player: Player, baseIndex: number, plotIndex: number, seedId: string): boolean
+	local profile = S.PlayerService.getProfile(player)
+	if not profile or plotIndex > profile.plotsUnlocked or profile.plots[plotIndex] then
+		return false
+	end
+	if not Seeds.get(seedId) or (profile.seeds[seedId] or 0) <= 0 then
+		return false
+	end
+	profile.seeds[seedId] -= 1
+	if profile.seeds[seedId] <= 0 then
+		profile.seeds[seedId] = nil
+	end
+	profile.plots[plotIndex] = newPlant(seedId)
+	S.PlayerService.markDirty(player)
+	refreshPlot(baseIndex, plotIndex)
+	return true
 end
 
 local function unlockPlot(player: Player, baseIndex: number, plotIndex: number)
@@ -502,24 +663,108 @@ local function onPlantSeed(player: Player, plotIndex, seedId)
 		return false
 	end
 	local baseIndex = playerBase[player]
-	if not baseIndex then
-		return false
-	end
-	local profile = ownerCheck(player, baseIndex, plotIndex, true)
-	if not profile or plotIndex > profile.plotsUnlocked or profile.plots[plotIndex] then
+	if not baseIndex or not ownerCheck(player, baseIndex, plotIndex, true) then
 		return false, "You can't plant there."
 	end
-	if not Seeds.get(seedId) or (profile.seeds[seedId] or 0) <= 0 then
-		return false, "You don't have that seed."
+	if not plant(player, baseIndex, plotIndex, seedId) then
+		return false, "You can't plant that there."
 	end
-	profile.seeds[seedId] -= 1
-	if profile.seeds[seedId] <= 0 then
-		profile.seeds[seedId] = nil
-	end
-	profile.plots[plotIndex] = newPlant(seedId)
-	S.PlayerService.markDirty(player)
 	S.QuestService.progress(player, "plant", nil, 1)
-	refreshPlot(baseIndex, plotIndex)
+	return true
+end
+
+---------------------------------------------------------------- robot jobs
+
+local function botJobs(baseIndex: number, profile)
+	local base = bases[baseIndex]
+	local owner = base.owner
+	local now = os.clock()
+	local waterBot = base.bots.Water
+	if waterBot and not waterBot.busy then
+		for i = 1, profile.plotsUnlocked do
+			local p = profile.plots[i]
+			if p and p.need == "water" and now - (p.thirstyAt or 0) >= Game.ROBOTS.Water.delay then
+				waterBot.busy = true
+				local plotPart = base.plots[i].part
+				flyBot(waterBot, CFrame.new(plotPart.Position + Vector3.new(0, 7, 0)) * plotPart.CFrame.Rotation, 1.4, function()
+					if base.owner == owner then
+						waterPlant(owner, baseIndex, i, true)
+					end
+					task.delay(0.8, function()
+						flyBot(waterBot, dockCFrame(base, "Water"), 1.4, nil)
+						waterBot.busy = false
+					end)
+				end)
+				break
+			end
+		end
+	end
+
+	local reapBot = base.bots.Harvest
+	if reapBot and not reapBot.busy then
+		for i = 1, profile.plotsUnlocked do
+			local p = profile.plots[i]
+			if p and p.stage >= 4 and now - (p.bloomAt or 0) >= Game.ROBOTS.Harvest.delay then
+				reapBot.busy = true
+				local plotPart = base.plots[i].part
+				flyBot(reapBot, CFrame.new(plotPart.Position + Vector3.new(0, 6, 0)) * plotPart.CFrame.Rotation, 1.4, function()
+					if base.owner == owner then
+						local seedId = harvest(owner, baseIndex, i, true)
+						local prof = S.PlayerService.getProfile(owner)
+						if seedId and prof and (prof.robots.harvest or 0) >= 2 and plant(owner, baseIndex, i, seedId) then
+							S.PlayerService.notify(owner, "Reap-Bot replanted a " .. Seeds[seedId].name .. " seed.", Seeds[seedId].bloom, "🌱")
+						end
+					end
+					task.delay(0.8, function()
+						flyBot(reapBot, dockCFrame(base, "Harvest"), 1.4, nil)
+						reapBot.busy = false
+					end)
+				end)
+				break
+			end
+		end
+	end
+end
+
+local function onBuyRobot(player: Player, kind)
+	local profile = S.PlayerService.getProfile(player)
+	local baseIndex = playerBase[player]
+	local base = baseIndex and bases[baseIndex]
+	if not profile or not base or type(kind) ~= "string" then
+		return false, "You need a lair first."
+	end
+	local _, _, root = S.PlayerService.getCharacter(player)
+	if not root or (root.Position - base.dock.Position).Magnitude > WORKSHOP_RANGE then
+		return false, "Visit the Bot Dock in your lair to buy robots."
+	end
+	local cost, onBought
+	if kind == "Water" then
+		if profile.robots.water then
+			return false, "You already have a Drizzle-Bot."
+		end
+		cost = Game.ROBOTS.Water.cost
+		onBought = function()
+			profile.robots.water = true
+		end
+	elseif kind == "Harvest" then
+		local level = profile.robots.harvest or 0
+		local info = Game.ROBOTS.Harvest.levels[level + 1]
+		if not info then
+			return false, "Your Reap-Bot is fully upgraded."
+		end
+		cost = info.cost
+		onBought = function()
+			profile.robots.harvest = level + 1
+		end
+	else
+		return false, "Unknown robot."
+	end
+	if not S.PlayerService.spendGold(player, cost) then
+		return false, string.format("You need %s gold.", Util.formatNumber(cost))
+	end
+	onBought()
+	S.PlayerService.markDirty(player)
+	syncBots(baseIndex)
 	return true
 end
 
@@ -534,6 +779,8 @@ function FarmService.assignBase(player: Player)
 		for i = 1, Game.MAX_PLOTS do
 			if profile.plots[i] == nil then
 				profile.plots[i] = false
+			else
+				migratePlant(profile.plots[i])
 			end
 		end
 	end
@@ -543,16 +790,15 @@ function FarmService.assignBase(player: Player)
 			playerBase[player] = index
 			base.model:SetAttribute("OwnerUserId", player.UserId)
 			base.sign.Text = string.format("🏠 %s's Lair", player.DisplayName)
-			for _, plot in ipairs(base.plots) do
-				for _, prompt in ipairs({ plot.main, plot.water, plot.sun }) do
-					prompt:SetAttribute("OwnerUserId", player.UserId)
-				end
+			for _, prompt in ipairs(base.prompts) do
+				prompt:SetAttribute("OwnerUserId", player.UserId)
 			end
 			local st = S.PlayerService.state[player]
 			if st then
 				st.baseIndex = index
 			end
 			refreshBase(index)
+			syncBots(index)
 			S.PlayerService.markDirty(player)
 			return index
 		end
@@ -571,11 +817,10 @@ function FarmService.releaseBase(player: Player)
 	base.owner = nil
 	base.model:SetAttribute("OwnerUserId", 0)
 	base.sign.Text = "🏠 Empty Lair"
-	for _, plot in ipairs(base.plots) do
-		for _, prompt in ipairs({ plot.main, plot.water, plot.sun }) do
-			prompt:SetAttribute("OwnerUserId", 0)
-		end
+	for _, prompt in ipairs(base.prompts) do
+		prompt:SetAttribute("OwnerUserId", 0)
 	end
+	removeBots(base)
 	refreshBase(index)
 end
 
@@ -588,6 +833,31 @@ function FarmService.getHomeCFrame(player: Player): CFrame?
 	return base.home.CFrame + Vector3.new(0, 5, 0)
 end
 
+-- Redraw a player's plots and robots after their profile was changed from outside (admin tools).
+function FarmService.refreshPlayer(player: Player)
+	local index = playerBase[player]
+	if index then
+		refreshBase(index)
+		syncBots(index)
+	end
+end
+
+-- Small garden summary for the client (tutorial, HUD reminders).
+function FarmService.summary(player: Player)
+	local profile = S.PlayerService.getProfile(player)
+	if not profile then
+		return nil
+	end
+	local list = {}
+	for i = 1, profile.plotsUnlocked do
+		local p = profile.plots[i]
+		if p then
+			table.insert(list, { plot = i, seed = p.seed, stage = p.stage, thirsty = p.need == "water", quality = p.quality })
+		end
+	end
+	return list
+end
+
 ---------------------------------------------------------------- setup
 
 local function makePrompt(parent: Instance, key: Enum.KeyCode, pad: Enum.KeyCode, action: string, offset: Vector2)
@@ -595,11 +865,14 @@ local function makePrompt(parent: Instance, key: Enum.KeyCode, pad: Enum.KeyCode
 	prompt.ActionText = action
 	prompt.KeyboardKeyCode = key
 	prompt.GamepadKeyCode = pad
-	prompt.MaxActivationDistance = 13
+	-- Generous reach: only the plot you're facing shows its prompts (WorldView), so a long reach
+	-- can't grab the wrong plot, and big dragons stand farther from what they face.
+	prompt.MaxActivationDistance = 18
 	prompt.RequiresLineOfSight = false
 	prompt.Enabled = false
 	prompt.UIOffset = offset
 	prompt:SetAttribute("OwnerUserId", 0)
+	prompt:SetAttribute("On", false)
 	prompt.Parent = parent
 	return prompt
 end
@@ -616,43 +889,44 @@ function FarmService.init(services)
 			model = model,
 			owner = nil,
 			plots = {},
+			prompts = {},
+			bots = {},
 			sign = model:FindFirstChild("Sign"):FindFirstChildWhichIsA("SurfaceGui"):FindFirstChild("Title"),
 			home = model:FindFirstChild("HomeSpawn"),
+			dock = model:FindFirstChild("BotDock"),
 		}
 		for i = 1, Game.MAX_PLOTS do
 			local part = model.Plots:FindFirstChild("Plot" .. i)
-			local ring = Instance.new("Part")
-			ring.Name = "NeedRing"
-			ring.Anchored = true
-			ring.CanCollide = false
-			ring.CanQuery = false
-			ring.CanTouch = false
-			ring.Material = Enum.Material.Neon
-			ring.Size = Vector3.new(part.Size.X + 1.2, part.Size.Y - 0.1, part.Size.Z + 1.2)
-			ring.CFrame = part.CFrame
-			ring.Transparency = 1
-			ring.Parent = part
-
 			local plot = {
 				part = part,
-				ring = ring,
+				outline = makeOutline(part),
 				gui = makeBillboard(part),
 				main = makePrompt(part, Enum.KeyCode.E, Enum.KeyCode.ButtonX, "Plant Seed", Vector2.new(0, 0)),
 				water = makePrompt(part, Enum.KeyCode.R, Enum.KeyCode.ButtonY, "💧 Water", Vector2.new(0, 70)),
-				sun = makePrompt(part, Enum.KeyCode.T, Enum.KeyCode.ButtonB, "☀️ Give Sun", Vector2.new(0, 140)),
 				visual = nil,
 				visualKey = nil,
 			}
+			table.insert(base.prompts, plot.main)
+			table.insert(base.prompts, plot.water)
 			plot.main.Triggered:Connect(function(player)
 				onMain(player, index, i)
 			end)
 			plot.water.Triggered:Connect(function(player)
-				care(player, index, i, "water")
-			end)
-			plot.sun.Triggered:Connect(function(player)
-				care(player, index, i, "sun")
+				waterPlant(player, index, i)
 			end)
 			base.plots[i] = plot
+		end
+		if base.dock then
+			local prompt = base.dock:FindFirstChildWhichIsA("ProximityPrompt")
+			if prompt then
+				prompt:SetAttribute("OwnerUserId", 0)
+				table.insert(base.prompts, prompt)
+				prompt.Triggered:Connect(function(player)
+					if base.owner == player then
+						Remotes.event("OpenPanel"):FireClient(player, "Robots")
+					end
+				end)
+			end
 		end
 		bases[index] = base
 		base.sign.Text = "🏠 Empty Lair"
@@ -662,6 +936,7 @@ end
 
 function FarmService.start()
 	Remotes.func("PlantSeed").OnServerInvoke = onPlantSeed
+	Remotes.func("BuyRobot").OnServerInvoke = onBuyRobot
 
 	while true do
 		task.wait(1)
@@ -669,12 +944,20 @@ function FarmService.start()
 			local owner = base.owner
 			local profile = owner and S.PlayerService.getProfile(owner)
 			if profile then
+				local changed = false
 				for i = 1, profile.plotsUnlocked do
-					local plant = profile.plots[i]
-					if plant then
-						growPlant(plant, 1)
+					local p = profile.plots[i]
+					if p then
+						changed = growPlant(p, 1) or changed
 						refreshPlot(index, i)
 					end
+				end
+				if changed then
+					S.PlayerService.markDirty(owner)
+				end
+				local ok, err = pcall(botJobs, index, profile)
+				if not ok then
+					warn("[FarmService] robot error:", err)
 				end
 			end
 		end

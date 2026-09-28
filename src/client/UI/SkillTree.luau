@@ -1,5 +1,9 @@
--- WotLK-style skill tree window: three branches, five tiers each. Click a skill to see what
--- it does, then Learn it with a skill point.
+-- WotLK-style skill tree window: three branches, five tiers each.
+-- Made for young players too:
+--   * click a skill to see it; click it again (or the Learn button that pops up beside it) to learn
+--   * every skill shows filled bars for the ranks you have (like 2 of 3) and a big "2/3"
+--   * "Max" learns all remaining ranks at once when you have the points
+--   * each branch has an "Auto" button that spends your points down that path
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,8 +25,11 @@ local window, content
 local pointsLabel, resetButton
 local columns = {}
 local details = {}
+local popup = {}
 local selectedId = nil
 local builtFor = nil
+local autoArmed = nil
+local busy = false
 
 local STAT_ICONS = {
 	attackPct = "⚔️", healthPct = "❤️", defensePct = "🛡️", critChance = "🎯", critDamage = "💥",
@@ -34,6 +41,8 @@ local STAT_ICONS = {
 
 local COL_X = { [1] = 70, [1.5] = 125, [2] = 180 }
 local ROW_Y0, ROW_H = 58, 60
+local TILE = 50
+local GOLD = Color3.fromRGB(255, 205, 70)
 
 local function talentIcon(talent): string
 	if talent.ability then
@@ -54,29 +63,62 @@ local function talentIcon(talent): string
 	return STAT_ICONS[keys[1]] or "⭐"
 end
 
-local function learn(talentId: string)
+-- Ask the server to learn `count` ranks of a skill.
+local function learn(talentId: string, count: number?)
+	if busy then
+		return
+	end
+	busy = true
 	task.spawn(function()
-		local ok, err = Remotes.func("SpendTalent"):InvokeServer(talentId)
+		local ok, err = Remotes.func("SpendTalent"):InvokeServer(talentId, count or 1)
+		busy = false
 		if not ok and err then
 			App.Notifications.toast(err, C.bad, "🌟")
 		else
-			App.Sfx.play("Click")
+			App.Sfx.play("LevelUp", 0.4)
 		end
 	end)
+end
+
+local function autoFill(branchIndex: number)
+	if busy then
+		return
+	end
+	busy = true
+	task.spawn(function()
+		local ok, result = Remotes.func("AutoSpendBranch"):InvokeServer(branchIndex)
+		busy = false
+		if ok then
+			App.Sfx.play("LevelUp", 0.4)
+			App.Notifications.toast(string.format("Learned %d skill rank%s!", result, result == 1 and "" or "s"), C.good, "🌟")
+		elseif result then
+			App.Notifications.toast(result, C.bad, "🌟")
+		end
+	end)
+end
+
+-- How many more ranks of this skill you could learn right now (0 if none).
+local function learnableRanks(p, talent): number
+	if not TalentUtil.canLearn(p.class, p.level, p.talents, talent.id) then
+		return 0
+	end
+	local rank = p.talents[talent.id] or 0
+	return math.min(talent.maxRank - rank, p.talentPoints)
 end
 
 local function showDetails()
 	local p = App.State.profile
 	local talent = selectedId and Talents.byId[selectedId]
 	if not p or not talent then
-		details.name.Text = "Select a skill"
-		details.body.Text = "Click any skill above to see what it does. Tip: you can't learn everything — pick a branch to specialize in, like a real hero!"
+		details.name.Text = "Pick a skill"
+		details.body.Text = "Click any skill above to see what it does, then click it again to learn it. You can't learn everything, so pick a branch to specialize in!"
 		details.req.Text = ""
-		Theme.setButtonEnabled(details.learn, false)
+		details.learn.Visible = false
+		details.max.Visible = false
 		return
 	end
 	local rank = p.talents[talent.id] or 0
-	details.name.Text = string.format("%s %s  <font color=\"#B9AFD2\">(%d/%d)</font>", talentIcon(talent), talent.name, rank, talent.maxRank)
+	details.name.Text = string.format("%s %s  <font color=\"#FFD24A\">%d/%d</font>", talentIcon(talent), talent.name, rank, talent.maxRank)
 	local lines = {}
 	if rank > 0 then
 		table.insert(lines, "<b>Now:</b> " .. TalentUtil.describe(talent, rank):gsub("\n", ", "))
@@ -87,16 +129,54 @@ local function showDetails()
 	details.body.Text = table.concat(lines, "\n")
 	local ok, reason = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id)
 	if rank >= talent.maxRank then
-		details.req.Text = "✅ Mastered"
+		details.req.Text = "✅ Fully learned!"
 		details.req.TextColor3 = C.good
 	elseif ok then
-		details.req.Text = "Ready to learn!"
+		details.req.Text = "Ready! Click the skill again to learn it."
 		details.req.TextColor3 = C.good
 	else
 		details.req.Text = reason or ""
 		details.req.TextColor3 = C.bad
 	end
-	Theme.setButtonEnabled(details.learn, ok == true)
+	local canCount = learnableRanks(p, talent)
+	local remaining = talent.maxRank - rank
+	details.learn.Visible = rank < talent.maxRank
+	details.learn.Text = string.format("Learn %d/%d", rank + 1, talent.maxRank)
+	Theme.setButtonEnabled(details.learn, canCount > 0)
+	details.max.Visible = remaining > 1
+	details.max.Text = string.format("Max (+%d)", remaining)
+	Theme.setButtonEnabled(details.max, canCount >= remaining and remaining > 1)
+end
+
+-- The little Learn / Max bubble next to the selected skill.
+local function showPopup(p)
+	local talent = selectedId and Talents.byId[selectedId]
+	local col = talent and columns[talent.branch]
+	local canCount = talent and learnableRanks(p, talent) or 0
+	if not talent or not col or canCount <= 0 then
+		popup.frame.Visible = false
+		return
+	end
+	local rank = p.talents[talent.id] or 0
+	local remaining = talent.maxRank - rank
+	local x = COL_X[talent.col] or COL_X[1]
+	local y = ROW_Y0 + (talent.tier - 1) * ROW_H
+	popup.frame.Parent = col.frame
+	popup.frame.Position = talent.col == 2 and UDim2.fromOffset(x - TILE / 2 - 122, y - 4) or UDim2.fromOffset(x + TILE / 2 + 6, y - 4)
+	popup.learn.Text = string.format("Learn %d/%d", rank + 1, talent.maxRank)
+	popup.max.Visible = remaining > 1
+	popup.max.Text = string.format("Max (+%d)", remaining)
+	Theme.setButtonEnabled(popup.max, canCount >= remaining)
+	popup.frame.Size = UDim2.fromOffset(116, remaining > 1 and 60 or 32)
+	popup.frame.Visible = true
+end
+
+local function setPips(b, rank: number, maxRank: number, color: Color3)
+	for i, pip in ipairs(b.pips) do
+		pip.BackgroundColor3 = i <= rank and color or Color3.fromRGB(40, 34, 55)
+	end
+	b.rank.Text = string.format("%d/%d", rank, maxRank)
+	b.rank.TextColor3 = rank >= maxRank and GOLD or (rank > 0 and C.text or C.subtext)
 end
 
 local function refresh()
@@ -117,6 +197,7 @@ local function refresh()
 		local col = columns[branchIndex]
 		local inBranch = TalentUtil.spentInBranch(p.talents, p.class, branchIndex)
 		col.header.Text = string.format("%s %s  <font color=\"#FFD24A\">(%d)</font>", branch.icon, branch.name, inBranch)
+		local anyLearnable = false
 		for tier = 1, 5 do
 			local unlocked = inBranch >= TalentUtil.tierRequirement(tier)
 			col.tierLabels[tier].TextColor3 = unlocked and C.good or C.subtext
@@ -125,10 +206,11 @@ local function refresh()
 			local b = col.buttons[talent.id]
 			local rank = p.talents[talent.id] or 0
 			local canLearn = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id)
+			anyLearnable = anyLearnable or canLearn
 			local tierOk = inBranch >= TalentUtil.tierRequirement(talent.tier)
-			b.rank.Text = string.format("%d/%d", rank, talent.maxRank)
+			setPips(b, rank, talent.maxRank, rank >= talent.maxRank and GOLD or C.good)
 			if rank >= talent.maxRank then
-				b.stroke.Color = C.accent
+				b.stroke.Color = GOLD
 				b.button.BackgroundColor3 = Color3.fromRGB(90, 70, 40)
 				b.button.BackgroundTransparency = 0
 				b.icon.TextTransparency = 0
@@ -150,19 +232,23 @@ local function refresh()
 			end
 			b.stroke.Thickness = selectedId == talent.id and 4 or 2
 		end
+		col.auto.Visible = p.talentPoints > 0 and anyLearnable
+		col.auto.Text = autoArmed == branchIndex and "Sure?" or "⚡ Auto"
 	end
 	showDetails()
+	showPopup(p)
 end
 
 function SkillTree.build(classId: string)
 	builtFor = classId
+	selectedId = nil
 	for _, col in ipairs(columns) do
 		col.frame:Destroy()
 	end
 	columns = {}
 	local branches = Talents[classId]
 	local class = Classes.get(classId)
-	window.TitleBar_.Title.Text = "🌟 Skill Tree — " .. class.name
+	window.TitleBar_.Title.Text = "🌟 Skill Tree: " .. class.name
 	for branchIndex, branch in ipairs(branches) do
 		local frame = Theme.make("Frame", {
 			Position = UDim2.fromOffset((branchIndex - 1) * 278, 40),
@@ -174,13 +260,31 @@ function SkillTree.build(classId: string)
 		Theme.corner(frame, 10)
 		local header = Theme.label({
 			Position = UDim2.fromOffset(10, 6),
-			Size = UDim2.new(1, -20, 0, 24),
+			Size = UDim2.new(1, -96, 0, 24),
 			Font = Theme.Fonts.title,
 			TextSize = 20,
 			TextColor3 = class.colors.accent,
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 			Text = branch.name,
 			Parent = frame,
 		})
+		local auto = Theme.button("⚡ Auto", Color3.fromRGB(70, 120, 180), function()
+			if autoArmed ~= branchIndex then
+				-- ask once before spending every point
+				autoArmed = branchIndex
+				refresh()
+				task.delay(4, function()
+					if autoArmed == branchIndex then
+						autoArmed = nil
+						refresh()
+					end
+				end)
+				return
+			end
+			autoArmed = nil
+			autoFill(branchIndex)
+		end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 7), Size = UDim2.fromOffset(78, 24), TextSize = 13, Visible = false, Parent = frame })
 		Theme.label({
 			Position = UDim2.fromOffset(10, 30),
 			Size = UDim2.new(1, -20, 0, 18),
@@ -190,7 +294,7 @@ function SkillTree.build(classId: string)
 			Text = branch.desc,
 			Parent = frame,
 		})
-		local col = { frame = frame, header = header, buttons = {}, tierLabels = {} }
+		local col = { frame = frame, header = header, auto = auto, buttons = {}, tierLabels = {} }
 		for tier = 1, 5 do
 			col.tierLabels[tier] = Theme.label({
 				Position = UDim2.fromOffset(8, ROW_Y0 + (tier - 1) * ROW_H + 16),
@@ -205,8 +309,8 @@ function SkillTree.build(classId: string)
 			local x = COL_X[talent.col] or COL_X[1]
 			local y = ROW_Y0 + (talent.tier - 1) * ROW_H
 			local button = Theme.make("TextButton", {
-				Position = UDim2.fromOffset(x - 25, y),
-				Size = UDim2.fromOffset(50, 50),
+				Position = UDim2.fromOffset(x - TILE / 2, y),
+				Size = UDim2.fromOffset(TILE, TILE),
 				BackgroundColor3 = C.panel2,
 				AutoButtonColor = false,
 				Text = "",
@@ -215,25 +319,42 @@ function SkillTree.build(classId: string)
 			Theme.corner(button, talent.ability and 25 or 10)
 			local stroke = Theme.stroke(button, C.subtext, 2)
 			local icon = Theme.label({
-				Size = UDim2.fromScale(1, 1),
-				TextSize = 26,
+				Size = UDim2.new(1, 0, 0, 36),
+				TextSize = 24,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				Text = talentIcon(talent),
 				Parent = button,
 			})
+			-- one bar per rank, filled as you learn them
+			local pips = {}
+			local gap = 2
+			local width = (TILE - 12 - gap * (talent.maxRank - 1)) / talent.maxRank
+			for i = 1, talent.maxRank do
+				local pip = Theme.make("Frame", {
+					Position = UDim2.fromOffset(6 + (i - 1) * (width + gap), 38),
+					Size = UDim2.fromOffset(width, 7),
+					BackgroundColor3 = Color3.fromRGB(40, 34, 55),
+					BorderSizePixel = 0,
+					ZIndex = 2,
+					Parent = button,
+				})
+				Theme.corner(pip, 3)
+				pips[i] = pip
+			end
 			local rank = Theme.label({
-				AnchorPoint = Vector2.new(1, 1),
-				Position = UDim2.new(1, 6, 1, 4),
-				Size = UDim2.fromOffset(30, 16),
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 8, 0, -8),
+				Size = UDim2.fromOffset(30, 18),
 				BackgroundTransparency = 0,
 				BackgroundColor3 = Color3.fromRGB(15, 12, 22),
-				TextSize = 11,
+				Font = Theme.Fonts.title,
+				TextSize = 14,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				Text = "0/" .. talent.maxRank,
-				ZIndex = 2,
+				ZIndex = 3,
 				Parent = button,
 			})
-			Theme.corner(rank, 5)
+			Theme.corner(rank, 6)
 			if talent.mods then
 				Theme.label({
 					Position = UDim2.fromOffset(-4, -6),
@@ -246,10 +367,15 @@ function SkillTree.build(classId: string)
 				})
 			end
 			button.Activated:Connect(function()
+				local p = App.State.profile
+				-- second click on the selected skill learns a rank
+				if selectedId == talent.id and p and learnableRanks(p, talent) > 0 then
+					learn(talent.id, 1)
+				end
 				selectedId = talent.id
 				refresh()
 			end)
-			col.buttons[talent.id] = { button = button, stroke = stroke, icon = icon, rank = rank }
+			col.buttons[talent.id] = { button = button, stroke = stroke, icon = icon, rank = rank, pips = pips }
 		end
 		columns[branchIndex] = col
 	end
@@ -295,20 +421,56 @@ function SkillTree.init(app)
 	})
 	Theme.corner(panel, 10)
 	Theme.pad(panel, 10)
-	details.name = Theme.label({ Size = UDim2.new(1, -150, 0, 22), TextSize = 18, TextColor3 = C.accent, Parent = panel })
-	details.body = Theme.label({ Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, -150, 0, 40), TextSize = 13, Font = Theme.Fonts.body, Parent = panel })
-	details.req = Theme.label({ Position = UDim2.fromOffset(0, 64), Size = UDim2.new(1, -150, 0, 16), TextSize = 13, Parent = panel })
+	details.name = Theme.label({ Size = UDim2.new(1, -190, 0, 22), TextSize = 18, TextColor3 = C.accent, Parent = panel })
+	details.body = Theme.label({ Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, -190, 0, 40), TextSize = 13, Font = Theme.Fonts.body, Parent = panel })
+	details.req = Theme.label({ Position = UDim2.fromOffset(0, 64), Size = UDim2.new(1, -190, 0, 16), TextSize = 13, Parent = panel })
 	details.learn = Theme.button("Learn", Color3.fromRGB(60, 140, 70), function()
 		if selectedId then
-			learn(selectedId)
+			learn(selectedId, 1)
 		end
 	end, {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, 0, 0.5, 0),
-		Size = UDim2.fromOffset(130, 46),
-		TextSize = 20,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.fromOffset(170, 40),
+		TextSize = 19,
 		Parent = panel,
 	})
+	details.max = Theme.button("Max", Color3.fromRGB(150, 110, 40), function()
+		local talent = selectedId and Talents.byId[selectedId]
+		local p = App.State.profile
+		if talent and p then
+			learn(talent.id, talent.maxRank - (p.talents[talent.id] or 0))
+		end
+	end, {
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, 0, 1, 0),
+		Size = UDim2.fromOffset(170, 30),
+		TextSize = 15,
+		Parent = panel,
+	})
+
+	-- Learn / Max bubble that appears right beside the selected skill
+	popup.frame = Theme.make("Frame", {
+		Size = UDim2.fromOffset(116, 60),
+		BackgroundColor3 = C.panel,
+		Visible = false,
+		ZIndex = 20,
+		Parent = content,
+	})
+	Theme.corner(popup.frame, 8)
+	Theme.stroke(popup.frame, C.good, 2)
+	popup.learn = Theme.button("Learn", Color3.fromRGB(60, 140, 70), function()
+		if selectedId then
+			learn(selectedId, 1)
+		end
+	end, { Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, 24), TextSize = 14, ZIndex = 21, Parent = popup.frame })
+	popup.max = Theme.button("Max", Color3.fromRGB(150, 110, 40), function()
+		local talent = selectedId and Talents.byId[selectedId]
+		local p = App.State.profile
+		if talent and p then
+			learn(talent.id, talent.maxRank - (p.talents[talent.id] or 0))
+		end
+	end, { Position = UDim2.fromOffset(4, 32), Size = UDim2.new(1, -8, 0, 24), TextSize = 13, ZIndex = 21, Parent = popup.frame })
 
 	App.Windows.register("SkillTree", window, refresh)
 	App.State.changed:Connect(function()

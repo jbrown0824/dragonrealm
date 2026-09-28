@@ -1,4 +1,5 @@
--- The five dragon types. Each has its own look, fire style, stats and skill tree.
+-- The five dragon types. Each has its own look, fire style, stats, skill tree and a
+-- signature ability (Config/Abilities) that unlocks at Game.SIGNATURE_LEVEL.
 -- Talent trees live in Config/Talents; abilities in Config/Abilities.
 
 local function rgb(r, g, b)
@@ -12,6 +13,7 @@ Classes.Order = { "Shadowstalker", "Stormwing", "Behemoth", "Frostwyrm", "Venoms
 Classes.Shadowstalker = {
 	id = "Shadowstalker",
 	name = "Shadowstalker",
+	signature = "RendingClaws", -- unique ability unlocked at Game.SIGNATURE_LEVEL
 	role = "Stealthy",
 	tagline = "Strike unseen. Vanish before they scream.",
 	description = "A sleek night hunter. Huge critical hits, stealth, and purple shadowflame that drains life.",
@@ -49,6 +51,7 @@ Classes.Shadowstalker = {
 Classes.Stormwing = {
 	id = "Stormwing",
 	name = "Stormwing",
+	signature = "SparkBolt", -- unique ability unlocked at Game.SIGNATURE_LEVEL
 	role = "Agile",
 	tagline = "Faster than the thunder that follows.",
 	description = "The fastest flyer in the realm. Crackling lightning breath, huge flight stamina and dodges.",
@@ -86,6 +89,7 @@ Classes.Stormwing = {
 Classes.Behemoth = {
 	id = "Behemoth",
 	name = "Behemoth",
+	signature = "TailSweep", -- unique ability unlocked at Game.SIGNATURE_LEVEL
 	role = "Strong but Slow",
 	tagline = "Mountains move aside.",
 	description = "A colossal armored dragon. Slow to move, but hits like a landslide and shrugs off blows. Breathes molten magma.",
@@ -123,6 +127,7 @@ Classes.Behemoth = {
 Classes.Frostwyrm = {
 	id = "Frostwyrm",
 	name = "Frostwyrm",
+	signature = "FrostShards", -- unique ability unlocked at Game.SIGNATURE_LEVEL
 	role = "Controller",
 	tagline = "Everything slows down eventually.",
 	description = "An icy wyrm whose freezing breath slows everything it touches. Freezes, shields and blizzards.",
@@ -160,6 +165,7 @@ Classes.Frostwyrm = {
 Classes.Venomspine = {
 	id = "Venomspine",
 	name = "Venomspine",
+	signature = "VenomSpit", -- unique ability unlocked at Game.SIGNATURE_LEVEL
 	role = "Poisoner",
 	tagline = "One breath is all it takes.",
 	description = "A spiny, toxic dragon. Green venom-fire poisons enemies so they keep melting after you fly off.",

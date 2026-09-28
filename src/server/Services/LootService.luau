@@ -8,6 +8,8 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Items = require(Shared.Config.Items)
 local Seeds = require(Shared.Config.Seeds)
+local Enemies = require(Shared.Config.Enemies)
+local Pets = require(Shared.Config.Pets)
 local ItemUtil = require(Shared.ItemUtil)
 local Util = require(Shared.Util)
 
@@ -71,6 +73,9 @@ local function orbColor(kind: string, payload): Color3
 	elseif kind == "seed" then
 		local seed = Seeds.get(payload)
 		return seed and seed.bloom or Color3.new(0.4, 1, 0.4)
+	elseif kind == "egg" then
+		local egg = Pets.Eggs[payload]
+		return egg and egg.color or Color3.new(1, 0.8, 0.5)
 	end
 	return Color3.fromRGB(255, 210, 60)
 end
@@ -81,6 +86,9 @@ local function orbLabel(kind: string, payload): string
 	elseif kind == "seed" then
 		local seed = Seeds.get(payload)
 		return "🌱 " .. (seed and seed.name or payload) .. " Seed"
+	elseif kind == "egg" then
+		local egg = Pets.Eggs[payload]
+		return "🥚 " .. (egg and egg.name or payload)
 	end
 	return "Gold"
 end
@@ -97,6 +105,8 @@ local function collect(orb: BasePart)
 			S.PlayerService.addItem(player, data.payload)
 		elseif data.kind == "seed" then
 			S.PlayerService.addSeeds(player, data.payload, 1)
+		elseif data.kind == "egg" then
+			S.PetService.addEgg(player, data.payload, 1)
 		end
 	end
 	local character = player.Character
@@ -174,25 +184,38 @@ end
 
 ---------------------------------------------------------------- enemy drops
 
+-- A random egg for drops: mostly Ember, sometimes Storm, rarely Mythic. `bonus` shifts it up.
+function LootService.rollEgg(bonus: number?): string
+	local b = bonus or 0
+	return Util.weightedPick({ EmberEgg = 70, StormEgg = 24 * (1 + b), MythicEgg = 6 * (1 + 2 * b) }) or "EmberEgg"
+end
+
 function LootService.dropForEnemy(player: Player, e, position: Vector3)
 	local stats = S.PlayerService.getStats(player)
 	local luck = stats and stats.lootPct or 0
 	local def = e.def
+	local mini = e.miniBoss and Enemies.MINI_BOSS_LOOT or nil
 
-	local gold = math.random(4, 8) * (1 + 0.3 * (e.level - 1)) * (def.goldMult or 1)
+	local gold = math.random(4, 8) * (1 + 0.3 * (e.level - 1)) * (def.goldMult or 1) * (mini and mini.goldMult or 1)
 	local got = S.PlayerService.addGold(player, gold, true)
 	S.CombatService.queueNumber(player, position + Vector3.new(0, 5, 0), got, "gold")
 
-	if math.random() < (def.gearChance or 0) * (1 + luck / 100) then
+	local gearChance = mini and 1 or (def.gearChance or 0)
+	if math.random() < gearChance * (1 + luck / 100) then
 		local ilvl = math.clamp(e.level + math.random(-1, 1), 1, 32)
-		LootService.spawnOrb(player, position, "gear", LootService.rollGear(ilvl, luck, def.minRarity))
+		LootService.spawnOrb(player, position, "gear", LootService.rollGear(ilvl, luck, mini and mini.minRarity or def.minRarity))
 	end
-	if math.random() < (def.seedChance or 0) * (1 + luck / 100) then
-		LootService.spawnOrb(player, position, "seed", LootService.rollSeed(e.level / 30))
+	local seedChance = mini and mini.seedChance or (def.seedChance or 0)
+	if math.random() < seedChance * (1 + luck / 100) then
+		LootService.spawnOrb(player, position, "seed", LootService.rollSeed(e.level / 30 + (mini and 0.5 or 0)))
+	end
+	if mini and math.random() < mini.eggChance * (1 + luck / 100) then
+		LootService.spawnOrb(player, position, "egg", LootService.rollEgg(0.5))
 	end
 end
 
--- Direct rewards (quests, bosses). rewards: { xp, gold, gear = { rarity }, seeds = { id = n }, items = { item... } }
+-- Direct rewards (quests, bosses, chests).
+-- rewards: { xp, gold, gear = { rarity }, seeds = { id = n }, items = { item... }, eggs = { id = n } }
 function LootService.grant(player: Player, rewards)
 	local profile = S.PlayerService.getProfile(player)
 	if not profile then
@@ -215,6 +238,11 @@ function LootService.grant(player: Player, rewards)
 	if rewards.seeds then
 		for seedId, n in pairs(rewards.seeds) do
 			S.PlayerService.addSeeds(player, seedId, n)
+		end
+	end
+	if rewards.eggs then
+		for eggId, n in pairs(rewards.eggs) do
+			S.PetService.addEgg(player, eggId, n)
 		end
 	end
 end

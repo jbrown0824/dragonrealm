@@ -55,8 +55,32 @@ def check(parts, is_subject, min_pen=0.3, ignore=lambda a, b: False):
                 hits.append((pen, p, parts[j]))
     return hits
 
+BUILDINGS = ('DragonHouse', 'Armory', 'Exchange', 'Forge', 'Alchemist', 'Hatchery', 'TrainingDummy', 'SparringGolem',
+             'Longhouse', 'Hut', 'BigTent', 'Chest', 'Tent', 'WarHorn', 'Base')
+
+def building_of(p):
+    for seg in p['path'].split('.'):
+        for b in BUILDINGS:
+            if seg.startswith(b):
+                return b
+    return None
+
 if __name__ == '__main__':
     parts = [p for p in load(sys.argv[1]) if p['t'] < 1]
+    if len(sys.argv) > 2 and sys.argv[2] == 'buildings':
+        # Parts of a building clipping into anything that isn't part of the same building.
+        subj = lambda p: building_of(p) is not None and p['mid'] != 0
+        ign = lambda a, b: (a['mid'] == b['mid'] and a['mid'] != 0) or not b['collide'] or b['n'] in ('Plot1',)
+        hits = check(parts, subj, 0.6, ign)
+        seen = set()
+        for pen, a, b in sorted(hits, key=lambda h: -h[0]):
+            key = (a['mid'], b['mid'] if b['mid'] else b['path'])
+            if key in seen:
+                continue
+            seen.add(key)
+            print(f"{pen:5.2f}  {a['path']} @ {[round(x) for x in a['cf'][:3]]}  <->  {b['path']} @ {[round(x) for x in b['cf'][:3]]}")
+        print(len(seen), 'building overlaps')
+        sys.exit(0)
     def is_sign(p):
         return p['n'] == 'Sign'
     hits = check(parts, is_sign, 0.3)

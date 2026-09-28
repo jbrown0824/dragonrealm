@@ -40,6 +40,39 @@ Abilities.Fireball = {
 	desc = "Hurl an exploding ball of your element at your aim point.",
 }
 
+---------------------------------------------------------------- signature abilities
+-- Every dragon type gets its own one at Game.SIGNATURE_LEVEL (see Classes.X.signature).
+Abilities.RendingClaws = {
+	id = "RendingClaws", name = "Rending Claws", icon = "🐾", kind = "nova", signature = true,
+	cooldown = 7, mult = 2.2, radius = 11,
+	effects = { lifestealBonus = 25 },
+	desc = "Rake everything around you with shadow claws, healing for 25% of the damage dealt.",
+}
+Abilities.SparkBolt = {
+	id = "SparkBolt", name = "Spark Bolt", icon = "⚡", kind = "projectile", signature = true,
+	cooldown = 6, mult = 2.3, count = 1, speed = 210, range = 190, radius = 4, size = 1.1,
+	effects = { stun = 0.7 },
+	desc = "Fire a crackling bolt of lightning that stuns whatever it hits.",
+}
+Abilities.TailSweep = {
+	id = "TailSweep", name = "Tail Sweep", icon = "💫", kind = "nova", signature = true,
+	cooldown = 8, mult = 2.1, radius = 14,
+	effects = { knockback = 32 },
+	desc = "Spin and smash everything around you with your club tail, knocking it back.",
+}
+Abilities.FrostShards = {
+	id = "FrostShards", name = "Frost Shards", icon = "🔷", kind = "projectile", signature = true,
+	cooldown = 7, mult = 1.15, count = 3, spread = 18, speed = 150, range = 140, radius = 5, size = 1.2,
+	effects = { slowPct = 35, slowDuration = 2.5 },
+	desc = "Spit three shards of ice that chill and slow what they hit.",
+}
+Abilities.VenomSpit = {
+	id = "VenomSpit", name = "Venom Spit", icon = "🟢", kind = "projectile", signature = true,
+	cooldown = 6, mult = 1.2, count = 1, speed = 115, range = 150, radius = 7, size = 1.6,
+	effects = { poisonPct = 130 },
+	desc = "Spit a big glob of venom that splashes and keeps poisoning everything it touched.",
+}
+
 ---------------------------------------------------------------- Shadowstalker
 Abilities.ShadowPounce = {
 	id = "ShadowPounce", name = "Shadow Pounce", icon = "🐾", kind = "dash",

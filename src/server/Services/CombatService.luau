@@ -10,6 +10,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local Zones = require(Shared.Config.Zones)
 local StatCalc = require(Shared.StatCalc)
+local Tuning = require(Shared.Tuning)
 local Remotes = require(Shared.Remotes)
 
 local CombatService = {}
@@ -225,6 +226,19 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 	humanoid.Health = math.max(0, before - amount)
 	local dealt = before - humanoid.Health
 
+	-- Training dummies soak up everything and report it to the DPS meter.
+	if info.dummy then
+		humanoid.Health = humanoid.MaxHealth
+		dealt = amount
+		if attacker then
+			queueNumber(attacker, info.root.Position + Vector3.new(0, info.height, 0), amount, opts.dotKind or (crit and "crit" or "hit"))
+			if info.onHit then
+				info.onHit(attacker, amount)
+			end
+		end
+		return dealt
+	end
+
 	if attacker then
 		info.damageBy[attacker] = (info.damageBy[attacker] or 0) + dealt
 		S.EnemyService.onDamaged(info, attacker)
@@ -245,7 +259,8 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 	return dealt
 end
 
--- Damage a player's dragon. opts: attackerPlayer, sourceLevel, crit, melee, enemyInfo, dotKind, lifestealBonus
+-- Damage a player's dragon. opts: attackerPlayer, sourceLevel, crit, melee, enemyInfo, dotKind,
+-- lifestealBonus, ignoreSafe (hurts even in town: the sparring golem), nonLethal (never below 1 HP)
 function CombatService.damagePlayer(victim: Player, amount: number, opts)
 	opts = opts or {}
 	local character, humanoid, root = S.PlayerService.getCharacter(victim)
@@ -253,8 +268,12 @@ function CombatService.damagePlayer(victim: Player, amount: number, opts)
 	if not character or not st or not st.stats then
 		return 0
 	end
+	if victim:GetAttribute("GodMode") then
+		queueNumber(victim, root.Position + Vector3.new(0, 4, 0), 0, "dodge")
+		return 0
+	end
 	-- Vikings can't hurt you in town.
-	if not opts.attackerPlayer then
+	if not opts.attackerPlayer and not opts.ignoreSafe then
 		local area = Zones.areaAt(root.Position)
 		if area and area.safe then
 			return 0
@@ -285,7 +304,7 @@ function CombatService.damagePlayer(victim: Player, amount: number, opts)
 	end
 
 	local before = humanoid.Health
-	humanoid.Health = math.max(0, before - amount)
+	humanoid.Health = math.max(opts.nonLethal and math.min(1, before) or 0, before - amount)
 	local dealt = before - humanoid.Health
 
 	queueNumber(victim, root.Position + Vector3.new(0, 5, 0), amount, opts.dotKind or "taken")
@@ -317,7 +336,7 @@ local function hitTarget(ctx, target, mult: number, effects, fromPos: Vector3?, 
 	if target.humanoid.Health <= 0 then
 		return
 	end
-	local dmg = stats.attack * mult * ctx.ambush
+	local dmg = stats.attack * mult * ctx.ambush * Tuning.global("playerDamage")
 	local crit = math.random() * 100 < stats.critChance + (critBonus or 0)
 	if crit then
 		dmg *= stats.critDamage / 100
@@ -478,7 +497,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 	if t < (cds[abilityId] or 0) - 0.15 then
 		return
 	end
-	cds[abilityId] = t + ability.cooldown
+	cds[abilityId] = t + (player:GetAttribute("NoCooldowns") and math.min(ability.cooldown, 0.2) or ability.cooldown)
 
 	if not isFiniteVector(aim) then
 		aim = root.Position + root.CFrame.LookVector * 30

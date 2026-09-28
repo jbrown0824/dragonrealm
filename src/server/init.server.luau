@@ -35,6 +35,15 @@ local ORDER = {
 	"PvPService",
 	"BossService",
 	"ZoneService",
+	"SurvivalService",
+	"WildlifeService",
+	"FishingService",
+	"PotionService",
+	"PetService",
+	"TrainingService",
+	"CampService",
+	"AdminService",
+	"TutorialService",
 }
 
 local services = {}

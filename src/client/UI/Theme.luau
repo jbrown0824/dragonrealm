@@ -201,13 +201,17 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 		Text = title,
 		Parent = titleBar,
 	})
-	local close = Theme.button("✕", Color3.fromRGB(150, 50, 60), nil, {
+	-- A round red "X" (plain letter: symbol glyphs like ✕ can show up as empty boxes)
+	local close = Theme.button("X", Color3.fromRGB(200, 60, 70), nil, {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.fromOffset(32, 32),
-		TextSize = 18,
+		Size = UDim2.fromOffset(34, 34),
+		Font = Theme.Fonts.title,
+		TextSize = 22,
 		Parent = titleBar,
 	})
+	close:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
+	Theme.stroke(close, Color3.fromRGB(255, 255, 255), 2, 0.3)
 	local content = Theme.make("Frame", {
 		Name = "Content",
 		Position = UDim2.fromOffset(0, 48),

@@ -8,6 +8,7 @@ Game.DATASTORE_NAME = "DragonRealm_Profiles_v1"
 -- Leveling
 Game.LEVEL_CAP = 30
 Game.TALENT_POINTS_PER_TIER = 4 -- points needed in a branch to unlock each next tier
+Game.SIGNATURE_LEVEL = 3 -- each dragon type's own ability unlocks here (goes on key 1)
 Game.LOW_LEVEL_XP_PENALTY_GAP = 6 -- enemies this many levels below you give reduced XP
 Game.LOW_LEVEL_XP_MULT = 0.25
 
@@ -18,12 +19,22 @@ Game.INVENTORY_LIMIT = 60
 Game.MAX_UPGRADE = 10
 Game.RESPEC_COST_PER_LEVEL = 20
 Game.TRANSFORM_FREE_UNTIL_LEVEL = 5
-Game.TRANSFORM_COST_PER_LEVEL = 100
+Game.TRANSFORM_COST = 50
 
 -- Farming
 Game.START_PLOTS = 6
 Game.MAX_PLOTS = 12
 Game.PLOT_COSTS = { 400, 900, 1800, 3000, 4500, 7000 } -- cost of plot 7, 8, ... 12
+
+-- Garden robots, bought at the Bot Dock in your lair.
+Game.ROBOTS = {
+	Water = { name = "Drizzle-Bot", icon = "💧", cost = 1500, delay = 3,
+		desc = "Hovers over your garden and waters any plant that asks for it." },
+	Harvest = { name = "Reap-Bot", icon = "🌾", delay = 2, levels = {
+		{ cost = 5000, desc = "Harvests flowers the moment they reach full bloom and brings you the gold and seeds." },
+		{ cost = 12000, desc = "Upgrade: also replants the same seed in the empty spot." },
+	} },
+}
 
 -- Combat
 Game.RESPAWN_TIME = 4
@@ -41,10 +52,29 @@ Game.FLIGHT_SPEED_MULT = 2.2
 Game.FLIGHT_SPEED_BONUS = 12
 Game.MAX_FLIGHT_HEIGHT = 260
 
+-- Hunger. A full belly lasts about 17 minutes out in the wilds (twice that in town).
+Game.HUNGER_MAX = 100
+Game.HUNGER_DRAIN = 0.1 -- per second
+Game.HUNGER_FLYING_MULT = 1.6
+Game.HUNGER_TOWN_MULT = 0.5
+Game.HUNGER_AFTER_DEATH = 30 -- you respawn with at least this much
+Game.HUNGER_LEVELS = { -- checked in order; the first one you're below applies
+	{ below = 12, id = "Starving", icon = "😵", color = Color3.fromRGB(255, 80, 80),
+		stats = { attackPct = -25, flightSpeedPct = -35, staminaPct = -40 } },
+	{ below = 35, id = "Hungry", icon = "😋", color = Color3.fromRGB(255, 190, 80),
+		stats = { attackPct = -10, flightSpeedPct = -15, staminaPct = -20 } },
+}
+Game.FOOD_BAG_LIMIT = 30
+Game.EAT_HEAL_PCT = 10 -- eating also heals this % of max health
+
+-- Pets
+Game.PET_LIMIT = 30
+Game.PET_SLOT_LEVELS = { 1, 10, 20 } -- one more pet can follow you at each of these levels
+
 -- Bosses
 Game.BOSS_FIRST_SPAWN = 5 * 60 -- seconds after the server starts until the first boss
 Game.BOSS_INTERVAL = 15 * 60 -- seconds between boss spawns
-Game.BOSS_WARNING = 3 * 60 -- warning + queue window before the boss spawns
+Game.BOSS_WARNING = 90 -- warning + queue window before the boss spawns
 Game.BOSS_FIGHT_DURATION = 5 * 60
 Game.BOSS_TARGET_FIGHT_SECONDS = 100 -- boss HP is tuned so the queued group kills it in about this long
 Game.BOSS_HIT_FRACTION = 0.1 -- a basic boss hit takes about this fraction of the group's average max health
@@ -53,9 +83,46 @@ Game.BOSS_LIVES = 3 -- deaths allowed per player in a boss fight before they're 
 -- Enemies
 Game.ENEMY_RESPAWN = 18
 Game.ENEMY_LEASH = 110
+-- Vikings respawn slower while few dragons are in their camp, so a lone dragon can clear it
+-- and open the chest. Index = dragons in the camp (1, 2, 3, 4 or more). Empty camps use 1.
+Game.CAMP_RESPAWN_MULT = { 2.6, 1.8, 1.3, 1.0 }
+Game.CHEST_RESPAWN = 5 * 60
+Game.ALARM_DURATION = 30 -- how long a sounded alarm keeps the whole camp hunting you
+Game.ALARM_COOLDOWN = 40
+Game.ANIMAL_RESPAWN = 35
 
 function Game.xpToNext(level: number): number
 	return math.floor(60 * level ^ 1.45 + 40)
+end
+
+function Game.transformCost(level: number): number
+	return level < Game.TRANSFORM_FREE_UNTIL_LEVEL and 0 or Game.TRANSFORM_COST
+end
+
+function Game.petSlots(level: number): number
+	local n = 0
+	for _, need in ipairs(Game.PET_SLOT_LEVELS) do
+		if level >= need then
+			n += 1
+		end
+	end
+	return n
+end
+
+function Game.hungerLevel(hunger: number)
+	for _, lvl in ipairs(Game.HUNGER_LEVELS) do
+		if hunger < lvl.below then
+			return lvl
+		end
+	end
+	return nil
+end
+
+function Game.campRespawnMult(dragons: number): number
+	if dragons <= 0 then
+		return 1
+	end
+	return Game.CAMP_RESPAWN_MULT[math.min(dragons, #Game.CAMP_RESPAWN_MULT)]
 end
 
 return Game

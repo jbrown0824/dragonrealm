@@ -17,18 +17,27 @@ local EVENTS = {
 	"OpenSeedPicker",
 	"ZoneChanged",
 	"Died",
+	"OpenPanel", -- open a UI window by name (potions, hatchery, robots...)
+	"DummyStats", -- training dummy DPS meter for the attacker
+	"Fishing", -- fishing session updates
+	"TuningChanged", -- admin balance overrides for every client
+	"AdminState", -- tells a player they're an admin
 	-- client -> server
 	"CastAbility",
 	"SetFlying",
+	"FishingAction",
+	"TutorialStep",
 }
 
 local FUNCTIONS = {
 	"GetProfile",
 	"ChooseClass",
 	"SpendTalent",
+	"AutoSpendBranch",
 	"ResetTalents",
 	"EquipItem",
 	"UnequipItem",
+	"EquipBest",
 	"BuyItem",
 	"SellItem",
 	"UpgradeItem",
@@ -41,6 +50,19 @@ local FUNCTIONS = {
 	"LeaveBossFight",
 	"Transform",
 	"TeleportHome",
+	"BuyPotion",
+	"BuyEgg",
+	"HatchEgg",
+	"EquipPet",
+	"UnequipPet",
+	"EquipBestPets",
+	"ReleasePet",
+	"BuyRobot",
+	"EatFood",
+	"SellFood",
+	"RedeemCode",
+	"AdminAction",
+	"GetTuning",
 }
 
 local Remotes = {}

@@ -80,7 +80,9 @@ DragonBuilder.PLANS = PLANS
 
 -- Builds a dragon. options:
 --   scale (number), anchored (bool), name (string), material (Enum.Material),
---   tint (Color3: paint everything one color, e.g. a stone statue), noParticles (bool)
+--   tint (Color3: paint everything one color, e.g. a stone statue), noParticles (bool),
+--   colors / fire (tables overriding the class palette, used by nano dragon pets),
+--   lite (bool: skip teeth, claws, belly plates and markings; for tiny pets)
 -- Returns model, hipHeight
 function DragonBuilder.build(classId: string, options)
 	options = options or {}
@@ -89,8 +91,15 @@ function DragonBuilder.build(classId: string, options)
 	local s = (options.scale or 1) * class.scale
 	local tint = options.tint
 	local baseMaterial = options.material or Enum.Material.SmoothPlastic
-	local colors = class.colors
+	local colors = options.colors or class.colors
 	local fire = class.fire
+	if options.fire then
+		fire = table.clone(class.fire)
+		for k, v in pairs(options.fire) do
+			fire[k] = v
+		end
+	end
+	local lite = options.lite == true
 	local isFrost = class.id == "Frostwyrm"
 
 	local model = Instance.new("Model")
@@ -272,7 +281,7 @@ function DragonBuilder.build(classId: string, options)
 			light.Brightness = 1
 			light.Parent = core
 		end
-		for i = 0, 4 do
+		for i = 0, lite and -1 or 4 do
 			local z = -bl * 0.38 + i * bl * 0.17
 			local wide = bw * (0.8 - math.abs(i - 2) * 0.07)
 			ellipsoid(V(wide, bh * 0.2, bl * 0.105), BCF(0, -bh * 0.46 + math.abs(i - 2) * 0.05, z), colors.belly)
@@ -325,7 +334,7 @@ function DragonBuilder.build(classId: string, options)
 		end
 
 		-- Rune markings on the flanks
-		local marks = plan.marks
+		local marks = not lite and plan.marks or nil
 		for _, side in ipairs({ -1, 1 }) do
 			local x = side * bw * 0.5
 			local runeMat = Enum.Material.Neon
@@ -375,6 +384,9 @@ function DragonBuilder.build(classId: string, options)
 		group(seg, function()
 			-- throat plate
 			local mid = (p + q) / 2
+			if lite then
+				return
+			end
 			limb(mid - dir * segLen * 0.35 * s + V(0, -0.3, 0), mid + dir * segLen * 0.35 * s + V(0, -0.3, 0), thick * 0.62, colors.belly, nil, 0.8)
 			local top = mid + Vector3.new(0, thick * 0.45, 0)
 			if plan.back == "blades" or plan.back == "quills" then
@@ -436,7 +448,7 @@ function DragonBuilder.build(classId: string, options)
 			ellipsoid(V(hp.w * 0.36, hp.h * 0.2, hp.l * 0.42), CFrame.new(H + V(side * hp.w * 0.3, hp.h * 0.33, -hp.l * 0.17)), colors.secondary)
 			ellipsoid(V(0.24, 0.16, 0.22), CFrame.new(H + V(side * hp.w * 0.15, -hp.h * 0.02, noseZ)), DARK)
 			-- upper teeth
-			for i = 1, 3 do
+			for i = 1, lite and 0 or 3 do
 				local tz = noseZ + hp.l * 0.12 + i * hp.l * 0.12
 				local tx = side * hp.w * (0.24 - i * 0.015)
 				limb(H + V(tx, -hp.h * 0.33, tz), H + V(tx, -hp.h * 0.33 - 0.38, tz - 0.05), 0.16 * s, IVORY)
@@ -507,7 +519,7 @@ function DragonBuilder.build(classId: string, options)
 	motor("Jaw", head, jaw, CFrame.new(hinge))
 	group(jaw, function()
 		for _, side in ipairs({ -1, 1 }) do
-			for i = 1, 2 do
+			for i = 1, lite and 0 or 2 do
 				local tz = -jawLen * (0.55 + i * 0.13)
 				local tx = side * hp.w * 0.2
 				limb(hinge + V(tx, 0.02, tz), hinge + V(tx, 0.34, tz - 0.05), 0.14 * s, IVORY)
@@ -626,7 +638,7 @@ function DragonBuilder.build(classId: string, options)
 				limb(ankle, toe, thick * 0.55, colors.primary)
 			end
 			ellipsoid(Vector3.new(thick * 0.95, thick * 0.45, thick * 1.2), CFrame.new(toe:Lerp(ankle, 0.35) + V(0, -0.1, 0)), colors.secondary)
-			for _, dx in ipairs({ -0.32, 0, 0.32 }) do
+			for _, dx in ipairs(lite and {} or { -0.32, 0, 0.32 }) do
 				local base = toe + V(dx * lp.thick, -0.05, 0)
 				limb(base, base + V(dx * 0.4, -0.2, -0.55), 0.2 * s, colors.horn)
 			end
@@ -663,7 +675,7 @@ function DragonBuilder.build(classId: string, options)
 			elseif plan.back == "shell" then
 				ellipsoid(Vector3.new(thick * 0.8, thick * 0.35, tailSeg * s * 0.7), CFrame.lookAt(top, top + dir), colors.secondary, Enum.Material.Slate)
 			end
-			if k % 2 == 1 and plan.marks ~= "lava" then
+			if k % 2 == 1 and plan.marks ~= "lava" and not lite then
 				ellipsoid(Vector3.new(thick * 0.72, thick * 0.2, tailSeg * s * 0.3), CFrame.lookAt(mid + Vector3.new(0, -thick * 0.42, 0), mid + Vector3.new(0, -thick * 0.42, 0) + dir), colors.belly)
 			end
 		end)

@@ -323,15 +323,363 @@ function Props.longship(parent: Instance, cf: CFrame)
 	return model
 end
 
--- A signboard with text on its front (-Z) face. `cf` = center of the board.
-function Props.sign(parent: Instance, cf: CFrame, text: string, size: Vector2?, textColor: Color3?, boardColor: Color3?)
+---------------------------------------------------------------- dragon-sized buildings
+
+-- A dragon's house: stone foundation, timber-framed walls, a tall arched doorway a dragon can
+-- walk through, round windows, a steep roof with a perch beam on top and a chimney.
+-- `cf` = center at ground level, front faces -Z.
+function Props.dragonHouse(parent: Instance, cf: CFrame, width: number, depth: number, height: number, wallColor: Color3, roofColor: Color3)
+	local model = Instance.new("Model")
+	model.Name = "DragonHouse"
+	local stone = Color3.fromRGB(135, 130, 128)
+	Props.part(model, Vector3.new(width + 1.4, 2.4, depth + 1.4), cf * CFrame.new(0, 1.2, 0), stone, Enum.Material.Cobblestone)
+	Props.part(model, Vector3.new(width, height - 2.4, depth), cf * CFrame.new(0, 2.4 + (height - 2.4) / 2, 0), wallColor, Enum.Material.Plaster)
+	-- timber frame (the front skips the middle post and splits the rail around the door)
+	local wallH = height - 2.4
+	local doorGap = math.min(11, width * 0.4) / 2 + 1.4
+	for _, x in ipairs({ -width / 2, 0, width / 2 }) do
+		for _, z in ipairs({ -depth / 2, depth / 2 }) do
+			if not (x == 0 and z < 0) then
+				Props.part(model, Vector3.new(1.2, wallH, 1.2), cf * CFrame.new(x, 2.4 + wallH / 2, z), DARK_WOOD, Enum.Material.Wood)
+			end
+		end
+	end
+	local railY = 2.4 + wallH * 0.36
+	for _, z in ipairs({ -depth / 2, depth / 2 }) do
+		Props.part(model, Vector3.new(width + 1.2, 1.2, 1.2), cf * CFrame.new(0, height, z), DARK_WOOD, Enum.Material.Wood)
+		if z > 0 then
+			Props.part(model, Vector3.new(width + 1.2, 1, 1), cf * CFrame.new(0, railY, z), DARK_WOOD, Enum.Material.Wood)
+		else
+			local len = width / 2 - doorGap + 0.6
+			for _, side in ipairs({ -1, 1 }) do
+				Props.part(model, Vector3.new(len, 1, 1), cf * CFrame.new(side * (doorGap + len / 2 - 0.3), railY, z), DARK_WOOD, Enum.Material.Wood)
+			end
+		end
+	end
+	for _, x in ipairs({ -width / 2, width / 2 }) do
+		Props.part(model, Vector3.new(1.2, 1.2, depth + 1.2), cf * CFrame.new(x, height, 0), DARK_WOOD, Enum.Material.Wood)
+	end
+	local roofH = math.max(8, depth * 0.55)
+	Props.roof(model, cf, width, depth, height, roofH, roofColor, Enum.Material.WoodPlanks)
+	-- perch beam along the ridge, with carved dragon-head ends
+	Props.part(model, Vector3.new(width + 5, 1.2, 1.2), cf * CFrame.new(0, height + roofH + 0.6, 0), DARK_WOOD, Enum.Material.Wood)
+	for _, x in ipairs({ -width / 2 - 2.5, width / 2 + 2.5 }) do
+		Props.ellipsoid(model, Vector3.new(2.2, 1.8, 1.6), cf * CFrame.new(x, height + roofH + 1.2, 0), roofColor:Lerp(Color3.new(0, 0, 0), 0.3), Enum.Material.Wood)
+	end
+	-- chimney
+	Props.part(model, Vector3.new(3, roofH + 3, 3), cf * CFrame.new(width * 0.28, height + roofH / 2 + 1, depth * 0.18), stone, Enum.Material.Brick)
+	-- dragon-sized arched doorway (about 11 wide, 13 tall): a plank door with a round top,
+	-- framed by a stone arch
+	local doorW, doorH = math.min(11, width * 0.4), math.min(13, height * 0.8)
+	local rectH = doorH - doorW / 2
+	local doorColor = Color3.fromRGB(70, 45, 30)
+	local front = -depth / 2
+	local frame = Props.part(model, Vector3.new(0.4, doorW + 1.8, doorW + 1.8), cf * CFrame.new(0, rectH + 0.2, front - 0.15) * CFrame.Angles(0, math.rad(90), 0), stone, Enum.Material.Cobblestone)
+	frame.Shape = Enum.PartType.Cylinder
+	for _, x in ipairs({ -1, 1 }) do
+		Props.part(model, Vector3.new(0.9, rectH, 0.4), cf * CFrame.new(x * (doorW / 2 + 0.45), rectH / 2 + 0.2, front - 0.15), stone, Enum.Material.Cobblestone)
+	end
+	Props.part(model, Vector3.new(doorW, rectH, 0.4), cf * CFrame.new(0, rectH / 2 + 0.2, front - 0.35), doorColor, Enum.Material.WoodPlanks)
+	local top = Props.part(model, Vector3.new(0.4, doorW, doorW), cf * CFrame.new(0, rectH + 0.2, front - 0.35) * CFrame.Angles(0, math.rad(90), 0), doorColor, Enum.Material.WoodPlanks)
+	top.Shape = Enum.PartType.Cylinder
+	Props.part(model, Vector3.new(0.5, 3, 0.3), cf * CFrame.new(0, rectH * 0.55, front - 0.6), Color3.fromRGB(200, 170, 80), Enum.Material.Metal)
+	Props.part(model, Vector3.new(doorW + 2.4, 1.2, 3), cf * CFrame.new(0, 0.6, front - 1.6), stone, Enum.Material.Cobblestone)
+	-- round glowing windows
+	for _, x in ipairs({ -width / 3, width / 3 }) do
+		local w = Props.part(model, Vector3.new(0.4, 4, 4), cf * CFrame.new(x, height * 0.62, -depth / 2 - 0.15) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(255, 215, 140), Enum.Material.Neon)
+		w.Shape = Enum.PartType.Cylinder
+		w.CastShadow = false
+		local rim = Props.part(model, Vector3.new(0.3, 4.8, 4.8), cf * CFrame.new(x, height * 0.62, -depth / 2 - 0.05) * CFrame.Angles(0, math.rad(90), 0), DARK_WOOD, Enum.Material.Wood)
+		rim.Shape = Enum.PartType.Cylinder
+	end
+	model.Parent = parent
+	return model
+end
+
+---------------------------------------------------------------- camp props
+
+-- Treasure chest (tag "CampChest"). CampService opens the lid and handles the prompt.
+function Props.chest(parent: Instance, cf: CFrame, campId: string)
+	local model = Instance.new("Model")
+	model.Name = "Chest"
+	local wood = Color3.fromRGB(125, 80, 45)
+	local gold = Color3.fromRGB(240, 190, 60)
+	-- platform
+	Props.part(model, Vector3.new(12, 1, 10), cf * CFrame.new(0, 0.5, 0), Color3.fromRGB(110, 80, 50), Enum.Material.WoodPlanks)
+	local base = Props.part(model, Vector3.new(6, 3, 4), cf * CFrame.new(0, 2.5, 0), wood, Enum.Material.WoodPlanks)
+	base.Name = "Base"
+	model.PrimaryPart = base
+	for _, x in ipairs({ -2.2, 2.2 }) do
+		Props.part(model, Vector3.new(0.4, 3.1, 4.1), cf * CFrame.new(x, 2.5, 0), gold, Enum.Material.Metal)
+	end
+	local glow = Props.part(model, Vector3.new(5.2, 0.5, 3.2), cf * CFrame.new(0, 4.05, 0), Color3.fromRGB(255, 220, 90), Enum.Material.Neon)
+	glow.Name = "Glow"
+	glow.CastShadow = false
+	Props.light(glow, Color3.fromRGB(255, 210, 100), 18, 2)
+	local lid = Props.part(model, Vector3.new(6, 1.4, 4), cf * CFrame.new(0, 4.7, 0), wood, Enum.Material.WoodPlanks)
+	lid.Name = "Lid"
+	Props.part(model, Vector3.new(0.9, 1.1, 0.3), cf * CFrame.new(0, 3.9, -2.1), gold, Enum.Material.Metal)
+	for _, x in ipairs({ -4.8, 4.8 }) do
+		Props.torch(model, (cf * CFrame.new(x, 1, -3.8)).Position)
+	end
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Open Chest"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 5
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = base
+	model:SetAttribute("CampId", campId)
+	model.Parent = parent
+	return model
+end
+
+function Props.weaponRack(parent: Instance, cf: CFrame)
+	Props.part(parent, Vector3.new(6, 0.5, 0.5), cf * CFrame.new(0, 3.2, 0), DARK_WOOD, Enum.Material.Wood)
+	for _, x in ipairs({ -2.8, 2.8 }) do
+		Props.part(parent, Vector3.new(0.5, 4, 0.5), cf * CFrame.new(x, 2, 0), DARK_WOOD, Enum.Material.Wood)
+	end
+	for i = -2, 2 do
+		local c = cf * CFrame.new(i * 1.1, 2.2, 0.3) * CFrame.Angles(math.rad(-12), 0, 0)
+		Props.part(parent, Vector3.new(0.25, 3.6, 0.25), c, WOOD, Enum.Material.Wood)
+		Props.part(parent, Vector3.new(0.15, 0.9, 0.8), c * CFrame.new(0, 1.5, -0.35), Color3.fromRGB(160, 165, 175), Enum.Material.Metal)
+	end
+end
+
+function Props.firewood(parent: Instance, cf: CFrame)
+	for row = 0, 2 do
+		for i = 0, 3 - row do
+			local c = cf * CFrame.new(-1.8 + i * 1.2 + row * 0.6, 0.55 + row * 1.0, 0) * CFrame.Angles(0, math.rad(90), 0)
+			local log = Props.part(parent, Vector3.new(4, 1.1, 1.1), c * CFrame.Angles(0, 0, 0), Color3.fromRGB(110, 75, 45), Enum.Material.Wood)
+			log.Shape = Enum.PartType.Cylinder
+		end
+	end
+end
+
+-- Big tent with a banner pole: the chieftain's or champion's tent.
+function Props.bigTent(parent: Instance, cf: CFrame, color: Color3)
+	local model = Instance.new("Model")
+	model.Name = "BigTent"
+	Props.roof(model, cf, 16, 14, 0, 11, color, Enum.Material.Fabric)
+	Props.column(model, cf.Position, 12, 0.7, DARK_WOOD, Enum.Material.Wood)
+	Props.column(model, (cf * CFrame.new(0, 11.5, 0)).Position, 6, 0.4, DARK_WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(0.15, 2.4, 3.6), cf * CFrame.new(0, 16, 1.8), color:Lerp(Color3.new(1, 1, 1), 0.3), Enum.Material.Fabric)
+	-- skull totems at the entrance
+	for _, x in ipairs({ -5, 5 }) do
+		local base = (cf * CFrame.new(x, 0, -8)).Position
+		Props.column(model, base, 5, 0.5, DARK_WOOD, Enum.Material.Wood)
+		Props.ellipsoid(model, Vector3.new(1.3, 1.4, 1.4), CFrame.new(base + Vector3.new(0, 5.6, 0)), Color3.fromRGB(235, 225, 200))
+	end
+	model.Parent = parent
+	return model
+end
+
+-- Tall wooden tower with a great horn on top (where Hornblowers raise the alarm).
+function Props.hornTower(parent: Instance, base: Vector3)
+	Props.watchtower(parent, base)
+	local ivory = Color3.fromRGB(240, 230, 200)
+	local top = base + Vector3.new(0, 19.5, 0)
+	Props.beam(parent, top + Vector3.new(-2.5, 1, 0), top + Vector3.new(0, 0.6, 0), 0.6, ivory)
+	Props.beam(parent, top + Vector3.new(0, 0.6, 0), top + Vector3.new(2.2, 1.4, 0), 1.1, ivory)
+	Props.beam(parent, top + Vector3.new(2.2, 1.4, 0), top + Vector3.new(3.6, 3.0, 0), 1.8, ivory)
+end
+
+---------------------------------------------------------------- training grounds
+
+-- Straw practice dummy on a post (tag "TrainingDummy"; TrainingService adds the Humanoid).
+function Props.dummy(parent: Instance, pos: Vector3, facing: Vector3)
+	local model = Instance.new("Model")
+	model.Name = "TrainingDummy"
+	local cf = CFrame.lookAt(pos, pos + Vector3.new(facing.X, 0, facing.Z))
+	local straw = Color3.fromRGB(215, 185, 110)
+	local burlap = Color3.fromRGB(190, 160, 115)
+	local root = Props.part(model, Vector3.new(3, 8, 2.4), cf * CFrame.new(0, 4.5, 0), Color3.new(), nil)
+	root.Name = "HumanoidRootPart"
+	root.Transparency = 1
+	root.CanCollide = false
+	model.PrimaryPart = root
+	Props.column(model, cf.Position - Vector3.new(0, 0.5, 0), 5, 0.7, DARK_WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(4, 0.6, 4), cf * CFrame.new(0, 0.3, 0), Color3.fromRGB(120, 110, 100), Enum.Material.Slate)
+	Props.ellipsoid(model, Vector3.new(3.4, 4.6, 2.6), cf * CFrame.new(0, 6.4, 0), straw, Enum.Material.Fabric)
+	local head = Props.ellipsoid(model, Vector3.new(2.2, 2.3, 2.2), cf * CFrame.new(0, 9.6, 0), burlap, Enum.Material.Fabric)
+	head.Name = "Head"
+	Props.part(model, Vector3.new(7, 0.6, 0.6), cf * CFrame.new(0, 7.3, 0), DARK_WOOD, Enum.Material.Wood)
+	for _, x in ipairs({ -3.4, 3.4 }) do
+		Props.ellipsoid(model, Vector3.new(1.3, 1.3, 1.3), cf * CFrame.new(x, 7.3, 0), straw, Enum.Material.Fabric)
+	end
+	-- target rings on the chest
+	for i, c in ipairs({ Color3.fromRGB(230, 60, 50), Color3.fromRGB(245, 240, 230), Color3.fromRGB(230, 60, 50) }) do
+		local r = 2.6 - (i - 1) * 0.8
+		local ring = Props.part(model, Vector3.new(0.2, r, r), cf * CFrame.new(0, 6.6, -1.25 - i * 0.03) * CFrame.Angles(0, math.rad(90), 0), c, Enum.Material.SmoothPlastic)
+		ring.Shape = Enum.PartType.Cylinder
+	end
+	for _, x in ipairs({ -0.4, 0.4 }) do
+		Props.part(model, Vector3.new(0.3, 0.3, 0.1), cf * CFrame.new(x, 9.9, -1.08), Color3.fromRGB(40, 30, 20))
+	end
+	model:SetAttribute("Kind", "Dummy")
+	model:SetAttribute("Height", 7)
+	model.Parent = parent
+	return model
+end
+
+-- Stone sparring golem that throws practice axes (tag "TrainingDummy", Kind = "Golem").
+function Props.golem(parent: Instance, pos: Vector3, facing: Vector3)
+	local model = Instance.new("Model")
+	model.Name = "SparringGolem"
+	local cf = CFrame.lookAt(pos, pos + Vector3.new(facing.X, 0, facing.Z))
+	local rock = Color3.fromRGB(125, 120, 115)
+	local moss = Color3.fromRGB(90, 130, 70)
+	local root = Props.part(model, Vector3.new(6, 12, 5), cf * CFrame.new(0, 6.5, 0), Color3.new(), nil)
+	root.Name = "HumanoidRootPart"
+	root.Transparency = 1
+	root.CanCollide = false
+	model.PrimaryPart = root
+	Props.part(model, Vector3.new(8, 1, 8), cf * CFrame.new(0, 0.5, 0), Color3.fromRGB(100, 95, 90), Enum.Material.Slate)
+	for _, x in ipairs({ -1.6, 1.6 }) do
+		Props.part(model, Vector3.new(2.2, 4, 2.4), cf * CFrame.new(x, 3, 0) * CFrame.Angles(0, 0, x * 0.03), rock, Enum.Material.Slate)
+	end
+	Props.part(model, Vector3.new(6.4, 5, 4.2), cf * CFrame.new(0, 7.3, 0) * CFrame.Angles(0.05, 0, 0), rock, Enum.Material.Slate)
+	Props.part(model, Vector3.new(6.6, 1.2, 4.4), cf * CFrame.new(0, 9.5, 0), moss, Enum.Material.Grass)
+	local head = Props.part(model, Vector3.new(3, 2.6, 2.8), cf * CFrame.new(0, 11.3, -0.3), rock, Enum.Material.Slate)
+	head.Name = "Head"
+	for _, x in ipairs({ -0.7, 0.7 }) do
+		local eye = Props.part(model, Vector3.new(0.6, 0.4, 0.2), cf * CFrame.new(x, 11.5, -1.72), Color3.fromRGB(120, 230, 255), Enum.Material.Neon)
+		eye.CastShadow = false
+	end
+	for _, x in ipairs({ -4.2, 4.2 }) do
+		Props.part(model, Vector3.new(2, 5.5, 2), cf * CFrame.new(x, 7, -0.4) * CFrame.Angles(0.2, 0, x * 0.04), rock, Enum.Material.Slate)
+		Props.part(model, Vector3.new(0.4, 3, 0.4), cf * CFrame.new(x, 4.2, -1.6), WOOD, Enum.Material.Wood)
+		Props.part(model, Vector3.new(0.2, 1.2, 1.4), cf * CFrame.new(x, 5.3, -2.1), Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
+	end
+	model:SetAttribute("Kind", "Golem")
+	model:SetAttribute("Height", 10)
+	model:SetAttribute("Scale", 2)
+	model.Parent = parent
+	return model
+end
+
+---------------------------------------------------------------- wilds
+
+-- Fishing spot: a bobbing float with ripple rings on the water (tag "FishingSpot").
+function Props.fishingSpot(parent: Instance, pos: Vector3, spotId: string, iced: boolean?)
+	local model = Instance.new("Model")
+	model.Name = "FishingSpot"
+	local float = Props.part(model, Vector3.new(1.4, 1.4, 1.4), CFrame.new(pos + Vector3.new(0, 0.4, 0)), Color3.fromRGB(240, 70, 60), Enum.Material.SmoothPlastic)
+	float.Shape = Enum.PartType.Ball
+	float.Name = "Float"
+	float.CanCollide = false
+	model.PrimaryPart = float
+	Props.part(model, Vector3.new(0.9, 0.5, 0.9), CFrame.new(pos + Vector3.new(0, 1.2, 0)), Color3.fromRGB(250, 250, 250), Enum.Material.SmoothPlastic).CanCollide = false
+	for i, r in ipairs({ 5, 9 }) do
+		local ring = Props.part(model, Vector3.new(0.1, r, r), CFrame.new(pos + Vector3.new(0, 0.05 + i * 0.02, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(210, 240, 255), Enum.Material.Neon)
+		ring.Shape = Enum.PartType.Cylinder
+		ring.Transparency = 0.6 + i * 0.1
+		ring.CanCollide = false
+		ring.CastShadow = false
+	end
+	if iced then
+		-- a little ice-fishing stool and bucket on the ice
+		Props.column(model, pos + Vector3.new(4, 0, 3), 1.6, 1.6, WOOD, Enum.Material.Wood)
+		Props.column(model, pos + Vector3.new(-3.5, 0, 3.5), 1.4, 1.4, Color3.fromRGB(130, 130, 140), Enum.Material.Metal)
+	end
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "🎣 Fish"
+	prompt.ObjectText = "Fishing Spot"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 30
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = float
+	model:SetAttribute("SpotId", spotId)
+	model.Parent = parent
+	return model
+end
+
+function Props.reeds(parent: Instance, pos: Vector3, count: number?)
+	for _ = 1, count or 6 do
+		local off = Vector3.new(math.random(-20, 20) / 10, 0, math.random(-20, 20) / 10)
+		local h = 3 + math.random() * 2.5
+		local p = Props.part(parent, Vector3.new(0.25, h, 0.25), CFrame.new(pos + off + Vector3.new(0, h / 2 - 0.5, 0)) * CFrame.Angles(math.random() * 0.2 - 0.1, 0, math.random() * 0.2 - 0.1), Color3.fromRGB(110, 150, 70), Enum.Material.Grass)
+		p.CanCollide = false
+		local top = Props.ellipsoid(parent, Vector3.new(0.45, 1.1, 0.45), p.CFrame * CFrame.new(0, h / 2 - 0.3, 0), Color3.fromRGB(120, 80, 45), Enum.Material.Fabric)
+		top.CanCollide = false
+	end
+end
+
+function Props.lilyPad(parent: Instance, pos: Vector3)
+	local pad = Props.part(parent, Vector3.new(0.12, 3, 3), CFrame.new(pos + Vector3.new(0, 0.06, 0)) * CFrame.Angles(0, math.random() * 6, math.rad(90)), Color3.fromRGB(80, 150, 70), Enum.Material.Grass)
+	pad.Shape = Enum.PartType.Cylinder
+	pad.CanCollide = false
+	if math.random() < 0.4 then
+		Props.ellipsoid(parent, Vector3.new(0.9, 0.6, 0.9), CFrame.new(pos + Vector3.new(0.4, 0.35, 0.2)), Color3.fromRGB(255, 190, 220)).CanCollide = false
+	end
+end
+
+function Props.mushroom(parent: Instance, pos: Vector3, scale: number?)
+	local s = scale or 1
+	Props.column(parent, pos, 1.4 * s, 0.6 * s, Color3.fromRGB(235, 225, 205))
+	Props.ellipsoid(parent, Vector3.new(2 * s, 1 * s, 2 * s), CFrame.new(pos + Vector3.new(0, 1.5 * s, 0)), Color3.fromRGB(200, 50, 45))
+end
+
+function Props.log(parent: Instance, pos: Vector3, length: number, yaw: number)
+	local p = Props.part(parent, Vector3.new(length, 2.2, 2.2), CFrame.new(pos + Vector3.new(0, 1, 0)) * CFrame.Angles(0, yaw, 0), Color3.fromRGB(105, 75, 50), Enum.Material.Wood)
+	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+
+function Props.birch(parent: Instance, pos: Vector3, scale: number?)
+	local s = scale or 1
+	local model = Instance.new("Model")
+	model.Name = "Tree"
+	Props.column(model, pos - Vector3.new(0, 1, 0), 12 * s, 1.1 * s, Color3.fromRGB(235, 232, 225), Enum.Material.SmoothPlastic)
+	for i = 1, 3 do
+		Props.part(model, Vector3.new(1.15 * s, 0.25, 0.3), CFrame.new(pos + Vector3.new(0, (2 + i * 2.7) * s, -0.45 * s)), Color3.fromRGB(40, 40, 40))
+	end
+	local green = Color3.fromRGB(150, 190, 80)
+	Props.ellipsoid(model, Vector3.new(7, 9, 7) * s, CFrame.new(pos + Vector3.new(0, 13 * s, 0)), green, Enum.Material.Grass)
+	Props.ellipsoid(model, Vector3.new(5, 6, 5) * s, CFrame.new(pos + Vector3.new(1.5 * s, 10 * s, 1 * s)), green:Lerp(Color3.new(1, 1, 0.6), 0.15), Enum.Material.Grass)
+	model.Parent = parent
+	return model
+end
+
+-- Height of the terrain surface at (x, z). Signs and small props use this so they sit on
+-- hills and river banks instead of sinking into them.
+local groundParams = RaycastParams.new()
+groundParams.FilterType = Enum.RaycastFilterType.Include
+groundParams.IgnoreWater = false
+function Props.groundY(x: number, z: number): number
+	groundParams.FilterDescendantsInstances = { workspace.Terrain }
+	local ray = workspace:Raycast(Vector3.new(x, 300, z), Vector3.new(0, -600, 0), groundParams)
+	return ray and ray.Position.Y or 0
+end
+
+-- A signboard with text on its front (-Z) face. `cf` = center of the board. The board is lifted
+-- if needed so its bottom edge clears the ground under it by at least `clearance` studs, and the
+-- posts reach down into the ground wherever it is.
+function Props.sign(parent: Instance, cf: CFrame, text: string, size: Vector2?, textColor: Color3?, boardColor: Color3?, clearance: number?)
 	local sz = size or Vector2.new(12, 4)
+	local postXs = { -sz.X / 2 + 0.6, sz.X / 2 - 0.6 }
+	local grounds = {}
+	local highest = -math.huge
+	for i, x in ipairs(postXs) do
+		local p = cf * Vector3.new(x, 0, 0.3)
+		grounds[i] = Props.groundY(p.X, p.Z)
+		highest = math.max(highest, grounds[i])
+	end
+	local mid = cf.Position
+	highest = math.max(highest, Props.groundY(mid.X, mid.Z))
+	local minBottom = highest + (clearance or 3.5)
+	local bottom = mid.Y - sz.Y / 2
+	if bottom < minBottom then
+		cf += Vector3.new(0, minBottom - bottom, 0)
+	end
 	local board = Props.part(parent, Vector3.new(sz.X, sz.Y, 0.5), cf, boardColor or Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
 	board.Name = "Sign"
-	-- posts from the ground (y = 0) up to the middle of the board
-	for _, x in ipairs({ -sz.X / 2 + 0.6, sz.X / 2 - 0.6 }) do
+	-- posts from just under the ground up to the middle of the board
+	for i, x in ipairs(postXs) do
 		local p = cf * Vector3.new(x, 0, 0.3)
-		Props.column(parent, Vector3.new(p.X, 0, p.Z), math.max(0.5, cf.Position.Y), 0.5, DARK_WOOD, Enum.Material.Wood)
+		local base = grounds[i] - 1
+		Props.column(parent, Vector3.new(p.X, base, p.Z), math.max(0.5, cf.Position.Y - base), 0.5, DARK_WOOD, Enum.Material.Wood)
 	end
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = Enum.NormalId.Front

@@ -198,7 +198,8 @@ local function step(dt: number)
 		end
 		dir += Vector3.new(0, math.clamp(vertical, -1, 1), 0)
 		local ws = humanoid.WalkSpeed
-		local speed = ws > 0 and (ws * Game.FLIGHT_SPEED_MULT + Game.FLIGHT_SPEED_BONUS) or 0
+		local flightMult = character:GetAttribute("FlightSpeedMult") or 1
+		local speed = ws > 0 and (ws * Game.FLIGHT_SPEED_MULT + Game.FLIGHT_SPEED_BONUS) * flightMult or 0
 		local velocity = dir.Magnitude > 0.05 and dir.Unit * speed or Vector3.new(0, math.sin(now * 2) * 1.2, 0)
 		if root.Position.Y > Game.MAX_FLIGHT_HEIGHT and velocity.Y > 0 then
 			velocity = Vector3.new(velocity.X, 0, velocity.Z)
