@@ -42,6 +42,7 @@ local ORDER = {
 	"PetService",
 	"TrainingService",
 	"CampService",
+	"CivilianService",
 	"AdminService",
 	"TutorialService",
 }

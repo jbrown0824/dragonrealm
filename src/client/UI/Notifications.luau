@@ -18,17 +18,19 @@ local toastHolder
 local announceFrame
 local zoneFrame
 local deathFrame
-local numberFolder
 local announceToken = 0
 local zoneToken = 0
 local TOAST_SECONDS = 9
-local TOAST_TOP = 140 -- below the player card
+local TOAST_TOP = 250 -- left side, well below the player card (HUD coordinates)
 
+-- In-battle numbers: white = your hit, yellow = critical hit, red = damage you took,
+-- blue = a dodge (yours) or a miss (the other dragon dodged you).
 local NUMBER_STYLES = {
-	hit = { color = Color3.fromRGB(255, 255, 255), size = 26 },
-	crit = { color = Color3.fromRGB(255, 220, 60), size = 36, suffix = "!" },
-	taken = { color = Color3.fromRGB(255, 80, 80), size = 26, prefix = "-" },
-	dodge = { color = Color3.fromRGB(200, 200, 210), size = 24, text = "Dodge!" },
+	hit = { color = Color3.fromRGB(255, 255, 255), size = 28 },
+	crit = { color = Color3.fromRGB(255, 215, 50), size = 40, suffix = "!", tag = "CRIT!" },
+	taken = { color = Color3.fromRGB(255, 80, 80), size = 28, prefix = "-" },
+	dodge = { color = Color3.fromRGB(120, 210, 255), size = 30, text = "DODGE!" },
+	miss = { color = Color3.fromRGB(170, 200, 230), size = 26, text = "MISS" },
 	poison = { color = Color3.fromRGB(130, 230, 80), size = 22 },
 	burn = { color = Color3.fromRGB(255, 150, 50), size = 22 },
 	thorns = { color = Color3.fromRGB(200, 120, 255), size = 22 },
@@ -119,25 +121,51 @@ function Notifications.damageNumbers(list)
 		attachment.WorldPosition = entry.pos + Vector3.new(math.random(-15, 15) / 10, 0, math.random(-15, 15) / 10)
 		attachment.Parent = workspace.Terrain
 		local gui = Instance.new("BillboardGui")
+		gui.Name = "DamageNumber"
 		gui.Adornee = attachment
-		gui.Size = UDim2.fromOffset(120, 44)
+		gui.Size = UDim2.fromOffset(160, 70)
 		gui.AlwaysOnTop = true
 		gui.LightInfluence = 0
-		gui.MaxDistance = 150
+		gui.MaxDistance = 200
 		local text = style.text or ((style.prefix or "") .. Util.formatNumber(entry.amount) .. (style.suffix or ""))
 		local label = Instance.new("TextLabel")
 		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
+		label.AnchorPoint = Vector2.new(0.5, 1)
+		label.Position = UDim2.fromScale(0.5, 1)
+		label.Size = UDim2.new(1, 0, 0, 44)
 		label.Font = Enum.Font.FredokaOne
-		label.TextSize = style.size
+		label.TextSize = math.floor(style.size * 1.5)
 		label.TextColor3 = style.color
-		label.TextStrokeTransparency = 0.2
+		label.TextStrokeColor3 = Color3.new(0, 0, 0)
+		label.TextStrokeTransparency = 0
 		label.Text = text
 		label.Parent = gui
-		gui.Parent = numberFolder
-		TweenService:Create(gui, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { StudsOffset = Vector3.new(0, 4, 0) }):Play()
-		TweenService:Create(label, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-		task.delay(0.95, function()
+		local tag
+		if style.tag then
+			tag = Instance.new("TextLabel")
+			tag.BackgroundTransparency = 1
+			tag.AnchorPoint = Vector2.new(0.5, 1)
+			tag.Position = UDim2.new(0.5, 0, 1, -40)
+			tag.Size = UDim2.new(1, 0, 0, 22)
+			tag.Font = Enum.Font.FredokaOne
+			tag.TextSize = 20
+			tag.TextColor3 = Color3.fromRGB(255, 150, 40)
+			tag.TextStrokeTransparency = 0
+			tag.Text = style.tag
+			tag.Parent = gui
+		end
+		-- directly under PlayerGui (not in a folder) so it always renders
+		gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+		-- pop in big, settle, then float up and fade
+		TweenService:Create(label, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { TextSize = style.size }):Play()
+		TweenService:Create(gui, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { StudsOffset = Vector3.new(0, 5, 0) }):Play()
+		task.delay(0.5, function()
+			TweenService:Create(label, TweenInfo.new(0.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			if tag then
+				TweenService:Create(tag, TweenInfo.new(0.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			end
+		end)
+		task.delay(1.15, function()
 			gui:Destroy()
 			attachment:Destroy()
 		end)
@@ -191,12 +219,13 @@ function Notifications.init(app)
 	local overlay = App.Windows.guis.Overlay
 	local top = App.Windows.guis.Top
 
+	-- Toasts live in the HUD layer: windows open on top of them, never the other way around.
 	toastHolder = Theme.make("Frame", {
 		Name = "Toasts",
 		Position = UDim2.fromOffset(12, TOAST_TOP),
 		Size = UDim2.fromOffset(330, 300),
 		BackgroundTransparency = 1,
-		Parent = overlay,
+		Parent = App.Windows.guis.HUD,
 	})
 	Theme.list(toastHolder, 6)
 
@@ -289,9 +318,6 @@ function Notifications.init(app)
 		Parent = deathFrame,
 	})
 
-	numberFolder = Instance.new("Folder")
-	numberFolder.Name = "DamageNumbers"
-	numberFolder.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 	Remotes.event("Notify").OnClientEvent:Connect(function(data)
 		Notifications.toast(data.text, data.color, data.icon)

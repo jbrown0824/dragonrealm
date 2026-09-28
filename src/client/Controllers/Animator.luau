@@ -22,14 +22,21 @@ local function register(model: Instance, kind: string)
 	end
 	local rig = { kind = kind, motors = {}, current = {}, phase = math.random() * 10, root = nil, swingAt = -10, throwAt = -10 }
 	rigs[model] = rig
+	-- Joints can replicate a moment after the model itself (especially while the game is still
+	-- loading), so keep picking up any that arrive later; a joint we never saw would leave that
+	-- limb frozen in its build pose (a wing stuck spread out, for example).
+	local function track(d: Instance)
+		if d:IsA("Motor6D") then
+			rig.motors[d.Name] = d
+		elseif d.Name == "CoreLight" and d:IsA("PointLight") then
+			rig.coreLight = d
+		end
+	end
+	model.DescendantAdded:Connect(track)
 	task.spawn(function()
 		local root = model:WaitForChild("HumanoidRootPart", 10)
 		for _, d in ipairs(model:GetDescendants()) do
-			if d:IsA("Motor6D") then
-				rig.motors[d.Name] = d
-			elseif d.Name == "CoreLight" and d:IsA("PointLight") then
-				rig.coreLight = d
-			end
+			track(d)
 		end
 		if kind == "dragon" then
 			rig.info = DragonRig.info(model)
@@ -156,6 +163,16 @@ function Animator.init(app)
 	CollectionService:GetInstanceAddedSignal("Viking"):Connect(function(m)
 		register(m, "viking")
 	end)
+	-- the sparring golem swings its throwing arm like a viking
+	local function maybeGolem(model)
+		if model:GetAttribute("Kind") == "Golem" then
+			register(model, "viking")
+		end
+	end
+	for _, model in ipairs(CollectionService:GetTagged("TrainingDummy")) do
+		maybeGolem(model)
+	end
+	CollectionService:GetInstanceAddedSignal("TrainingDummy"):Connect(maybeGolem)
 	for _, model in ipairs(CollectionService:GetTagged("Animal")) do
 		register(model, "animal")
 	end

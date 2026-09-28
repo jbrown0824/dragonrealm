@@ -415,22 +415,12 @@ local function buildTown(map: Folder)
 	buildTraining(town)
 
 	-- Dragon-sized houses (wide arched doors, tall walls, perch beams on the roofs)
-	local houseSpots = {
-		{ Vector3.new(-42, 0, 112), Vector3.new(1, 0, 0) },
-		{ Vector3.new(-42, 0, 162), Vector3.new(1, 0, 0) },
-		{ Vector3.new(-42, 0, 212), Vector3.new(1, 0, 0) },
-		{ Vector3.new(42, 0, 112), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(42, 0, 162), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(42, 0, 212), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(-72, 0, -152), Vector3.new(1, 0, 0) },
-		{ Vector3.new(108, 0, -132), Vector3.new(-1, 0, 0) },
-		{ Vector3.new(-96, 0, 102), Vector3.new(0, 0, -1) },
-		{ Vector3.new(96, 0, 100), Vector3.new(0, 0, -1) },
-	}
 	local walls = { Color3.fromRGB(235, 220, 190), Color3.fromRGB(215, 200, 230), Color3.fromRGB(200, 225, 210) }
 	local roofs = { Color3.fromRGB(170, 70, 50), Color3.fromRGB(70, 90, 150), Color3.fromRGB(90, 130, 80) }
-	for i, spot in ipairs(houseSpots) do
-		Props.dragonHouse(town, facingCF(spot[1], spot[2]), 32, 24, 16, walls[i % 3 + 1], roofs[i % 3 + 1])
+	local size = Zones.HouseSize
+	for i, house in ipairs(Zones.Houses) do
+		local model = Props.dragonHouse(town, facingCF(house.pos, house.facing), size.X, size.Z, size.Y, walls[i % 3 + 1], roofs[i % 3 + 1])
+		model.Name = "House" .. i
 	end
 
 	-- Lamps along the main road

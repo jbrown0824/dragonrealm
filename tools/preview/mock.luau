@@ -30,6 +30,12 @@ end
 function V3.Abs(a)
 	return v3(math.abs(a.X), math.abs(a.Y), math.abs(a.Z))
 end
+function V3.Min(a, b)
+	return v3(math.min(a.X, b.X), math.min(a.Y, b.Y), math.min(a.Z, b.Z))
+end
+function V3.Max(a, b)
+	return v3(math.max(a.X, b.X), math.max(a.Y, b.Y), math.max(a.Z, b.Z))
+end
 V3mt.__add = function(a, b)
 	return v3(a.X + b.X, a.Y + b.Y, a.Z + b.Z)
 end
@@ -310,7 +316,7 @@ local EVENT_NAMES = {
 	HealthChanged = true, Died = true, OnServerEvent = true, OnClientEvent = true, Completed = true,
 	Changed = true, ChildAdded = true, DescendantAdded = true, Destroying = true, PlayerAdded = true,
 	PlayerRemoving = true, Heartbeat = true, Stepped = true, RenderStepped = true, Touched = true,
-	CharacterAdded = true, AncestryChanged = true, MouseEnter = true, MouseLeave = true, Activated = true,
+	CharacterAdded = true, CharacterRemoving = true, AncestryChanged = true, MouseEnter = true, MouseLeave = true, Activated = true,
 	MouseButton1Click = true, MouseButton1Down = true, FocusLost = true, Focused = true, InputBegan = true,
 	InputEnded = true, InputChanged = true,
 }
@@ -657,6 +663,10 @@ function M.GetPlayerByUserId(o, id)
 	return nil
 end
 -- Workspace
+-- Lighting
+function M.GetSunDirection()
+	return Vector3.new(0.3, 0.85, 0.4).Unit
+end
 function M.GetPartBoundsInBox()
 	return {}
 end
@@ -951,7 +961,15 @@ local services = {
 			}
 		end,
 	},
-	Debris = { AddItem = function() end },
+	Debris = {
+		AddItem = function(_, item, lifetime)
+			if task and task.delay then -- only the sim has a scheduler
+				task.delay(lifetime or 10, function()
+					item:Destroy()
+				end)
+			end
+		end,
+	},
 	PhysicsService = { RegisterCollisionGroup = function() end, CollisionGroupSetCollidable = function() end },
 	ProximityPromptService = { PromptShown = NewSignal(), PromptHidden = NewSignal() },
 	UserInputService = {
@@ -977,6 +995,10 @@ local services = {
 		end,
 	},
 }
+-- Roblox's Lighting defaults for the properties the game tweens
+services.Lighting.ExposureCompensation = 0
+services.Lighting.Brightness = 2
+services.Lighting.ClockTime = 14
 services.RunService.BindToRenderStep = function(_, _name, _priority, fn)
 	services.RunService.RenderStepped:Connect(fn)
 end

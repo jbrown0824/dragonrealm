@@ -43,7 +43,7 @@ Abilities.Fireball = {
 ---------------------------------------------------------------- signature abilities
 -- Every dragon type gets its own one at Game.SIGNATURE_LEVEL (see Classes.X.signature).
 Abilities.RendingClaws = {
-	id = "RendingClaws", name = "Rending Claws", icon = "🐾", kind = "nova", signature = true,
+	id = "RendingClaws", name = "Rending Claws", icon = "🩸", kind = "nova", signature = true,
 	cooldown = 7, mult = 2.2, radius = 11,
 	effects = { lifestealBonus = 25 },
 	desc = "Rake everything around you with shadow claws, healing for 25% of the damage dealt.",
@@ -61,7 +61,7 @@ Abilities.TailSweep = {
 	desc = "Spin and smash everything around you with your club tail, knocking it back.",
 }
 Abilities.FrostShards = {
-	id = "FrostShards", name = "Frost Shards", icon = "🔷", kind = "projectile", signature = true,
+	id = "FrostShards", name = "Frost Shards", icon = "💎", kind = "projectile", signature = true,
 	cooldown = 7, mult = 1.15, count = 3, spread = 18, speed = 150, range = 140, radius = 5, size = 1.2,
 	effects = { slowPct = 35, slowDuration = 2.5 },
 	desc = "Spit three shards of ice that chill and slow what they hit.",
@@ -95,7 +95,7 @@ Abilities.Eclipse = {
 	desc = "Blot out the sun: +40% attack and +35% dodge for 8 seconds.",
 }
 Abilities.NightmareBurst = {
-	id = "NightmareBurst", name = "Nightmare Burst", icon = "💜", kind = "nova",
+	id = "NightmareBurst", name = "Nightmare Burst", icon = "😱", kind = "nova",
 	cooldown = 12, mult = 2.2, radius = 16,
 	effects = { slowPct = 40, slowDuration = 3 },
 	desc = "Release a wave of nightmares that damages and slows nearby enemies.",
@@ -109,7 +109,7 @@ Abilities.UmbralDevour = {
 
 ---------------------------------------------------------------- Stormwing
 Abilities.Thunderclap = {
-	id = "Thunderclap", name = "Thunderclap", icon = "⚡", kind = "nova",
+	id = "Thunderclap", name = "Thunderclap", icon = "👏", kind = "nova",
 	cooldown = 12, mult = 2.0, radius = 14,
 	effects = { stun = 1 },
 	desc = "Clap your wings together with a boom of thunder, stunning nearby enemies.",
@@ -154,7 +154,7 @@ Abilities.Eruption = {
 	desc = "The ground around you erupts with magma, burning enemies.",
 }
 Abilities.Meteor = {
-	id = "Meteor", name = "Meteor", icon = "☄️", kind = "strike", ultimate = true,
+	id = "Meteor", name = "Meteor", icon = "🌠", kind = "strike", ultimate = true,
 	cooldown = 35, mult = 9, radius = 16, delay = 1.2, castRange = 100, style = "meteor",
 	effects = { burnPct = 30 },
 	desc = "Pull a burning meteor from the sky onto your aim point.",
@@ -173,7 +173,7 @@ Abilities.Rampage = {
 
 ---------------------------------------------------------------- Frostwyrm
 Abilities.FrostNova = {
-	id = "FrostNova", name = "Frost Nova", icon = "❄️", kind = "nova",
+	id = "FrostNova", name = "Frost Nova", icon = "💠", kind = "nova",
 	cooldown = 14, mult = 1.6, radius = 16,
 	effects = { stun = 2 },
 	desc = "Blast out a ring of frost that freezes nearby enemies solid.",
@@ -196,7 +196,7 @@ Abilities.Blizzard = {
 	desc = "Surround yourself with a raging blizzard that damages and slows everything nearby.",
 }
 Abilities.GlacialLance = {
-	id = "GlacialLance", name = "Glacial Lance", icon = "🔹", kind = "projectile",
+	id = "GlacialLance", name = "Glacial Lance", icon = "🗡️", kind = "projectile",
 	cooldown = 8, mult = 3.5, count = 1, speed = 190, range = 200, radius = 4, size = 1.2,
 	effects = { slowPct = 50, slowDuration = 2 },
 	desc = "Launch a razor-sharp lance of ice that hits hard and slows.",
@@ -228,7 +228,7 @@ Abilities.VenomFeast = {
 	desc = "Feast on your venom: heal 25% of max health and gain +20% attack for 6 seconds.",
 }
 Abilities.AcidWave = {
-	id = "AcidWave", name = "Acid Wave", icon = "🧪", kind = "projectile",
+	id = "AcidWave", name = "Acid Wave", icon = "🌊", kind = "projectile",
 	cooldown = 10, mult = 1.2, count = 5, spread = 40, speed = 110, range = 120, radius = 6, size = 1.4,
 	effects = { poisonPct = 60 },
 	desc = "Spray five globs of acid in a wide fan.",

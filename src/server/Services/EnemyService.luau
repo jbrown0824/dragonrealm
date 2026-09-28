@@ -495,8 +495,10 @@ function EnemyService.kill(e, killer: Player?)
 		task.spawn(e.onDeath, e, killer)
 	end
 	if not e.noRewards then
+		-- Everyone who helped gets their own drops, so teaming up never means losing the loot.
+		-- Champions only reward helpers who are still around the camp.
 		for player, dealt in pairs(e.damageBy) do
-			if player.Parent and dealt > 0 then
+			if player.Parent and dealt > 0 and (not e.miniBoss or EnemyService.playerNearCamp(player, e.camp)) then
 				reward(player, e)
 			end
 		end
@@ -516,6 +518,14 @@ function EnemyService.kill(e, killer: Player?)
 			spawnInCamp(e.camp, e.typeId)
 		end)
 	end
+end
+
+function EnemyService.playerNearCamp(player: Player, camp): boolean
+	if not camp then
+		return true
+	end
+	local _, _, root = S.PlayerService.getCharacter(player)
+	return root ~= nil and (root.Position - camp.center).Magnitude <= camp.radius + 120
 end
 
 -- Forget a body that was kept around (animal carcasses) and remove it.
@@ -543,8 +553,9 @@ local function face(e, pos: Vector3)
 end
 
 -- dmgOpts are passed to CombatService.damagePlayer (e.g. ignoreSafe / nonLethal for sparring).
-function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number, style: string?, dmgOpts)
-	local from = e.root.Position + Vector3.new(0, 1.8 * e.scale, 0)
+-- `fromPos` overrides where the axe leaves from (default: just above the thrower's shoulders).
+function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number, style: string?, dmgOpts, fromPos: Vector3?)
+	local from = fromPos or e.root.Position + Vector3.new(0, 1.8 * e.scale, 0)
 	local dist = (root.Position - from).Magnitude
 	local lead = root.AssemblyLinearVelocity * (dist / THROW_SPEED) * 0.5
 	local targetPos = root.Position + lead

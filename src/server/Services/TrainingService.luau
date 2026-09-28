@@ -123,7 +123,20 @@ function TrainingService.start()
 			for _, player in ipairs(Players:GetPlayers()) do
 				local character, humanoid, root = S.PlayerService.getCharacter(player)
 				if character and inPen(root.Position) then
-					S.EnemyService.throwAt(golem, player, root, humanoid.MaxHealth * GOLEM_HIT, "axe", { ignoreSafe = true, nonLethal = true })
+					-- turn to face the dragon, wind up the right arm, and throw from the raised hand
+					local base = golem.model:GetPivot()
+					local flat = Vector3.new(root.Position.X, base.Position.Y, root.Position.Z)
+					if (flat - base.Position).Magnitude > 1 then
+						golem.model:PivotTo(CFrame.lookAt(base.Position, flat))
+					end
+					golem.model:SetAttribute("Throw", os.clock())
+					local target, victim, hp = root, player, humanoid.MaxHealth
+					task.delay(0.15, function()
+						if target.Parent then
+							local hand = golem.model:GetPivot() * Vector3.new(4.2, 7.5, -1.5)
+							S.EnemyService.throwAt(golem, victim, target, hp * GOLEM_HIT, "axe", { ignoreSafe = true, nonLethal = true }, hand)
+						end
+					end)
 				end
 			end
 		end

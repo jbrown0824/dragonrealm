@@ -13,6 +13,7 @@ local Potions = require(Config.Potions)
 local Pets = require(Config.Pets)
 local Animals = require(Config.Animals)
 local Food = require(Config.Food)
+local Civilians = require(Config.Civilians)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local Tuning = require(Shared.Tuning)
@@ -472,6 +473,80 @@ do
 	check(tuned.defensePct == 8 * 3 * 2, "tuning scales skill values (" .. tostring(tuned.defensePct) .. ")")
 	Tuning.reset()
 	check(Tuning.isDefault(), "tuning reset")
+end
+
+---------------------------------------------------------------- every ability has its own icon
+do
+	local seen = {}
+	for id, ability in pairs(Abilities) do
+		if type(ability) == "table" and ability.icon then
+			check(seen[ability.icon] == nil, string.format("icon %s used by both %s and %s", ability.icon, tostring(seen[ability.icon]), id))
+			seen[ability.icon] = id
+		end
+	end
+end
+
+---------------------------------------------------------------- pet levels, golden merges, treats
+check(#Pets.LEVEL_COSTS == Pets.MAX_LEVEL - 1, "a treat cost for every pet level-up")
+check(math.abs(Pets.multiplier(Pets.MAX_LEVEL, false) - 2) < 1e-6, "a max-level pet has double boosts")
+check(Pets.multiplier(1, true) == Pets.GOLDEN_MULT, "golden multiplies boosts")
+for _, rarity in ipairs(Pets.RarityOrder) do
+	check(Pets.MergeGold[rarity] ~= nil, "merge cost for " .. rarity)
+end
+do
+	local speciesId = next(Pets.Species)
+	local plain = { uid = "a", species = speciesId }
+	local grown = { uid = "b", species = speciesId, level = 3, golden = true }
+	check(BonusUtil.petScore(grown) > BonusUtil.petScore(plain), "levelled golden pets rank higher")
+	local profile = { level = 30, pets = { plain, grown }, petsEquipped = { "b" } }
+	local stats = BonusUtil.petStats(profile)
+	for stat, v in pairs(Pets.get(speciesId).stats) do
+		check(math.abs((stats[stat] or 0) - v * Pets.multiplier(3, true)) < 1e-6, "equipped pet boosts scale with level + golden: " .. stat)
+	end
+end
+for _, id in ipairs(Seeds.Order) do
+	local t = Seeds[id].treats
+	check(t ~= nil and t[1] > 0 and t[1] <= 1 and t[2] >= 1 and t[3] >= t[2], "treat drops for " .. id)
+end
+
+---------------------------------------------------------------- village dragons
+do
+	local W = Zones.TownWalk
+	check(#W.houseLinks == #Zones.Houses, "every house door joins the walking graph")
+	for _, e in ipairs(W.edges) do
+		check(W.nodes[e[1]] ~= nil and W.nodes[e[2]] ~= nil, "walk edge nodes exist: " .. e[1] .. "-" .. e[2])
+	end
+	for _, link in ipairs(W.houseLinks) do
+		check(W.nodes[link] ~= nil, "house link node exists: " .. link)
+	end
+	-- the graph is connected
+	local seen, queue = { PN = true }, { "PN" }
+	while #queue > 0 do
+		local n = table.remove(queue)
+		for _, e in ipairs(W.edges) do
+			local other = (e[1] == n and e[2]) or (e[2] == n and e[1]) or nil
+			if other and not seen[other] then
+				seen[other] = true
+				table.insert(queue, other)
+			end
+		end
+	end
+	for name in pairs(W.nodes) do
+		check(seen[name], "walk node reachable: " .. name)
+	end
+	local ids = {}
+	for _, c in ipairs(Civilians.List) do
+		check(not ids[c.id], "unique villager id " .. c.id)
+		ids[c.id] = true
+		check(Classes.get(c.plan) ~= nil, "villager body plan exists: " .. c.plan)
+		check(Zones.Houses[c.home] ~= nil, "villager home exists: " .. c.name)
+		check(#c.lines >= 1, "villager has something to say: " .. c.name)
+		check(c.scale > 0.2 and c.scale < 1, "villagers are smaller than players: " .. c.name)
+	end
+	local town = Zones.getArea("Town")
+	for name, pos in pairs(W.nodes) do
+		check(town == nil or Zones.areaAt(pos) == town, "walk node is in town: " .. name)
+	end
 end
 
 ---------------------------------------------------------------- balance report

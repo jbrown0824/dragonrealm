@@ -43,9 +43,10 @@ local function defaultProfile()
 		food = {}, -- [foodId] = count
 		potions = {}, -- [potionId] = rank
 		eggs = {}, -- [eggId] = count
-		pets = {}, -- list of { uid, species }
+		pets = {}, -- list of { uid, species, level?, golden? }
 		petsEquipped = {}, -- list of pet uids
 		petCounter = 0,
+		treats = 0, -- Pet Treats from harvesting, fed to pets to level them up
 		robots = { water = false, harvest = 0 },
 		tutorial = 0, -- step reached; -1 = finished or skipped
 		tutorialRewarded = false,
@@ -53,6 +54,7 @@ local function defaultProfile()
 		animalsHunted = 0,
 		fishCaught = 0,
 		chestsOpened = 0,
+		settings = { minimap = true },
 	}
 end
 

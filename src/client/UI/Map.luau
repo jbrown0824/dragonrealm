@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
+local Remotes = require(Shared.Remotes)
 
 local Theme = require(script.Parent.Theme)
 local C = Theme.Colors
@@ -25,7 +26,7 @@ local MINI_SIZE = 180
 local MINI_SCALE = 0.55 -- pixels per stud on the minimap
 local BIG_SCALE = 0.365
 
-local mini = {} -- { frame, entry, arrow, zoneLabel, edgePin, arenaLabel }
+local mini = {} -- { frame, entry, arrow, zoneLabel, hint, edgePin, arenaLabel, hide, show, visible }
 local big = {} -- { window, entry, arrow, list }
 
 ---------------------------------------------------------------- canvas drawing
@@ -288,7 +289,7 @@ local function buildMini(root: Instance)
 		Text = "",
 		Parent = root,
 	})
-	Theme.label({
+	mini.hint = Theme.label({
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -90, 0, MINI_SIZE + 6),
 		Size = UDim2.fromOffset(60, 16),
@@ -299,9 +300,38 @@ local function buildMini(root: Instance)
 		ZIndex = 70,
 		Parent = root,
 	})
+	-- hide / show the minimap (N)
+	mini.hide = Theme.button("➖", Color3.fromRGB(40, 35, 55), function()
+		Map.setMiniVisible(false, true)
+	end, { Position = UDim2.fromOffset(4, 4), Size = UDim2.fromOffset(24, 22), TextSize = 11, ZIndex = 70, Parent = frame })
+	mini.show = Theme.button("🗺️", C.panel2, function()
+		Map.setMiniVisible(true, true)
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -86, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
+	Theme.stroke(mini.show, C.accentDark, 2, 0.2)
+	mini.visible = true
+end
+
+-- Show or hide the minimap. `save` remembers the choice on your profile.
+function Map.setMiniVisible(visible: boolean, save: boolean?)
+	mini.visible = visible
+	mini.frame.Visible = visible
+	mini.zoneLabel.Visible = visible
+	mini.hint.Visible = visible
+	mini.show.Visible = not visible
+	App.HUD.setTrackerTop(visible and 236 or 60)
+	if save then
+		Remotes.event("SetSetting"):FireServer("minimap", visible)
+	end
+end
+
+function Map.toggleMini()
+	Map.setMiniVisible(not mini.visible, true)
 end
 
 local function updateMini()
+	if not mini.visible then
+		return
+	end
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root then
@@ -492,8 +522,13 @@ function Map.init(app)
 			end
 		end
 	end)
+	local appliedSetting = false
 	-- outline your own lair in gold
 	App.State.changed:Connect(function(p)
+		if p and p.settings and not appliedSetting then
+			appliedSetting = true
+			Map.setMiniVisible(p.settings.minimap ~= false)
+		end
 		for _, entry in ipairs({ mini.entry, big.entry }) do
 			for _, base in ipairs(Zones.Bases) do
 				local f = entry.canvas:FindFirstChild("Base" .. base.index)

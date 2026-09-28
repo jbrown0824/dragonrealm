@@ -47,24 +47,38 @@ function BonusUtil.activePets(profile)
 	return list
 end
 
--- One number to rank pets by: rarity first, then how much their boosts add up to.
-function BonusUtil.petScore(speciesId: string): number
-	local species = Pets.get(speciesId)
+-- A pet's boosts after its level and golden bonus.
+function BonusUtil.petBoosts(pet)
+	local species = Pets.get(pet.species)
+	local out = {}
+	if species then
+		local mult = Pets.multiplier(pet.level, pet.golden)
+		for stat, v in pairs(species.stats) do
+			out[stat] = v * mult
+		end
+	end
+	return out
+end
+
+-- One number to rank pets by: how much their (levelled, golden) boosts add up to, with rarity
+-- breaking ties.
+function BonusUtil.petScore(pet): number
+	local species = Pets.get(pet.species)
 	if not species then
 		return 0
 	end
 	local total = 0
-	for _, v in pairs(species.stats) do
+	for _, v in pairs(BonusUtil.petBoosts(pet)) do
 		total += v
 	end
-	return (table.find(Pets.RarityOrder, species.rarity) or 0) * 100 + total
+	return total * 10 + (table.find(Pets.RarityOrder, species.rarity) or 0)
 end
 
 -- The uids of your best pets, as many as you have slots for.
 function BonusUtil.bestPets(profile)
 	local list = table.clone(profile.pets or {})
 	table.sort(list, function(a, b)
-		return BonusUtil.petScore(a.species) > BonusUtil.petScore(b.species)
+		return BonusUtil.petScore(a) > BonusUtil.petScore(b)
 	end)
 	local uids = {}
 	for i = 1, math.min(#list, Game.petSlots(profile.level or 1)) do
@@ -76,7 +90,7 @@ end
 function BonusUtil.petStats(profile)
 	local total = {}
 	for _, pet in ipairs(BonusUtil.activePets(profile)) do
-		add(total, Pets.get(pet.species).stats)
+		add(total, BonusUtil.petBoosts(pet))
 	end
 	return total
 end

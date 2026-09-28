@@ -237,7 +237,11 @@ task.spawn(function()
 		cp.Triggered:Fire(p1)
 		task.wait(0.5)
 		check(profile.chestsOpened == opened + 1, "chest opened")
-		check(not cp.Enabled, "chest closes after opening")
+		check(not S.CampService.chestReadyFor(p1, camp.id), "chest is empty for the opener")
+		check(S.CampService.chestReadyFor(p2, camp.id), "chest is still full for other dragons")
+		cp.Triggered:Fire(p1)
+		task.wait(0.2)
+		check(profile.chestsOpened == opened + 1, "can't loot the same chest twice")
 	end
 	local boss = findEnemy(function(e)
 		return e.miniBoss and e.camp == camp
@@ -246,9 +250,19 @@ task.spawn(function()
 	if boss then
 		check(boss.nametag and boss.nametag.Bar:FindFirstChild("Skull") ~= nil, "mini-boss has a skull")
 		task.wait(12) -- let it slam
+		-- a friend who helped and is still around gets their own drops too
+		p2:SetAttribute("GodMode", true)
+		tp(p2, camp.center + Vector3.new(-6, 5, -6))
+		local helperKills = S.PlayerService.getProfile(p2).vikingKills
+		S.CombatService.damageEnemy(p2, boss, 5, false)
 		S.CombatService.damageEnemy(p1, boss, 1e7, false)
 		task.wait(0.5)
 		check(boss.dead, "mini-boss died")
+		check(S.PlayerService.getProfile(p2).vikingKills == helperKills + 1, "the helper got champion loot too")
+		tp(p2, Zones.SPAWN)
+		task.wait(0.2)
+		check(not S.EnemyService.playerNearCamp(p2, camp), "helpers who left the camp don't count")
+		p2:SetAttribute("GodMode", nil)
 	end
 	-- respawn timing: with one dragon in camp, the next raider takes longer than the base time
 	local raider = findEnemy(function(e)
@@ -258,6 +272,32 @@ task.spawn(function()
 		S.CombatService.damageEnemy(p1, raider, 1e7, false)
 	end
 
+	step("village dragons")
+	local villagers = S.CivilianService.villagers()
+	check(#villagers == #require(__proxy("Shared/Config/Civilians")).List, "villagers spawned (" .. #villagers .. ")")
+	local route = S.CivilianService.route("PN", "Door7")
+	check(route[#route] == "Door7" and #route >= 3, "a villager can find the way to a house (" .. table.concat(route, ">") .. ")")
+	local startSpots = {}
+	for i, v in ipairs(villagers) do
+		startSpots[i] = v.root.Position
+		check(v.model:FindFirstChildWhichIsA("ProximityPrompt", true) ~= nil, "villager can chat: " .. v.def.name)
+	end
+	if villagers[1] then
+		local prompt = villagers[1].model:FindFirstChildWhichIsA("ProximityPrompt", true)
+		prompt.Triggered:Fire(p1)
+		task.wait(0.2)
+		check(villagers[1].pauseUntil > os.clock(), "a villager stops to chat")
+	end
+	task.wait(40)
+	local moved = 0
+	for i, v in ipairs(villagers) do
+		if (v.root.Position - startSpots[i]).Magnitude > 5 then
+			moved += 1
+		end
+		check(v.model.Parent ~= nil and v.humanoid.Health > 0, "villager still around: " .. v.def.name)
+	end
+	check(moved >= 3, "villagers stroll around town (" .. moved .. " moved)")
+
 	step("hornblower alarm")
 	local fortress = Zones.getCamp("JarlsFortress")
 	S.PlayerService.getProfile(p2).level = 30
@@ -266,18 +306,26 @@ task.spawn(function()
 	end)
 	check(horn ~= nil, "hornblowers spawned")
 	if horn then
+		p2:SetAttribute("GodMode", true) -- the whole fortress (and its champion) would flatten p2 before we count
 		tp(p2, horn.root.Position + Vector3.new(10, 3, 10))
 		task.wait(1)
 		check(horn.model:GetAttribute("Blowing") == true or horn.alarmedUntil ~= nil, "hornblower started the alarm")
 		task.wait(4)
-		local hunting = 0
+		local hunting, alarmed, total = 0, 0, 0
 		for _, e in ipairs(S.EnemyService.alive()) do
-			if e.camp == fortress and e.target == p2 then
-				hunting += 1
+			if e.camp == fortress then
+				total += 1
+				if e.target == p2 then
+					hunting += 1
+				end
+				if e.alarmedUntil then
+					alarmed += 1
+				end
 			end
 		end
-		check(hunting > 3, "the whole fortress hunts the dragon after the alarm (" .. hunting .. ")")
+		check(hunting > 3, string.format("the whole fortress hunts the dragon after the alarm (%d hunting, %d alarmed, %d alive, horn dead=%s blowing=%s)", hunting, alarmed, total, tostring(horn.dead), tostring(horn.model:GetAttribute("Blowing"))))
 		tp(p2, Zones.SPAWN)
+		p2:SetAttribute("GodMode", nil)
 	end
 
 	step("world boss")

@@ -29,6 +29,27 @@ local function basin(x: number, z: number, rim: number, depth: number)
 	terrain:FillBall(Vector3.new(x, R - depth, z), R, Enum.Material.Air)
 end
 
+-- A deep bowl: a sandy slope down to the water's edge, then steep banks into deep water (so
+-- boats float and you can't see the bottom), deepest in the middle. A shallow spherical cap
+-- would leave a wide ring of ankle-deep water, so the main bowl is nearly a half-sphere.
+local function bowl(x: number, z: number, rim: number, depth: number)
+	basin(x, z, rim, 5)
+	basin(x, z, rim * 0.8, depth)
+	basin(x, z, rim * 0.5, depth + 4)
+end
+
+-- Solid lake bed under a water area. The world's ground is only 16 studs thick, and a bowl
+-- carved deeper than that would leave water hanging over the void.
+local BED_BOTTOM = -44
+local function lakeBed(minX: number, minZ: number, maxX: number, maxZ: number)
+	local top = -3 -- keep the grass / beach surface layer
+	terrain:FillBlock(
+		CFrame.new((minX + maxX) / 2, (top + BED_BOTTOM) / 2, (minZ + maxZ) / 2),
+		Vector3.new(maxX - minX, top - BED_BOTTOM, maxZ - minZ),
+		Enum.Material.Mud
+	)
+end
+
 -- Top layer of ground around a basin becomes sand (done before carving).
 local function beach(x: number, z: number, rim: number, material: Enum.Material?)
 	terrain:FillCylinder(CFrame.new(x, -1.5, z), 3, rim + 5, material or Enum.Material.Sand)
@@ -48,7 +69,7 @@ local function lakeCircles(lake)
 		for k = 1, 3 do
 			local a = rng:NextNumber(0, math.pi * 2) + k * 2.1
 			local d = lobe[3] * rng:NextNumber(0.55, 0.8)
-			table.insert(circles, { x = x + math.cos(a) * d, z = z + math.sin(a) * d, rim = lobe[3] * rng:NextNumber(0.35, 0.5), depth = lobe[4] * 0.5 })
+			table.insert(circles, { x = x + math.cos(a) * d, z = z + math.sin(a) * d, rim = lobe[3] * rng:NextNumber(0.35, 0.5), depth = lobe[4] * 0.6 })
 		end
 	end
 	return circles
@@ -74,14 +95,17 @@ local function carveLake(lake)
 	lakeShapes[lake.id] = circles
 	local minX, minZ, maxX, maxZ = math.huge, math.huge, -math.huge, -math.huge
 	for _, c in ipairs(circles) do
-		beach(c.x, c.z, c.rim, lake.frozen and Enum.Material.Snow or nil)
-	end
-	for _, c in ipairs(circles) do
-		basin(c.x, c.z, c.rim, c.depth)
 		minX, maxX = math.min(minX, c.x - c.rim), math.max(maxX, c.x + c.rim)
 		minZ, maxZ = math.min(minZ, c.z - c.rim), math.max(maxZ, c.z + c.rim)
 	end
-	fillWater(minX - 4, minZ - 4, maxX + 4, maxZ + 4, -32)
+	lakeBed(minX - 12, minZ - 12, maxX + 12, maxZ + 12)
+	for _, c in ipairs(circles) do
+		beach(c.x, c.z, c.rim, lake.frozen and Enum.Material.Snow or nil)
+	end
+	for _, c in ipairs(circles) do
+		bowl(c.x, c.z, c.rim, c.depth)
+	end
+	fillWater(minX - 4, minZ - 4, maxX + 4, maxZ + 4, BED_BOTTOM + 4)
 	if lake.frozen then
 		-- Freeze the top layer, then melt a fishing hole.
 		local region = Region3.new(Vector3.new(minX - 4, WATER - 4, minZ - 4), Vector3.new(maxX + 4, WATER, maxZ + 4)):ExpandToGrid(4)
@@ -97,15 +121,16 @@ local function carveRiver()
 	local river = Zones.River
 	local samples = Util.spline(river.points, 6)
 	local phase = rng:NextNumber(0, 10)
+	lakeBed(-660, 220, 660, 340)
 	for i, p in ipairs(samples) do
 		local w = river.width * (0.88 + 0.12 * math.sin(i * 0.11 + phase) + 0.06 * math.sin(i * 0.37))
 		riverPoints[i] = { p = p, w = w }
 		beach(p.X, p.Z, w / 2)
 	end
 	for _, rp in ipairs(riverPoints) do
-		basin(rp.p.X, rp.p.Z, rp.w / 2, 9)
+		bowl(rp.p.X, rp.p.Z, rp.w / 2, 16)
 	end
-	fillWater(-656, 220, 656, 340, -24) -- stays inside the ground block (x = +-660)
+	fillWater(-656, 220, 656, 340, -32) -- stays inside the ground block (x = +-660)
 end
 
 function Wilds.inRiver(p: Vector3, margin: number): boolean

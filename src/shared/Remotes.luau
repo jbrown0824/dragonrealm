@@ -27,6 +27,7 @@ local EVENTS = {
 	"SetFlying",
 	"FishingAction",
 	"TutorialStep",
+	"SetSetting",
 }
 
 local FUNCTIONS = {
@@ -57,6 +58,8 @@ local FUNCTIONS = {
 	"UnequipPet",
 	"EquipBestPets",
 	"ReleasePet",
+	"FeedPet",
+	"MergePets",
 	"BuyRobot",
 	"EatFood",
 	"SellFood",

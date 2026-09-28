@@ -180,6 +180,7 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(size.X, size.Y),
 		BackgroundColor3 = Theme.Colors.panel,
+		Active = true, -- clicks on a window never fall through to the HUD (minimap) behind it
 		Visible = false,
 		Parent = parent,
 	})
@@ -237,7 +238,16 @@ function Theme.scroll(parent: Instance, props)
 	for k, v in pairs(props or {}) do
 		defaults[k] = v
 	end
-	return Theme.make("ScrollingFrame", defaults)
+	local scroll = Theme.make("ScrollingFrame", defaults)
+	-- Room around the rows so their outlines (drawn outside each row) aren't clipped at the edges.
+	Theme.make("UIPadding", {
+		PaddingLeft = UDim.new(0, 5),
+		PaddingRight = UDim.new(0, 5),
+		PaddingTop = UDim.new(0, 5),
+		PaddingBottom = UDim.new(0, 5),
+		Parent = scroll,
+	})
+	return scroll
 end
 
 function Theme.clear(container: Instance)

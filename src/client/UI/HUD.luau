@@ -396,6 +396,11 @@ function HUD.setAdmin(isAdmin: boolean)
 	end
 end
 
+-- The quest tracker sits under the minimap; it moves up when the minimap is hidden.
+function HUD.setTrackerTop(y: number)
+	tracker.Position = UDim2.new(1, -86, 0, y)
+end
+
 function HUD.goHome()
 	task.spawn(function()
 		local ok, err = Remotes.func("TeleportHome"):InvokeServer()
@@ -506,7 +511,7 @@ local function refresh()
 		end
 		slot.stroke.Color = (a and a.ultimate) and Color3.fromRGB(255, 120, 60) or C.accentDark
 		if id == "Breath" and class then
-			slot.icon.Text = ({ Shadowstalker = "💜", Stormwing = "⚡", Behemoth = "🔥", Frostwyrm = "❄️", Venomspine = "🧪" })[class.id] or "🔥"
+			slot.icon.Text = ({ Shadowstalker = "💜", Stormwing = "🌬️", Behemoth = "🔥", Frostwyrm = "❄️", Venomspine = "🧪" })[class.id] or "🔥"
 		end
 	end
 	refreshTracker(p)

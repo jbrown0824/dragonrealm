@@ -85,21 +85,22 @@ Zones.HuntingGrounds = {
 		spawns = { SnowWolf = 6, Bear = 3 } },
 }
 
--- Lakes are carved as overlapping round basins ("lobes": x, z offset from center, rim radius,
--- depth) so their shores are curvy. Water sits at WATER_LEVEL. `frozen` lakes get an ice sheet
+-- Lakes are carved as overlapping round bowls ("lobes": x, z offset from center, rim radius,
+-- depth of the middle) so their shores are curvy and gently sloped, and the middle is deep. Water sits at WATER_LEVEL. `frozen` lakes get an ice sheet
 -- with one fishing hole.
 Zones.WATER_LEVEL = -4
 Zones.Lakes = {
 	{ id = "ElkLake", center = Vector3.new(-430, 0, -40), lobes = {
-		{ 0, 0, 34, 11 }, { -32, 18, 24, 8 }, { 28, -22, 24, 8 }, { 14, 32, 20, 7 }, { -18, -34, 20, 7 }, { 40, 12, 14, 6 } } },
+		{ 0, 0, 34, 20 }, { -32, 18, 24, 16 }, { 28, -22, 24, 16 }, { 14, 32, 20, 14 }, { -18, -34, 20, 14 }, { 40, 12, 14, 10 } } },
 	{ id = "WhisperPond", center = Vector3.new(440, 0, 60), lobes = {
-		{ 0, 0, 26, 9 }, { -20, -12, 18, 7 }, { 18, 16, 18, 7 }, { 4, -26, 15, 6 } } },
+		{ 0, 0, 26, 18 }, { -20, -12, 18, 14 }, { 18, 16, 18, 14 }, { 4, -26, 15, 12 } } },
 	{ id = "FjordLake", center = Vector3.new(-462, 0, 590), lobes = {
-		{ 0, 0, 38, 12 }, { -8, -55, 32, 10 }, { 4, 56, 34, 10 }, { -18, 100, 24, 7 }, { -6, -100, 26, 7 },
-		{ 36, -18, 25, 8 }, { 32, 36, 22, 8 }, { -34, 10, 22, 7 } } },
+		{ 0, 0, 38, 24 }, { -8, -55, 32, 20 }, { 4, 56, 34, 22 }, { -18, 100, 24, 14 }, { -6, -100, 26, 14 },
+		{ 36, -18, 25, 14 }, { 32, 36, 22, 14 }, { -34, 10, 22, 14 } } },
 	{ id = "FrozenTarn", center = Vector3.new(405, 0, 945), frozen = true, hole = Vector3.new(6, 0, 4), lobes = {
-		{ 0, 0, 30, 9 }, { -24, 14, 20, 6 }, { 22, -12, 20, 6 }, { 8, 26, 16, 6 } } },
+		{ 0, 0, 30, 18 }, { -24, 14, 20, 12 }, { 22, -12, 20, 12 }, { 8, 26, 16, 10 } } },
 }
+
 
 -- Roads and trails (a, b, width, terrain material). The world builder paves them and the map
 -- draws them.
@@ -183,6 +184,61 @@ Zones.QuestGivers = {
 }
 
 Zones.WarHorn = Vector3.new(28, 0, 74)
+
+-- Dragon houses you can walk into (Props.dragonHouse). `facing` points out of the front door.
+-- HouseSize: X = width (along the front), Y = wall height, Z = depth.
+Zones.HouseSize = Vector3.new(32, 18, 24)
+Zones.Houses = {
+	{ pos = Vector3.new(-42, 0, 112), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(-42, 0, 162), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(-42, 0, 212), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(42, 0, 112), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(42, 0, 162), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(42, 0, 212), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(-72, 0, -152), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(108, 0, -132), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(-96, 0, 102), facing = Vector3.new(0, 0, -1) },
+	{ pos = Vector3.new(96, 0, 100), facing = Vector3.new(0, 0, -1) },
+}
+-- Just outside a house's door, and the middle of its floor (ground level).
+function Zones.houseDoor(house): Vector3
+	return house.pos + house.facing.Unit * (Zones.HouseSize.Z / 2 + 7)
+end
+function Zones.houseInside(house): Vector3
+	return house.pos - house.facing.Unit * 1
+end
+-- A point in a house's own frame (the same one Props.dragonHouse builds in): -z points out of the
+-- door, +z toward the back wall. Used for where villagers stand indoors.
+function Zones.housePoint(house, x: number, z: number): Vector3
+	local cf = CFrame.lookAt(house.pos, house.pos + house.facing)
+	return (cf * CFrame.new(x, 0, z)).Position
+end
+Zones.HOUSE_FLOOR = 2.6 -- height of the floorboards
+Zones.HouseEntry = Vector3.new(0, 0, -8) -- just inside the door
+-- Where villagers potter about indoors: the rug, in the nest, the fireplace, the bookshelf, the table.
+Zones.HouseSpots = { Vector3.new(1, 0, -1), Vector3.new(-7.5, 0, 5), Vector3.new(6, 0, 5), Vector3.new(10, 0, -4), Vector3.new(-2, 0, -6) }
+
+-- Where village dragons (CivilianService) stroll: a small graph of open ground between the
+-- plaza, the streets and every house door. Every edge is a straight walk that misses stalls,
+-- lamps and statues. `houseLinks[i]` is the node house i's door connects to.
+Zones.TownWalk = {
+	nodes = {
+		PN = Vector3.new(0, 0, 30), PNE = Vector3.new(21, 0, 21), PE = Vector3.new(30, 0, 0), PSE = Vector3.new(21, 0, -21),
+		PS = Vector3.new(0, 0, -30), PSW = Vector3.new(-21, 0, -21), PW = Vector3.new(-30, 0, 0), PNW = Vector3.new(-21, 0, 21),
+		N1 = Vector3.new(0, 0, 60), N2 = Vector3.new(0, 0, 112), N3 = Vector3.new(0, 0, 162), N4 = Vector3.new(0, 0, 212),
+		S1 = Vector3.new(0, 0, -70), S2 = Vector3.new(0, 0, -132), S3 = Vector3.new(0, 0, -152),
+		W1 = Vector3.new(-50, 0, 2), W2 = Vector3.new(-80, 0, 30),
+		E1 = Vector3.new(50, 0, 2), E2 = Vector3.new(62, 0, 24), E3 = Vector3.new(70, 0, 74),
+	},
+	edges = {
+		{ "PN", "PNE" }, { "PNE", "PE" }, { "PE", "PSE" }, { "PSE", "PS" }, { "PS", "PSW" }, { "PSW", "PW" }, { "PW", "PNW" }, { "PNW", "PN" },
+		{ "PN", "N1" }, { "N1", "N2" }, { "N2", "N3" }, { "N3", "N4" },
+		{ "PS", "S1" }, { "S1", "S2" }, { "S2", "S3" },
+		{ "PW", "W1" }, { "W1", "W2" },
+		{ "PE", "E1" }, { "E1", "E2" }, { "E2", "E3" },
+	},
+	houseLinks = { "N2", "N3", "N4", "N2", "N3", "N4", "S3", "S2", "W2", "E3" },
+}
 
 -- Player bases: 4 down each side of town, fronts facing the road in the middle.
 -- BaseSize: X = depth (along facing), Z = width.

@@ -5,6 +5,8 @@
 --   * hides other players' loot orbs
 --   * shows ❗ / ❓ quest markers over village dragons
 --   * renders stealthed dragons as see-through (or almost invisible to others)
+--   * camp chests: each dragon has their own chest timer, so the lid, the treasure inside and
+--     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -12,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local QuestUtil = require(Shared.QuestUtil)
+local Util = require(Shared.Util)
 
 local WorldView = {}
 local App
@@ -73,6 +76,90 @@ local function watchPrompt(prompt: Instance)
 	prompt.Destroying:Connect(function()
 		watched[prompt] = nil
 	end)
+end
+
+---------------------------------------------------------------- camp chests
+
+local chestViews = {} -- list of { model, campId, prompt, lid, lidClosed, treasure, label, open }
+
+local function hinge(lid: Model, angle: number): CFrame
+	local size = lid.PrimaryPart.Size
+	return CFrame.new(0, -size.Y / 2, size.Z / 2) * CFrame.Angles(angle, 0, 0) * CFrame.new(0, size.Y / 2, -size.Z / 2)
+end
+
+local function swingLid(view, open: boolean)
+	local lid = view.lid
+	if not lid or not lid.PrimaryPart then
+		return
+	end
+	task.spawn(function()
+		local from = open and 0 or math.rad(105)
+		local to = open and math.rad(105) or 0
+		for i = 1, 12 do
+			if view.open ~= open then
+				return -- changed again mid-swing
+			end
+			local t = i / 12
+			local eased = 1 - (1 - t) ^ 3
+			lid:PivotTo(view.lidClosed * hinge(lid, from + (to - from) * eased))
+			task.wait(0.04)
+		end
+	end)
+end
+
+local function updateChest(view)
+	local readyAt = player:GetAttribute("ChestReady_" .. view.campId) or 0
+	local left = readyAt - workspace:GetServerTimeNow()
+	local open = left > 0
+	if view.open ~= open then
+		view.open = open
+		swingLid(view, open)
+		if view.treasure then
+			view.treasure.Parent = if open then nil else view.model
+		end
+		if view.prompt.Enabled == open then
+			view.prompt.Enabled = not open
+		end
+	end
+	view.label.Text = open and ("Empty for you  •  refills in " .. Util.formatTime(left)) or "💰 Treasure Chest"
+	view.label.TextColor3 = open and Color3.fromRGB(200, 200, 200) or Color3.fromRGB(255, 215, 90)
+end
+
+local function addChest(model: Instance)
+	local campId = model:GetAttribute("CampId")
+	local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+	local base = model:FindFirstChild("Base")
+	if not campId or not prompt or not base then
+		return
+	end
+	local lid = model:FindFirstChild("Lid")
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "ChestLabel"
+	gui.Adornee = base
+	gui.Size = UDim2.fromOffset(260, 30)
+	gui.StudsOffset = Vector3.new(0, 6.5, 0)
+	gui.MaxDistance = 120
+	gui.LightInfluence = 0
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Font = Enum.Font.FredokaOne
+	label.TextSize = 20
+	label.TextStrokeTransparency = 0.3
+	label.Parent = gui
+	gui.Parent = player:WaitForChild("PlayerGui")
+	local view = {
+		model = model,
+		campId = campId,
+		prompt = prompt,
+		lid = lid and lid:IsA("Model") and lid or nil,
+		lidClosed = lid and lid:IsA("Model") and lid:GetPivot(),
+		treasure = model:FindFirstChild("Treasure"),
+		label = label,
+		open = false,
+	}
+	table.insert(chestViews, view)
+	updateChest(view)
 end
 
 ---------------------------------------------------------------- planting spot focus
@@ -270,6 +357,22 @@ function WorldView.init(app)
 		watchDragon(model)
 	end
 	CollectionService:GetInstanceAddedSignal("Dragon"):Connect(watchDragon)
+
+	for _, model in ipairs(CollectionService:GetTagged("CampChest")) do
+		addChest(model)
+	end
+	CollectionService:GetInstanceAddedSignal("CampChest"):Connect(addChest)
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			for _, view in ipairs(chestViews) do
+				local ok, err = pcall(updateChest, view)
+				if not ok then
+					warn("[WorldView] chest", err)
+				end
+			end
+		end
+	end)
 
 	for _, model in ipairs(CollectionService:GetTagged("QuestGiver")) do
 		addMarker(model)

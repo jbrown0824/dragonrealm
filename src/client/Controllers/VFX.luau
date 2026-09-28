@@ -121,6 +121,23 @@ local function ring(pos: Vector3, radius: number, color: Color3, time: number, t
 	Debris:AddItem(r, time + 0.1)
 end
 
+-- Shared with SpellFX (the fancier per-spell effects).
+VFX.util = {
+	NS = NS,
+	part = part,
+	anchorAt = anchorAt,
+	emitter = emitter,
+	tween = tween,
+	flash = flash,
+	burst = burst,
+	ring = ring,
+	palette = palette,
+	FIRE = FIRE,
+	SMOKE = SMOKE,
+	SPARKLE = SPARKLE,
+}
+VFX.errorCount = 0 -- effects that failed (the client sim checks this stays 0)
+
 ---------------------------------------------------------------- explosion
 
 function VFX.explosion(pos: Vector3, radius: number, colorA: Color3, colorB: Color3)
@@ -282,7 +299,12 @@ function VFX.projectiles(data)
 	for _, entry in ipairs(data.list) do
 		local parts = {}
 		local main
-		if data.abilityId == "GlacialLance" or data.abilityId == "FrostShards" then
+		local plain = true -- a glowing ball with a fiery trail (fireballs, bolts...)
+		if data.abilityId == "VenomSpit" then
+			main = App.SpellFX.venomGlob(data.origin, size)
+			main.CFrame = CFrame.lookAt(data.origin, data.origin + entry.dir)
+			plain = false
+		elseif data.abilityId == "GlacialLance" or data.abilityId == "FrostShards" then
 			main = part(Vector3.new(0.7, 0.7, size * 3.5), CFrame.lookAt(data.origin, data.origin + entry.dir), Color3.fromRGB(200, 240, 255), Enum.Material.Ice, 0.1)
 		elseif data.abilityId == "SparkBolt" then
 			main = part(Vector3.new(0.5, 0.5, size * 5), CFrame.lookAt(data.origin, data.origin + entry.dir), Color3.fromRGB(230, 250, 255), Enum.Material.Neon, 0)
@@ -291,6 +313,7 @@ function VFX.projectiles(data)
 		end
 		table.insert(parts, main)
 		emitter(main, {
+			Enabled = plain,
 			Texture = data.abilityId == "AcidWave" and SMOKE or FIRE,
 			Color = ColorSequence.new(colorA, colorB),
 			Rate = 70,
@@ -332,6 +355,11 @@ function VFX.projectileHit(data)
 		p.main:Destroy()
 		projectiles[data.id] = nil
 	end
+	if data.abilityId == "VenomSpit" then
+		App.SpellFX.venomSplat(data.pos, data.radius or 6)
+		App.Sfx.play("Explosion", 0.25)
+		return
+	end
 	local colorA, colorB = palette(data.classId)
 	VFX.explosion(data.pos, data.radius or 6, colorA, colorB)
 	App.Sfx.play("Explosion", 0.4)
@@ -345,6 +373,7 @@ function VFX.nova(data)
 	ring(data.pos - Vector3.new(0, 2, 0), data.radius * 0.7, colorB, 0.6, 0.6)
 	burst(data.pos, colorA, colorB, 40, data.radius * 3, 3)
 	flash(data.pos, colorA, data.radius * 2.5, 0.5)
+	App.SpellFX.onNova(data)
 end
 
 function VFX.telegraph(pos: Vector3, radius: number, duration: number, color: Color3?)
@@ -357,7 +386,7 @@ function VFX.telegraph(pos: Vector3, radius: number, duration: number, color: Co
 	Debris:AddItem(inner, duration)
 end
 
-local function lightningBolt(from: Vector3, to: Vector3, color: Color3)
+function VFX.lightningBolt(from: Vector3, to: Vector3, color: Color3)
 	local points = { from }
 	local segments = 6
 	for i = 1, segments - 1 do
@@ -380,6 +409,7 @@ function VFX.strike(data)
 	if delay > 0 then
 		VFX.telegraph(pos, radius, delay, colorA)
 	end
+	App.SpellFX.onStrike(data)
 	if style == "meteor" and delay > 0 then
 		local start = pos + Vector3.new(30, 90, 20)
 		local rock = part(Vector3.new(6, 6, 6), CFrame.new(start), Color3.fromRGB(80, 40, 20), Enum.Material.Slate, 0, Enum.PartType.Ball)
@@ -398,7 +428,7 @@ function VFX.strike(data)
 		if style == "lightning" then
 			for _ = 1, 4 do
 				local off = Vector3.new(math.random(-10, 10) / 10 * radius * 0.6, 0, math.random(-10, 10) / 10 * radius * 0.6)
-				lightningBolt(pos + off + Vector3.new(0, 90, 0), pos + off, Color3.new(1, 1, 1):Lerp(colorA, 0.5))
+				VFX.lightningBolt(pos + off + Vector3.new(0, 90, 0), pos + off, Color3.new(1, 1, 1):Lerp(colorA, 0.5))
 			end
 		elseif style == "poison" then
 			local anchor = anchorAt(pos + Vector3.new(0, 2, 0))
@@ -479,14 +509,15 @@ function VFX.buff(data)
 	highlight.Parent = character
 	local root = character:FindFirstChild("HumanoidRootPart")
 	local aura
-	if root then
+	local showpiece = App.SpellFX.onBuff(data)
+	if root and not showpiece then
 		aura = emitter(root, {
 			Color = ColorSequence.new(colorA, colorB),
-			Rate = data.abilityId == "Blizzard" and 80 or 25,
+			Rate = 25,
 			Speed = NumberRange.new(4, 10),
 			Lifetime = NumberRange.new(0.6, 1),
 			Size = NS({ { 0, 1.2 }, { 1, 0 } }),
-			Texture = data.abilityId == "Blizzard" and SMOKE or SPARKLE,
+			Texture = SPARKLE,
 		})
 	end
 	burst(character:GetPivot().Position, colorA, colorB, 30, 20, 2, SPARKLE)
@@ -506,6 +537,7 @@ function VFX.heal(data)
 	local pos = character:GetPivot().Position
 	burst(pos, Color3.fromRGB(150, 255, 150), Color3.fromRGB(60, 200, 80), 40, 15, 1.5, SPARKLE)
 	ring(pos - Vector3.new(0, 3, 0), 10, Color3.fromRGB(120, 255, 140), 0.6, 0.6)
+	App.SpellFX.plusSigns(character, 12)
 end
 
 function VFX.levelUp(data)
@@ -692,6 +724,7 @@ function VFX.init(app)
 		if handler then
 			local ok, err = pcall(handler, data)
 			if not ok then
+				VFX.errorCount += 1
 				warn("[VFX]", data.kind, err)
 			end
 		end

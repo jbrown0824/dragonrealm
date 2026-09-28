@@ -354,7 +354,6 @@ function Inventory.init(app)
 	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, -4), Size = UDim2.fromOffset(140, 28), TextSize = 14, Parent = right })
 	bagGrid = Theme.scroll(right, { Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 1, -166) })
 	Theme.make("UIGridLayout", { CellSize = UDim2.fromOffset(122, 64), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = bagGrid })
-	Theme.make("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), Parent = bagGrid })
 
 	details.frame = Theme.make("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 132), BackgroundColor3 = C.panel2, Visible = false, Parent = right })
 	Theme.corner(details.frame, 10)

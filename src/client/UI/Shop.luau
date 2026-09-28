@@ -1,4 +1,5 @@
--- Town shops: buy gear at the Armory, sell at the Hoard Exchange, upgrade at the Anvil of Ages.
+-- Town shops, one job each: buy gear at the Armory, sell gear and food at the Hoard Exchange,
+-- upgrade at the Anvil of Ages. The window shows only the page of the shop you're visiting.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -18,7 +19,6 @@ local App
 
 local window, content, titleLabel
 local tab = "Buy"
-local tabButtons = {}
 local goldLabel
 local list
 local stock = {}
@@ -121,9 +121,6 @@ function Shop.refresh()
 	end
 	titleLabel.Text = TAB_INFO[tab].title
 	goldLabel.Text = string.format("💰 %s gold   <font color=\"#B9AFD2\">%s</font>", Util.formatNumber(p.gold), TAB_INFO[tab].hint)
-	for name, b in pairs(tabButtons) do
-		b.BackgroundColor3 = name == tab and C.accentDark or C.panel3
-	end
 	Theme.clear(list)
 
 	if tab == "Buy" then
@@ -230,16 +227,7 @@ function Shop.init(app)
 	close.Activated:Connect(function()
 		App.Windows.close("Shop")
 	end)
-	for i, name in ipairs({ "Buy", "Sell", "Upgrade" }) do
-		tabButtons[name] = Theme.button(name, C.panel3, function()
-			tab = name
-			if name == "Buy" then
-				loadStock()
-			end
-			Shop.refresh()
-		end, { Position = UDim2.fromOffset((i - 1) * 110, 0), Size = UDim2.fromOffset(100, 32), Parent = content })
-	end
-	goldLabel = Theme.label({ Position = UDim2.fromOffset(340, 0), Size = UDim2.new(1, -340, 0, 32), TextSize = 13, Text = "", Parent = content })
+	goldLabel = Theme.label({ Size = UDim2.new(1, 0, 0, 32), TextSize = 14, Text = "", Parent = content })
 	list = Theme.scroll(content, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })
 	Theme.list(list, 6)
 

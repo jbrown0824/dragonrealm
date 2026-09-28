@@ -116,9 +116,11 @@ task.spawn(function()
 	Windows.open("SeedPicker", 2)
 	mod("UI/Shop").open("Buy")
 	task.wait(0.5)
-	local shop = Windows.registry.Shop.frame
-	click(shop, "Sell")
-	click(shop, "Upgrade")
+	-- each shop does one job now; opening another page just switches the window
+	mod("UI/Shop").open("Sell")
+	task.wait(0.2)
+	mod("UI/Shop").open("Upgrade")
+	task.wait(0.2)
 	mod("UI/Pets").open("Eggs")
 	task.wait(0.2)
 	local pets = Windows.registry.Pets.frame
@@ -158,6 +160,110 @@ task.spawn(function()
 	for _, d in ipairs(petDistances()) do
 		check(d < 15, "pet came back (" .. math.floor(d) .. ")")
 	end
+	-- pets wear nametags; treats level them up; three of a kind merge into a golden one
+	local petFolder = workspace:FindFirstChild("ClientPets")
+	local tagged, models = 0, 0
+	for _, m in ipairs(petFolder and petFolder:GetChildren() or {}) do
+		models += 1
+		if m.PrimaryPart and m.PrimaryPart:FindFirstChild("PetTag") then
+			tagged += 1
+		end
+	end
+	check(models >= 1 and tagged == models, string.format("every pet has a nametag (%d/%d)", tagged, models))
+	local myProfile = S.PlayerService.getProfile(me)
+	local firstPet = myProfile.pets[1]
+	if firstPet then
+		myProfile.treats = 20
+		Windows.open("Pets")
+		mod("UI/Pets").refresh()
+		local fed = Remotes.func("FeedPet"):InvokeServer(firstPet.uid)
+		check(fed == true and firstPet.level == 2 and myProfile.treats == 17, "feeding treats levels a pet up")
+		for i = 1, 2 do
+			table.insert(myProfile.pets, { uid = "extra" .. i, species = firstPet.species, level = 3 })
+		end
+		local before = #myProfile.pets
+		S.PlayerService.addGold(me, 20000)
+		local merged = Remotes.func("MergePets"):InvokeServer(firstPet.uid)
+		check(merged == true and firstPet.golden == true and #myProfile.pets == before - 2, "three pets merge into a golden one")
+		check(firstPet.level == 3, "the golden pet keeps the best level")
+		check(not Remotes.func("MergePets"):InvokeServer(firstPet.uid), "a golden pet can't merge again")
+		Remotes.func("EquipPet"):InvokeServer(firstPet.uid)
+		task.wait(1.5)
+		local sparkly = false
+		for _, m in ipairs(petFolder and petFolder:GetChildren() or {}) do
+			if m.PrimaryPart and m.PrimaryPart:FindFirstChild("GoldenSparkle") then
+				sparkly = true
+			end
+		end
+		check(sparkly, "the golden pet sparkles")
+		mod("UI/Pets").refresh()
+		Windows.close("Pets")
+	end
+
+	-- camp chests are per dragon: the lid, treasure and prompt follow MY timer
+	local chest = nil
+	for _, m in ipairs(game:GetService("CollectionService"):GetTagged("CampChest")) do
+		if m:GetAttribute("CampId") == "RaiderCamp" then
+			chest = m
+		end
+	end
+	if chest then
+		local prompt = chest:FindFirstChildWhichIsA("ProximityPrompt", true)
+		check(prompt.Enabled and chest:FindFirstChild("Treasure") ~= nil, "a full chest shows its treasure")
+		me:SetAttribute("ChestReady_RaiderCamp", workspace:GetServerTimeNow() + 60)
+		task.wait(1.5)
+		check(not prompt.Enabled and chest:FindFirstChild("Treasure") == nil, "an empty chest hides the treasure and prompt")
+		me:SetAttribute("ChestReady_RaiderCamp", nil)
+		task.wait(1.5)
+		check(prompt.Enabled and chest:FindFirstChild("Treasure") ~= nil, "the chest refills")
+	end
+
+	-- every ability's effects play without errors (ultimates, heals, lasting spells, eclipse)
+	do
+		local Abilities = require(__proxy("Shared/Config/Abilities"))
+		local VFX = mod("Controllers/VFX")
+		local character = me.Character
+		local root = character:FindFirstChild("HumanoidRootPart")
+		local pos = root.Position
+		local ids = {}
+		for id, ability in pairs(Abilities) do
+			if type(ability) == "table" and ability.kind then
+				table.insert(ids, id)
+			end
+		end
+		table.sort(ids)
+		for i, id in ipairs(ids) do
+			local a = Abilities[id]
+			local data = { kind = a.kind, abilityId = id, classId = "Frostwyrm", character = character, pos = pos, radius = a.radius or 10 }
+			if a.kind == "projectile" then
+				data.origin = pos
+				data.list = { { id = "fx" .. i, dir = Vector3.new(0, 0, -1) } }
+				data.speed, data.range, data.size = a.speed, a.range, a.size
+			elseif a.kind == "strike" then
+				data.delay, data.style = a.delay, a.style
+			elseif a.kind == "buff" then
+				data.duration = a.duration
+			elseif a.kind == "breath" then
+				data.dir, data.duration = Vector3.new(0, 0, -1), 0.5
+			elseif a.kind == "dash" then
+				data.from, data.to = pos, pos + Vector3.new(0, 0, -20)
+			end
+			Remotes.event("VFX"):FireAllClients(data)
+			if a.kind == "projectile" then
+				task.wait(0.3)
+				Remotes.event("VFX"):FireAllClients({ kind = "projectileHit", id = "fx" .. i, pos = pos + Vector3.new(0, 0, -20), radius = a.radius or 5, classId = "Venomspine", abilityId = id })
+			end
+			task.wait(0.4)
+			if id == "Eclipse" then
+				check(game:GetService("Lighting"):FindFirstChild("EclipseTint") ~= nil, "eclipse darkens the sky")
+			end
+		end
+		local lighting = game:GetService("Lighting")
+		task.wait(12)
+		check(lighting:FindFirstChild("EclipseTint") == nil, "the sun comes back after the eclipse")
+		check(VFX.errorCount == 0, "every spell effect played cleanly (" .. VFX.errorCount .. " errors)")
+	end
+
 	local _, hum = S.PlayerService.getCharacter(me)
 	hum.Health = 0
 	task.wait(Game.RESPAWN_TIME + 2)

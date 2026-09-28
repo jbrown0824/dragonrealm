@@ -556,6 +556,21 @@ local function waterPlant(player: Player, baseIndex: number, plotIndex: number, 
 	return true
 end
 
+-- Pet Treats: full flowers usually drop some (more for rarer, well-watered plants), sprouts rarely.
+local function rollTreats(seed, plant): number
+	local drop = seed.treats
+	if not drop or plant.stage < 3 then
+		return 0
+	end
+	if plant.stage == 3 then
+		return math.random() < drop[1] / 4 and 1 or 0
+	end
+	if math.random() >= drop[1] then
+		return 0
+	end
+	return math.random(drop[2], drop[3]) + (plant.quality >= Seeds.BONUS_SEED_QUALITY and 1 or 0)
+end
+
 -- Harvest a plot. Returns the harvested seed id (for replanting) when a full flower was picked.
 local function harvest(player: Player, baseIndex: number, plotIndex: number, byBot: boolean?): string?
 	local profile = ownerCheck(player, baseIndex, plotIndex, not byBot)
@@ -586,6 +601,11 @@ local function harvest(player: Player, baseIndex: number, plotIndex: number, byB
 			end
 		end
 		profile.flowersHarvested += 1
+	end
+	local treats = rollTreats(seed, plant)
+	if treats > 0 then
+		profile.treats = (profile.treats or 0) + treats
+		table.insert(parts, string.format("🍬 %d Pet Treat%s!", treats, treats == 1 and "" or "s"))
 	end
 	local who = byBot and "Reap-Bot harvested" or "Harvested"
 	S.PlayerService.notify(player, string.format("%s %s (%s, %d%% quality): %s", who, seed.name, Seeds.Stages[plant.stage], plant.quality, table.concat(parts, ", ")), seed.bloom, Seeds.StageIcons[plant.stage])

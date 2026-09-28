@@ -32,6 +32,14 @@ printf 'TERRAIN_STEP=4\n' > _hdr.luau && cat _hdr.luau terrain_dump.luau > _td.l
 python3 bundle.py _td.luau _tdb.luau && luau _tdb.luau > terrain.txt
 python3 terrain_map.py terrain.txt map.png 0.6
 
+# Lake and river depths: no water over the void, not too much shallow water, longships afloat
+# (also run by tools/checks/run_all.sh)
+python3 bundle.py water_check.luau _wc.luau && luau _wc.luau
+
+# Village dragons' walking routes vs solid parts (also run by tools/checks/run_all.sh)
+python3 bundle.py walk_dump.luau _wd.luau && luau _wd.luau > walks.jsonl
+python3 walk_check.py world.jsonl walks.jsonl        # optional 3rd arg: villager radius (default 2)
+
 # Map with village dragons posed the way clients animate them
 python3 bundle.py world_posed.luau _wp.luau && luau _wp.luau > world_posed.jsonl
 ```

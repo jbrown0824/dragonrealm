@@ -1,6 +1,8 @@
 -- Eggs and nano dragon pets. Buy eggs at Nestmother's Hatchery (or find them), hatch them for a
 -- random pet, and equip up to Game.petSlots(level) pets. Equipped pets follow you around (drawn
 -- by each client from the "Pets" attribute on your character) and boost your stats.
+-- Pets level up on Pet Treats (from harvesting flowers), and three of a species merge into a
+-- ✨ Golden one.
 
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,7 +17,7 @@ local Remotes = require(Shared.Remotes)
 local PetService = {}
 local S
 
--- Tell every client which pets follow this dragon.
+-- Tell every client which pets follow this dragon: "species:level:golden" entries, comma-separated.
 function PetService.applyToCharacter(player: Player, character: Model?)
 	character = character or player.Character
 	local profile = S.PlayerService.getProfile(player)
@@ -24,7 +26,7 @@ function PetService.applyToCharacter(player: Player, character: Model?)
 	end
 	local ids = {}
 	for _, pet in ipairs(BonusUtil.activePets(profile)) do
-		table.insert(ids, pet.species)
+		table.insert(ids, string.format("%s:%d:%d", pet.species, pet.level or 1, pet.golden and 1 or 0))
 	end
 	character:SetAttribute("Pets", table.concat(ids, ","))
 end
@@ -168,9 +170,90 @@ local function onRelease(player: Player, uid)
 		table.remove(profile.petsEquipped, eq)
 	end
 	local info = Pets.get(pet.species)
-	local gold = S.PlayerService.addGold(player, Pets.ReleaseGold[info and info.rarity or "Common"] or 50)
+	local base = Pets.ReleaseGold[info and info.rarity or "Common"] or 50
+	local gold = S.PlayerService.addGold(player, math.floor(base * Pets.multiplier(pet.level, pet.golden)))
 	changed(player)
 	return true, gold
+end
+
+-- Feed a pet enough treats for its next level.
+local function onFeed(player: Player, uid)
+	local profile = S.PlayerService.getProfile(player)
+	local pet = profile and type(uid) == "string" and BonusUtil.findPet(profile, uid)
+	if not pet then
+		return false, "Pet not found."
+	end
+	local level = pet.level or 1
+	local cost = Pets.LEVEL_COSTS[level]
+	if not cost then
+		return false, "This pet is already at max level!"
+	end
+	if (profile.treats or 0) < cost then
+		return false, string.format("You need %d 🍬 Pet Treats. Harvest full-grown flowers to find them.", cost)
+	end
+	profile.treats -= cost
+	pet.level = level + 1
+	changed(player)
+	return true, pet.level
+end
+
+-- Merge the chosen pet with two more of the same species (not golden) into one Golden pet.
+-- The golden pet keeps the highest level of the three and whichever of them was following you.
+local function onMerge(player: Player, uid)
+	local profile = S.PlayerService.getProfile(player)
+	local pet = profile and type(uid) == "string" and BonusUtil.findPet(profile, uid)
+	if not pet then
+		return false, "Pet not found."
+	end
+	if pet.golden then
+		return false, "This pet is already golden!"
+	end
+	local others = {}
+	for _, other in ipairs(profile.pets) do
+		if other ~= pet and other.species == pet.species and not other.golden then
+			table.insert(others, other)
+		end
+	end
+	if #others < Pets.MERGE_COUNT - 1 then
+		return false, string.format("You need %d %s pets to merge.", Pets.MERGE_COUNT, Pets.get(pet.species).name)
+	end
+	-- Use up the lowest-level extras first.
+	table.sort(others, function(a, b)
+		return (a.level or 1) < (b.level or 1)
+	end)
+	local info = Pets.get(pet.species)
+	local cost = Pets.MergeGold[info.rarity] or 100
+	if not S.PlayerService.spendGold(player, cost) then
+		return false, string.format("Merging costs %s gold.", Util.formatNumber(cost))
+	end
+	local wasEquipped = table.find(profile.petsEquipped, pet.uid) ~= nil
+	local best = pet.level or 1
+	for i = 1, Pets.MERGE_COUNT - 1 do
+		local other = others[i]
+		best = math.max(best, other.level or 1)
+		wasEquipped = wasEquipped or table.find(profile.petsEquipped, other.uid) ~= nil
+		local _, index = BonusUtil.findPet(profile, other.uid)
+		table.remove(profile.pets, index)
+		local eq = table.find(profile.petsEquipped, other.uid)
+		if eq then
+			table.remove(profile.petsEquipped, eq)
+		end
+	end
+	pet.golden = true
+	pet.level = best
+	if wasEquipped and not table.find(profile.petsEquipped, pet.uid) then
+		table.insert(profile.petsEquipped, pet.uid)
+	end
+	changed(player)
+	if info.rarity == "Legendary" or info.rarity == "Epic" then
+		Remotes.event("Announce"):FireAllClients({
+			title = "✨ GOLDEN " .. info.rarity:upper() .. "!",
+			text = string.format("%s merged a Golden %s!", player.DisplayName, info.name),
+			color = Color3.fromRGB(255, 210, 70),
+			duration = 4,
+		})
+	end
+	return true, pet
 end
 
 function PetService.init(services)
@@ -184,6 +267,8 @@ function PetService.start()
 	Remotes.func("UnequipPet").OnServerInvoke = onUnequip
 	Remotes.func("EquipBestPets").OnServerInvoke = onEquipBest
 	Remotes.func("ReleasePet").OnServerInvoke = onRelease
+	Remotes.func("FeedPet").OnServerInvoke = onFeed
+	Remotes.func("MergePets").OnServerInvoke = onMerge
 end
 
 return PetService

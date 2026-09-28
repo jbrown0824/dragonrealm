@@ -284,7 +284,7 @@ function CombatService.damagePlayer(victim: Player, amount: number, opts)
 	if not opts.dotKind and math.random() * 100 < stats.dodge then
 		queueNumber(victim, root.Position + Vector3.new(0, 4, 0), 0, "dodge")
 		if opts.attackerPlayer then
-			queueNumber(opts.attackerPlayer, root.Position + Vector3.new(0, 4, 0), 0, "dodge")
+			queueNumber(opts.attackerPlayer, root.Position + Vector3.new(0, 4, 0), 0, "miss")
 		end
 		return 0
 	end
@@ -567,7 +567,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 		broadcastVFX({ kind = "projectiles", origin = origin, list = list, speed = ability.speed, range = ability.range, size = ability.size, classId = stats.classId, abilityId = abilityId }, player)
 	elseif ability.kind == "nova" then
 		local center = root.Position
-		broadcastVFX({ kind = "nova", pos = center, radius = ability.radius, classId = stats.classId, abilityId = abilityId }, nil)
+		broadcastVFX({ kind = "nova", pos = center, radius = ability.radius, classId = stats.classId, abilityId = abilityId, character = character }, nil)
 		aoe(ctx, center, ability.radius, ability.damageMult, ability.effects, 14)
 	elseif ability.kind == "strike" then
 		local flat = Vector3.new(aim.X - root.Position.X, 0, aim.Z - root.Position.Z)
@@ -576,7 +576,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 			target = root.Position + flat.Unit * ability.castRange
 		end
 		local pos = groundBelow(target)
-		broadcastVFX({ kind = "strike", pos = pos, radius = ability.radius, delay = ability.delay, style = ability.style, classId = stats.classId }, nil)
+		broadcastVFX({ kind = "strike", pos = pos, radius = ability.radius, delay = ability.delay, style = ability.style, classId = stats.classId, abilityId = abilityId, character = character }, nil)
 		task.delay(ability.delay, function()
 			if player.Parent then
 				aoe(ctx, pos, ability.radius, ability.damageMult, ability.effects, ability.radius + 10)
@@ -630,7 +630,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 		if ability.buff then
 			S.PlayerService.addBuff(player, ability.id, ability.buff.duration, ability.buff.stats)
 		end
-		broadcastVFX({ kind = "heal", character = character, classId = stats.classId }, nil)
+		broadcastVFX({ kind = "heal", character = character, classId = stats.classId, abilityId = abilityId }, nil)
 	end
 end
 

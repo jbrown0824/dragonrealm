@@ -1,5 +1,5 @@
--- Pets window: your nano dragons (equip, release) and your eggs (buy at the Hatchery, hatch
--- anywhere with a little reveal animation).
+-- Pets window: your nano dragons (equip, feed treats to level up, merge three into a golden
+-- one, release) and your eggs (buy at the Hatchery, hatch anywhere with a little reveal).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local PetInfo = require(Shared.Config.Pets)
 local StatCalc = require(Shared.StatCalc)
+local BonusUtil = require(Shared.BonusUtil)
 local DragonBuilder = require(Shared.DragonBuilder)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
@@ -43,7 +44,7 @@ local function statText(stats): string
 end
 
 -- A spinning 3D nano dragon inside a ViewportFrame.
-local function preview(parent: GuiObject, speciesId: string)
+local function preview(parent: GuiObject, speciesId: string, golden: boolean?)
 	for _, child in ipairs(parent:GetChildren()) do
 		if child:IsA("Model") or child:IsA("Camera") then
 			child:Destroy()
@@ -53,7 +54,8 @@ local function preview(parent: GuiObject, speciesId: string)
 	if not species then
 		return
 	end
-	local model = DragonBuilder.build(species.plan, { anchored = true, noParticles = true, lite = true, colors = species.look.colors, fire = species.look.fire })
+	local colors, fire = App.PetFollow.look(speciesId, golden == true)
+	local model = DragonBuilder.build(species.plan, { anchored = true, noParticles = true, lite = true, colors = colors, fire = fire })
 	model:PivotTo(CFrame.new())
 	model.Parent = parent
 	local camera = Instance.new("Camera")
@@ -135,8 +137,8 @@ local function refreshPets(p)
 	local slots = p.petSlots or 1
 	local equipped = p.petsEquipped or {}
 	local nextLevel = Game.PET_SLOT_LEVELS[slots + 1]
-	header.Text = string.format("Following you: <font color=\"#FFD24A\">%d / %d</font>%s   •   Nest: %d / %d",
-		math.min(#equipped, slots), slots, nextLevel and string.format(" (another slot at level %d)", nextLevel) or "", #(p.pets or {}), Game.PET_LIMIT)
+	header.Text = string.format("Following you: <font color=\"#FFD24A\">%d / %d</font>%s   •   Nest: %d / %d   •   🍬 %d",
+		math.min(#equipped, slots), slots, nextLevel and string.format(" (slot at Lv %d)", nextLevel) or "", #(p.pets or {}), Game.PET_LIMIT, p.treats or 0)
 	Theme.clear(grid)
 	local list = table.clone(p.pets or {})
 	local order = {}
@@ -152,17 +154,21 @@ local function refreshPets(p)
 		if sa.rarity ~= sb.rarity then
 			return order[sa.rarity] > order[sb.rarity]
 		end
-		return sa.name < sb.name
+		if sa.name ~= sb.name then
+			return sa.name < sb.name
+		end
+		return BonusUtil.petScore(a) > BonusUtil.petScore(b)
 	end)
 	for i, pet in ipairs(list) do
 		local species = PetInfo.get(pet.species)
 		local color = PetInfo.RarityColors[species.rarity]
 		local isEquipped = table.find(equipped, pet.uid) ~= nil
-		local cardButton = Theme.make("TextButton", { BackgroundColor3 = C.panel2, AutoButtonColor = false, Text = "", LayoutOrder = i, Parent = grid })
+		local cardButton = Theme.make("TextButton", { BackgroundColor3 = pet.golden and Color3.fromRGB(90, 72, 30) or C.panel2, AutoButtonColor = false, Text = "", LayoutOrder = i, Parent = grid })
 		Theme.corner(cardButton, 8)
 		Theme.stroke(cardButton, color, selected == pet.uid and 3 or 1.5, selected == pet.uid and 0 or 0.3)
 		Theme.label({ Position = UDim2.fromOffset(0, 4), Size = UDim2.new(1, 0, 0, 34), TextSize = 28, TextXAlignment = Enum.TextXAlignment.Center, Text = PLAN_ICONS[species.plan] or "🐲", Parent = cardButton })
-		Theme.label({ Position = UDim2.fromOffset(4, 40), Size = UDim2.new(1, -8, 0, 28), TextSize = 11, TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Center, Text = species.name, Parent = cardButton })
+		Theme.label({ Position = UDim2.fromOffset(4, 40), Size = UDim2.new(1, -8, 0, 28), TextSize = 11, TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Center, Text = PetInfo.displayName(pet), Parent = cardButton })
+		Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 2), Size = UDim2.fromOffset(40, 16), TextSize = 12, TextColor3 = C.gold, TextXAlignment = Enum.TextXAlignment.Right, Text = "Lv " .. (pet.level or 1), Parent = cardButton })
 		if isEquipped then
 			Theme.label({ Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(30, 16), TextSize = 12, TextColor3 = C.good, Text = "✅", Parent = cardButton })
 		end
@@ -187,16 +193,38 @@ local function refreshPets(p)
 		local species = PetInfo.get(pet.species)
 		local color = PetInfo.RarityColors[species.rarity]
 		local isEquipped = table.find(equipped, pet.uid) ~= nil
-		details.name.Text = species.name
-		details.name.TextColor3 = color
+		local level = pet.level or 1
+		details.name.Text = PetInfo.displayName(pet)
+		details.name.TextColor3 = pet.golden and PetInfo.GOLDEN_LOOK.accent or color
 		details.info.Text = string.format("%s nano dragon  •  %s body", species.rarity, species.plan)
-		details.stats.Text = "Boosts: " .. statText(species.stats)
+		details.stats.Text = "Boosts: " .. statText(BonusUtil.petBoosts(pet))
+		local cost = PetInfo.LEVEL_COSTS[level]
+		details.level.Text = string.format("Level %d / %d%s\n%s", level, PetInfo.MAX_LEVEL,
+			cost and string.format("  •  next: %d 🍬 (you have %d)", cost, p.treats or 0) or "  •  MAX",
+			pet.golden and "Golden: boosts x" .. PetInfo.GOLDEN_MULT or string.format("Merge %d for a Golden (x%s boosts): %s 💰", PetInfo.MERGE_COUNT, tostring(PetInfo.GOLDEN_MULT), Util.formatNumber(PetInfo.MergeGold[species.rarity] or 0)))
+		details.feed.Text = cost and string.format("🍬 Feed (%d)", cost) or "Max level"
+		Theme.setButtonEnabled(details.feed, cost ~= nil and (p.treats or 0) >= cost)
+		local same = 0
+		for _, other in ipairs(p.pets or {}) do
+			if other.species == pet.species and not other.golden then
+				same += 1
+			end
+		end
+		if pet.golden then
+			details.merge.Text = "✨ Golden!"
+			Theme.setButtonEnabled(details.merge, false)
+		else
+			details.merge.Text = string.format("✨ Merge %d/%d", math.min(same, PetInfo.MERGE_COUNT), PetInfo.MERGE_COUNT)
+			Theme.setButtonEnabled(details.merge, same >= PetInfo.MERGE_COUNT and p.gold >= (PetInfo.MergeGold[species.rarity] or 0))
+		end
 		details.equip.Text = isEquipped and "Unequip" or "Equip"
 		details.equip.BackgroundColor3 = isEquipped and Color3.fromRGB(120, 60, 60) or Color3.fromRGB(60, 140, 70)
-		details.release.Text = releaseArmed == pet.uid and "Really release?" or string.format("Release (+%d 💰)", PetInfo.ReleaseGold[species.rarity] or 0)
-		if details.shown ~= pet.uid then
-			details.shown = pet.uid
-			preview(details.view, pet.species)
+		local releaseGold = math.floor((PetInfo.ReleaseGold[species.rarity] or 0) * PetInfo.multiplier(pet.level, pet.golden))
+		details.release.Text = releaseArmed == pet.uid and "Really release?" or string.format("Release (+%d 💰)", releaseGold)
+		local shownKey = pet.uid .. (pet.golden and "g" or "")
+		if details.shown ~= shownKey then
+			details.shown = shownKey
+			preview(details.view, pet.species, pet.golden)
 		end
 	end
 end
@@ -265,7 +293,7 @@ end
 function Pets.init(app)
 	App = app
 	local close
-	window, content, close = Theme.window(App.Windows.guis.Windows, "🐲 Nano Dragons", Vector2.new(820, 560))
+	window, content, close = Theme.window(App.Windows.guis.Windows, "🐲 Nano Dragons", Vector2.new(840, 600))
 	close.Activated:Connect(function()
 		App.Windows.close("Pets")
 	end)
@@ -287,16 +315,32 @@ function Pets.init(app)
 	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -290, 0, -4), Size = UDim2.fromOffset(140, 28), TextSize = 14, Parent = petsPage })
 	grid = Theme.scroll(petsPage, { Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, -290, 1, -26) })
 	Theme.make("UIGridLayout", { CellSize = UDim2.fromOffset(100, 74), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
-	Theme.make("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), Parent = grid })
 
 	details.frame = Theme.make("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 26), Size = UDim2.new(0, 280, 1, -26), BackgroundColor3 = C.panel2, Visible = false, Parent = petsPage })
 	Theme.corner(details.frame, 10)
 	Theme.pad(details.frame, 10)
-	details.view = Theme.make("ViewportFrame", { Size = UDim2.new(1, 0, 0, 170), BackgroundColor3 = Color3.fromRGB(35, 30, 50), Ambient = Color3.fromRGB(170, 170, 180), LightColor = Color3.fromRGB(255, 245, 230), LightDirection = Vector3.new(-1, -1.5, -0.5), Parent = details.frame })
+	details.view = Theme.make("ViewportFrame", { Size = UDim2.new(1, 0, 0, 160), BackgroundColor3 = Color3.fromRGB(35, 30, 50), Ambient = Color3.fromRGB(170, 170, 180), LightColor = Color3.fromRGB(255, 245, 230), LightDirection = Vector3.new(-1, -1.5, -0.5), Parent = details.frame })
 	Theme.corner(details.view, 10)
-	details.name = Theme.label({ Position = UDim2.fromOffset(0, 176), Size = UDim2.new(1, 0, 0, 26), Font = Theme.Fonts.title, TextSize = 22, Parent = details.frame })
-	details.info = Theme.label({ Position = UDim2.fromOffset(0, 202), Size = UDim2.new(1, 0, 0, 18), TextSize = 12, TextColor3 = C.subtext, Parent = details.frame })
-	details.stats = Theme.label({ Position = UDim2.fromOffset(0, 224), Size = UDim2.new(1, 0, 0, 50), TextSize = 14, TextColor3 = C.good, TextYAlignment = Enum.TextYAlignment.Top, Parent = details.frame })
+	details.name = Theme.label({ Position = UDim2.fromOffset(0, 164), Size = UDim2.new(1, 0, 0, 26), Font = Theme.Fonts.title, TextSize = 21, Parent = details.frame })
+	details.info = Theme.label({ Position = UDim2.fromOffset(0, 190), Size = UDim2.new(1, 0, 0, 18), TextSize = 12, TextColor3 = C.subtext, Parent = details.frame })
+	details.stats = Theme.label({ Position = UDim2.fromOffset(0, 210), Size = UDim2.new(1, 0, 0, 52), TextSize = 14, TextColor3 = C.good, TextYAlignment = Enum.TextYAlignment.Top, Parent = details.frame })
+	details.level = Theme.label({ Position = UDim2.fromOffset(0, 264), Size = UDim2.new(1, 0, 0, 34), TextSize = 12, TextColor3 = C.gold, TextYAlignment = Enum.TextYAlignment.Top, Parent = details.frame })
+	details.feed = Theme.button("🍬 Feed", Color3.fromRGB(200, 110, 160), function()
+		if selected then
+			invoke("FeedPet", selected, function(level)
+				App.Sfx.play("LevelUp")
+				App.Notifications.toast(string.format("Yum! Your pet grew to level %d!", level or 0), C.good, "🍬")
+			end)
+		end
+	end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -90), Size = UDim2.new(0.5, -4, 0, 38), TextSize = 15, Parent = details.frame })
+	details.merge = Theme.button("✨ Merge", Color3.fromRGB(190, 150, 40), function()
+		if selected then
+			invoke("MergePets", selected, function()
+				App.Sfx.play("LevelUp")
+				App.Notifications.toast("Three became one... a GOLDEN nano dragon!", PetInfo.GOLDEN_LOOK.accent, "✨")
+			end)
+		end
+	end, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, -90), Size = UDim2.new(0.5, -4, 0, 38), TextSize = 15, Parent = details.frame })
 	details.equip = Theme.button("Equip", Color3.fromRGB(60, 140, 70), function()
 		local p = App.State.profile
 		if not p or not selected then

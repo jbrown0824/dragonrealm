@@ -185,6 +185,8 @@ function Combat.init(app)
 			App.Windows.toggle("Pets")
 		elseif input.KeyCode == Enum.KeyCode.M then
 			App.Windows.toggle("Map")
+		elseif input.KeyCode == Enum.KeyCode.N then
+			App.Map.toggleMini()
 		elseif input.KeyCode == Enum.KeyCode.G then
 			App.HUD.eat()
 		elseif input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then

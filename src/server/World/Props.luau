@@ -300,24 +300,78 @@ function Props.barrel(parent: Instance, pos: Vector3)
 	Props.column(parent, pos + Vector3.new(0, 2.7, 0), 0.3, 2.75, Color3.fromRGB(70, 70, 75), Enum.Material.Metal)
 end
 
+-- A viking longship floating with its waterline at `cf` (bow toward -Z). The hull is built
+-- from curved plank strakes around a flat deck, with a rising prow (dragon head) and stern.
 function Props.longship(parent: Instance, cf: CFrame)
 	local model = Instance.new("Model")
 	model.Name = "Longship"
-	Props.ellipsoid(model, Vector3.new(7, 5, 34), cf, Color3.fromRGB(110, 75, 45), Enum.Material.WoodPlanks)
-	Props.part(model, Vector3.new(6, 0.4, 28), cf * CFrame.new(0, 1.3, 0), Color3.fromRGB(140, 100, 60), Enum.Material.WoodPlanks)
-	Props.beam(model, cf * Vector3.new(0, 1, -16), cf * Vector3.new(0, 6, -19), 1.2, DARK_WOOD, Enum.Material.Wood)
-	Props.ellipsoid(model, Vector3.new(1.6, 1.6, 2.6), cf * CFrame.new(0, 6.5, -19.5), Color3.fromRGB(200, 60, 40), Enum.Material.Wood)
-	Props.column(model, cf.Position + Vector3.new(0, 1, 0), 16, 0.7, DARK_WOOD, Enum.Material.Wood)
+	local L, W = 34, 7.5
+	local plank = Color3.fromRGB(115, 78, 46)
+	local plankDark = Color3.fromRGB(85, 56, 34)
+	local segments = 10
+	local function halfWidth(z: number): number
+		local t = math.clamp(math.abs(z) / (L / 2), 0, 1)
+		return W / 2 * math.sqrt(1 - t ^ 2.4)
+	end
+	-- keel under the middle
+	Props.part(model, Vector3.new(0.8, 0.8, L * 0.9), cf * CFrame.new(0, -2.4, 0), plankDark, Enum.Material.WoodPlanks)
+	for i = 0, segments - 1 do
+		local z0 = -L / 2 + i * L / segments
+		local z1 = z0 + L / segments
+		local zm = (z0 + z1) / 2
+		local w0, w1, wm = halfWidth(z0), halfWidth(z1), halfWidth(zm)
+		local segLen = math.sqrt((z1 - z0) ^ 2 + (w1 - w0) ^ 2) + 0.3
+		for _, side in ipairs({ -1, 1 }) do
+			local yaw = math.atan2((w1 - w0) * side, z1 - z0)
+			-- two strakes per side, flaring out toward the top
+			for k, row in ipairs({ { y = -1.4, inset = 0.55, tilt = 0.55 }, { y = 0.1, inset = 0, tilt = 0.2 } }) do
+				local x = side * math.max(0.4, wm - row.inset)
+				local c = cf * CFrame.new(x, row.y, zm) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, -side * row.tilt)
+				Props.part(model, Vector3.new(0.4, 1.6, segLen), c, k == 1 and plankDark or plank, Enum.Material.WoodPlanks)
+			end
+			-- gunwale rail
+			Props.part(model, Vector3.new(0.5, 0.35, segLen), cf * CFrame.new(side * wm, 0.95, zm) * CFrame.Angles(0, yaw, 0), plankDark, Enum.Material.Wood)
+		end
+		-- deck plank across the hull, a little below the rail
+		if wm > 0.8 then
+			Props.part(model, Vector3.new(wm * 2 - 0.6, 0.3, L / segments + 0.05), cf * CFrame.new(0, 0.45, zm), Color3.fromRGB(150, 110, 70), Enum.Material.WoodPlanks)
+			Props.part(model, Vector3.new(math.max(0.6, wm * 2 - 2.2), 0.4, L / segments + 0.05), cf * CFrame.new(0, -1.9, zm), plankDark, Enum.Material.WoodPlanks)
+		end
+	end
+	-- prow (with a dragon head) and stern curl
+	local function post(sign: number)
+		local pts = { Vector3.new(0, -1, sign * L / 2), Vector3.new(0, 1.5, sign * (L / 2 + 1.2)), Vector3.new(0, 4, sign * (L / 2 + 1.8)), Vector3.new(0, 6.2, sign * (L / 2 + 1.2)) }
+		for i = 1, #pts - 1 do
+			Props.beam(model, cf * pts[i], cf * pts[i + 1], 1.1 - i * 0.12, plankDark, Enum.Material.Wood)
+		end
+		return cf * pts[#pts]
+	end
+	local headPos = post(-1)
+	Props.ellipsoid(model, Vector3.new(1.4, 1.5, 2.6), CFrame.lookAt(headPos, headPos + cf.LookVector) * CFrame.new(0, 0.3, -0.8), Color3.fromRGB(200, 60, 40), Enum.Material.Wood)
+	for _, side in ipairs({ -1, 1 }) do
+		Props.beam(model, headPos + cf.RightVector * side * 0.4 + Vector3.new(0, 0.8, 0), headPos + cf.RightVector * side * 0.9 + Vector3.new(0, 1.8, 0) - cf.LookVector * 0.6, 0.3, Color3.fromRGB(240, 230, 200))
+	end
+	local tailPos = post(1)
+	Props.ellipsoid(model, Vector3.new(1, 1.4, 1.4), CFrame.new(tailPos + Vector3.new(0, 0.3, 0)), plankDark, Enum.Material.Wood)
+	-- shields along the rails
+	for i = -3, 3 do
+		local z = i * 3.6
+		for _, side in ipairs({ -1, 1 }) do
+			local p = cf * Vector3.new(side * (halfWidth(z) + 0.25), 0.5, z)
+			local shield = Props.part(model, Vector3.new(0.3, 2.2, 2.2), CFrame.lookAt(p, p + cf.RightVector * side) * CFrame.Angles(0, math.rad(90), 0), ({ Color3.fromRGB(200, 170, 50), Color3.fromRGB(50, 90, 170), Color3.fromRGB(170, 40, 40) })[(i + 4) % 3 + 1], Enum.Material.Wood)
+			shield.Shape = Enum.PartType.Cylinder
+			-- an oar dipping into the water
+			if i % 2 == 0 then
+				Props.beam(model, p + Vector3.new(0, 0.4, 0) - cf.RightVector * side * 0.6, p + cf.RightVector * side * 6 + Vector3.new(0, -2.6, 0), 0.3, Props.WOOD, Enum.Material.Wood)
+			end
+		end
+	end
+	-- mast, yard and striped sail
+	Props.column(model, (cf * CFrame.new(0, 0.5, 0)).Position, 16, 0.7, DARK_WOOD, Enum.Material.Wood)
+	Props.beam(model, cf * Vector3.new(-6, 15, 0), cf * Vector3.new(6, 15, 0), 0.4, DARK_WOOD, Enum.Material.Wood)
 	for i = 0, 3 do
 		local color = i % 2 == 0 and Color3.fromRGB(190, 40, 40) or Color3.fromRGB(240, 235, 220)
-		Props.part(model, Vector3.new(11, 2, 0.2), cf * CFrame.new(0, 14 - i * 2, 0.3), color, Enum.Material.Fabric)
-	end
-	for i = -2, 2 do
-		for _, side in ipairs({ -1, 1 }) do
-			local p = cf * Vector3.new(3.3 * side, 1.4, i * 5)
-			local shield = Props.part(model, Vector3.new(0.3, 2.2, 2.2), CFrame.new(p), ({ Color3.fromRGB(200, 170, 50), Color3.fromRGB(50, 90, 170) })[(i + 3) % 2 + 1], Enum.Material.Wood)
-			shield.Shape = Enum.PartType.Cylinder
-		end
+		Props.part(model, Vector3.new(11, 2, 0.2), cf * CFrame.new(0, 14 - i * 2, 0.4), color, Enum.Material.Fabric)
 	end
 	model.Parent = parent
 	return model
@@ -325,73 +379,204 @@ end
 
 ---------------------------------------------------------------- dragon-sized buildings
 
--- A dragon's house: stone foundation, timber-framed walls, a tall arched doorway a dragon can
--- walk through, round windows, a steep roof with a perch beam on top and a chimney.
--- `cf` = center at ground level, front faces -Z.
+-- A dragon-sized house you can walk into (front = -Z). The stone plinth is the floor, with a
+-- ramp up to an arched doorway (about 11 wide, 13 tall). Plaster walls one stud thick, a timber
+-- frame, a gabled roof with a perch beam, and a cosy den inside: a straw nest, a fireplace under
+-- the chimney, a table, a bookshelf, a rug, a little hoard and a hanging lantern.
+-- `cf` = center at ground level.
 function Props.dragonHouse(parent: Instance, cf: CFrame, width: number, depth: number, height: number, wallColor: Color3, roofColor: Color3)
 	local model = Instance.new("Model")
 	model.Name = "DragonHouse"
 	local stone = Color3.fromRGB(135, 130, 128)
-	Props.part(model, Vector3.new(width + 1.4, 2.4, depth + 1.4), cf * CFrame.new(0, 1.2, 0), stone, Enum.Material.Cobblestone)
-	Props.part(model, Vector3.new(width, height - 2.4, depth), cf * CFrame.new(0, 2.4 + (height - 2.4) / 2, 0), wallColor, Enum.Material.Plaster)
+	local floorY = 2.4
+	local wallH = height - floorY
+	local t = 1 -- wall thickness
+	local front = -depth / 2
+	local rng = Random.new(math.floor(cf.Position.X * 7 + cf.Position.Z * 13))
+	local function at(x: number, y: number, z: number): CFrame
+		return cf * CFrame.new(x, y, z)
+	end
+
+	-- floor
+	Props.part(model, Vector3.new(width + 1.4, floorY, depth + 1.4), at(0, floorY / 2, 0), stone, Enum.Material.Cobblestone)
+	Props.part(model, Vector3.new(width - 2 * t, 0.2, depth - 2 * t), at(0, floorY + 0.1, 0), Color3.fromRGB(150, 105, 65), Enum.Material.WoodPlanks)
+	-- ramp up to the door (a wedge's high end is its +Z side)
+	local doorW, doorH = math.min(11, width * 0.4), math.min(13, wallH - 2)
+	Props.part(model, Vector3.new(doorW + 2.4, floorY, 5), at(0, floorY / 2, front - 0.7 - 2.5), stone, Enum.Material.Cobblestone, "WedgePart")
+
+	-- walls
+	local wy = floorY + wallH / 2
+	local function wall(size: Vector3, x: number, y: number, z: number)
+		return Props.part(model, size, at(x, y, z), wallColor, Enum.Material.Plaster)
+	end
+	wall(Vector3.new(width, wallH, t), 0, wy, depth / 2 - t / 2)
+	for _, side in ipairs({ -1, 1 }) do
+		wall(Vector3.new(t, wallH, depth - 2 * t), side * (width / 2 - t / 2), wy, 0)
+	end
+	-- front wall around the arched doorway: side panels, a stepped fill following the arch, and
+	-- a lintel panel above it; stone jambs and arch stones cover the steps
+	local r = doorW / 2
+	local rectTop = floorY + doorH - r
+	local sideW = width / 2 - r
+	local fz = front + t / 2
+	local steps = 6
+	for _, side in ipairs({ -1, 1 }) do
+		wall(Vector3.new(sideW, wallH, t), side * (r + sideW / 2), wy, fz)
+		for i = 1, steps do
+			local inner = r * math.sqrt(1 - ((i - 0.5) / steps) ^ 2)
+			local w = r - inner
+			wall(Vector3.new(w, r / steps, t), side * (inner + w / 2), rectTop + (i - 0.5) * r / steps, fz)
+		end
+		Props.part(model, Vector3.new(1.4, rectTop - floorY, t + 0.8), at(side * (r + 0.4), (floorY + rectTop) / 2, fz), stone, Enum.Material.Cobblestone)
+	end
+	wall(Vector3.new(doorW, height - (rectTop + r), t), 0, (rectTop + r + height) / 2, fz)
+	for k = 0, 8 do
+		local a = math.pi * k / 8
+		Props.part(model, Vector3.new(1.4, 2.2, t + 0.8), at(math.cos(a) * (r + 0.4), rectTop + math.sin(a) * (r + 0.4), fz) * CFrame.Angles(0, 0, a), stone, Enum.Material.Cobblestone)
+	end
+
 	-- timber frame (the front skips the middle post and splits the rail around the door)
-	local wallH = height - 2.4
-	local doorGap = math.min(11, width * 0.4) / 2 + 1.4
 	for _, x in ipairs({ -width / 2, 0, width / 2 }) do
 		for _, z in ipairs({ -depth / 2, depth / 2 }) do
 			if not (x == 0 and z < 0) then
-				Props.part(model, Vector3.new(1.2, wallH, 1.2), cf * CFrame.new(x, 2.4 + wallH / 2, z), DARK_WOOD, Enum.Material.Wood)
+				Props.part(model, Vector3.new(1.2, wallH, 1.2), at(x, wy, z), DARK_WOOD, Enum.Material.Wood)
 			end
 		end
 	end
-	local railY = 2.4 + wallH * 0.36
+	local railY = floorY + wallH * 0.36
+	local doorGap = r + 1.4
 	for _, z in ipairs({ -depth / 2, depth / 2 }) do
-		Props.part(model, Vector3.new(width + 1.2, 1.2, 1.2), cf * CFrame.new(0, height, z), DARK_WOOD, Enum.Material.Wood)
+		Props.part(model, Vector3.new(width + 1.2, 1.2, 1.2), at(0, height, z), DARK_WOOD, Enum.Material.Wood)
 		if z > 0 then
-			Props.part(model, Vector3.new(width + 1.2, 1, 1), cf * CFrame.new(0, railY, z), DARK_WOOD, Enum.Material.Wood)
+			Props.part(model, Vector3.new(width + 1.2, 1, 1), at(0, railY, z + 0.1), DARK_WOOD, Enum.Material.Wood)
 		else
 			local len = width / 2 - doorGap + 0.6
 			for _, side in ipairs({ -1, 1 }) do
-				Props.part(model, Vector3.new(len, 1, 1), cf * CFrame.new(side * (doorGap + len / 2 - 0.3), railY, z), DARK_WOOD, Enum.Material.Wood)
+				Props.part(model, Vector3.new(len, 1, 1), at(side * (doorGap + len / 2 - 0.3), railY, z - 0.1), DARK_WOOD, Enum.Material.Wood)
 			end
 		end
 	end
 	for _, x in ipairs({ -width / 2, width / 2 }) do
-		Props.part(model, Vector3.new(1.2, 1.2, depth + 1.2), cf * CFrame.new(x, height, 0), DARK_WOOD, Enum.Material.Wood)
+		Props.part(model, Vector3.new(1.2, 1.2, depth + 1.2), at(x, height, 0), DARK_WOOD, Enum.Material.Wood)
 	end
+
+	-- roof, perch beam with carved dragon-head ends, chimney over the fireplace
 	local roofH = math.max(8, depth * 0.55)
 	Props.roof(model, cf, width, depth, height, roofH, roofColor, Enum.Material.WoodPlanks)
-	-- perch beam along the ridge, with carved dragon-head ends
-	Props.part(model, Vector3.new(width + 5, 1.2, 1.2), cf * CFrame.new(0, height + roofH + 0.6, 0), DARK_WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(width + 5, 1.2, 1.2), at(0, height + roofH + 0.6, 0), DARK_WOOD, Enum.Material.Wood)
 	for _, x in ipairs({ -width / 2 - 2.5, width / 2 + 2.5 }) do
-		Props.ellipsoid(model, Vector3.new(2.2, 1.8, 1.6), cf * CFrame.new(x, height + roofH + 1.2, 0), roofColor:Lerp(Color3.new(0, 0, 0), 0.3), Enum.Material.Wood)
+		Props.ellipsoid(model, Vector3.new(2.2, 1.8, 1.6), at(x, height + roofH + 1.2, 0), roofColor:Lerp(Color3.new(0, 0, 0), 0.3), Enum.Material.Wood)
 	end
-	-- chimney
-	Props.part(model, Vector3.new(3, roofH + 3, 3), cf * CFrame.new(width * 0.28, height + roofH / 2 + 1, depth * 0.18), stone, Enum.Material.Brick)
-	-- dragon-sized arched doorway (about 11 wide, 13 tall): a plank door with a round top,
-	-- framed by a stone arch
-	local doorW, doorH = math.min(11, width * 0.4), math.min(13, height * 0.8)
-	local rectH = doorH - doorW / 2
-	local doorColor = Color3.fromRGB(70, 45, 30)
-	local front = -depth / 2
-	local frame = Props.part(model, Vector3.new(0.4, doorW + 1.8, doorW + 1.8), cf * CFrame.new(0, rectH + 0.2, front - 0.15) * CFrame.Angles(0, math.rad(90), 0), stone, Enum.Material.Cobblestone)
-	frame.Shape = Enum.PartType.Cylinder
-	for _, x in ipairs({ -1, 1 }) do
-		Props.part(model, Vector3.new(0.9, rectH, 0.4), cf * CFrame.new(x * (doorW / 2 + 0.45), rectH / 2 + 0.2, front - 0.15), stone, Enum.Material.Cobblestone)
-	end
-	Props.part(model, Vector3.new(doorW, rectH, 0.4), cf * CFrame.new(0, rectH / 2 + 0.2, front - 0.35), doorColor, Enum.Material.WoodPlanks)
-	local top = Props.part(model, Vector3.new(0.4, doorW, doorW), cf * CFrame.new(0, rectH + 0.2, front - 0.35) * CFrame.Angles(0, math.rad(90), 0), doorColor, Enum.Material.WoodPlanks)
-	top.Shape = Enum.PartType.Cylinder
-	Props.part(model, Vector3.new(0.5, 3, 0.3), cf * CFrame.new(0, rectH * 0.55, front - 0.6), Color3.fromRGB(200, 170, 80), Enum.Material.Metal)
-	Props.part(model, Vector3.new(doorW + 2.4, 1.2, 3), cf * CFrame.new(0, 0.6, front - 1.6), stone, Enum.Material.Cobblestone)
-	-- round glowing windows
-	for _, x in ipairs({ -width / 3, width / 3 }) do
-		local w = Props.part(model, Vector3.new(0.4, 4, 4), cf * CFrame.new(x, height * 0.62, -depth / 2 - 0.15) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(255, 215, 140), Enum.Material.Neon)
+	local fx, fzBack = width * 0.28, depth / 2 - t
+	Props.part(model, Vector3.new(3, roofH + 2.4, 3), at(fx, height + (roofH + 2.4) / 2 - 0.2, fzBack - 1.5), stone, Enum.Material.Brick)
+
+	-- round glowing windows, on the outside and the inside of the front and side walls
+	local function window(pos: Vector3, rot: CFrame)
+		local w = Props.part(model, Vector3.new(0.3, 4, 4), at(pos.X, pos.Y, pos.Z) * rot, Color3.fromRGB(255, 215, 140), Enum.Material.Neon)
 		w.Shape = Enum.PartType.Cylinder
 		w.CastShadow = false
-		local rim = Props.part(model, Vector3.new(0.3, 4.8, 4.8), cf * CFrame.new(x, height * 0.62, -depth / 2 - 0.05) * CFrame.Angles(0, math.rad(90), 0), DARK_WOOD, Enum.Material.Wood)
+		local rim = Props.part(model, Vector3.new(0.2, 4.8, 4.8), at(pos.X, pos.Y, pos.Z) * rot, DARK_WOOD, Enum.Material.Wood)
 		rim.Shape = Enum.PartType.Cylinder
 	end
+	local wy2 = floorY + wallH * 0.55
+	local faceZ = CFrame.Angles(0, math.rad(90), 0)
+	for _, x in ipairs({ -width / 3, width / 3 }) do
+		window(Vector3.new(x, wy2, front - 0.2), faceZ)
+		window(Vector3.new(x, wy2, front + t + 0.2), faceZ)
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		window(Vector3.new(side * (width / 2 + 0.2), wy2, -2), CFrame.new())
+		window(Vector3.new(side * (width / 2 - t - 0.2), wy2, -2), CFrame.new())
+	end
+
+	---------------------------------------------------------------- inside
+	local fy = floorY + 0.2 -- top of the floorboards
+	-- fireplace against the back wall, under the chimney
+	local hearthZ = fzBack - 1.5
+	Props.part(model, Vector3.new(6.4, 7, 1), at(fx, fy + 3.5, fzBack - 0.5), stone, Enum.Material.Brick)
+	for _, side in ipairs({ -1, 1 }) do
+		Props.part(model, Vector3.new(1.2, 6, 2), at(fx + side * 2.6, fy + 3, hearthZ - 0.5), stone, Enum.Material.Brick)
+	end
+	Props.part(model, Vector3.new(6.8, 1, 3.2), at(fx, fy + 6.5, hearthZ - 0.1), DARK_WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(3.4, height - (fy + 7), 2.4), at(fx, (fy + 7 + height) / 2, fzBack - 1.2), stone, Enum.Material.Brick)
+	Props.part(model, Vector3.new(4.2, 0.3, 2), at(fx, fy + 0.15, hearthZ - 0.5), Color3.fromRGB(60, 55, 55), Enum.Material.Slate)
+	for i = -1, 1, 2 do
+		local log = Props.part(model, Vector3.new(3.2, 0.7, 0.7), at(fx, fy + 0.65, hearthZ - 0.5 + i * 0.4) * CFrame.Angles(0, 0, math.rad(i * 8)), Color3.fromRGB(90, 60, 35), Enum.Material.Wood)
+		log.Shape = Enum.PartType.Cylinder
+	end
+	local embers = Props.part(model, Vector3.new(2.4, 0.3, 1.2), at(fx, fy + 1.1, hearthZ - 0.5), Color3.fromRGB(255, 120, 30), Enum.Material.Neon)
+	embers.CastShadow = false
+	Props.fire(embers, 3)
+	Props.light(embers, Color3.fromRGB(255, 150, 70), 24, 1.6)
+
+	-- straw nest with pillows and a twig rim (soft: dragons can climb in and curl up)
+	local nest = Vector3.new(-width / 2 + 8.5, fy, depth / 2 - 7)
+	local nestParts = {}
+	local straw = Props.part(model, Vector3.new(1, 10, 10), at(nest.X, fy + 0.5, nest.Z) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(215, 180, 100), Enum.Material.Fabric)
+	straw.Shape = Enum.PartType.Cylinder
+	table.insert(nestParts, straw)
+	for k = 1, 10 do
+		local a = k / 10 * math.pi * 2
+		table.insert(nestParts, Props.ellipsoid(model, Vector3.new(3, 1.3, 1.6), at(nest.X + math.cos(a) * 4.6, fy + 1.1, nest.Z + math.sin(a) * 4.6) * CFrame.Angles(0, -a + math.pi / 2, 0), Color3.fromRGB(125, 90, 55), Enum.Material.Wood))
+	end
+	for k, color in ipairs({ Color3.fromRGB(200, 80, 80), Color3.fromRGB(90, 120, 200) }) do
+		table.insert(nestParts, Props.ellipsoid(model, Vector3.new(2.6, 1.1, 1.8), at(nest.X - 1.5 + k * 1.3, fy + 1.4, nest.Z + 2.2), color, Enum.Material.Fabric))
+	end
+	for _, p in ipairs(nestParts) do
+		p.CanCollide = false
+	end
+
+	-- table with a mug, a book and a fish supper
+	local tx, tz = -width / 2 + 7, front + 6
+	Props.part(model, Vector3.new(6, 0.5, 4), at(tx, fy + 3.25, tz), WOOD, Enum.Material.WoodPlanks)
+	for _, dx in ipairs({ -2.5, 2.5 }) do
+		for _, dz in ipairs({ -1.5, 1.5 }) do
+			Props.part(model, Vector3.new(0.5, 3, 0.5), at(tx + dx, fy + 1.5, tz + dz), DARK_WOOD, Enum.Material.Wood)
+		end
+	end
+	local mug = Props.part(model, Vector3.new(0.9, 0.8, 0.8), at(tx - 1.8, fy + 3.95, tz - 0.6) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(160, 110, 60), Enum.Material.Wood)
+	mug.Shape = Enum.PartType.Cylinder
+	Props.part(model, Vector3.new(1.4, 0.3, 1.9), at(tx + 1.6, fy + 3.65, tz + 0.4) * CFrame.Angles(0, 0.3, 0), Color3.fromRGB(120, 40, 50), Enum.Material.Fabric)
+	Props.ellipsoid(model, Vector3.new(2, 0.5, 0.8), at(tx, fy + 3.75, tz - 0.3), Color3.fromRGB(230, 140, 80), Enum.Material.SmoothPlastic)
+
+	-- bookshelf on the right wall
+	local bx, bz = width / 2 - t - 0.8, front + 7
+	Props.part(model, Vector3.new(0.3, 8, 6), at(bx + 0.65, fy + 4, bz), DARK_WOOD, Enum.Material.Wood)
+	for _, dz in ipairs({ -3, 3 }) do
+		Props.part(model, Vector3.new(1.6, 8, 0.3), at(bx, fy + 4, bz + dz), DARK_WOOD, Enum.Material.Wood)
+	end
+	local bookColors = { Color3.fromRGB(170, 50, 50), Color3.fromRGB(50, 90, 160), Color3.fromRGB(60, 130, 70), Color3.fromRGB(200, 160, 60), Color3.fromRGB(120, 70, 150) }
+	for shelf = 0, 3 do
+		local sy = fy + 0.15 + shelf * 2.6
+		Props.part(model, Vector3.new(1.6, 0.3, 5.7), at(bx, sy, bz), DARK_WOOD, Enum.Material.Wood)
+		if shelf < 3 then
+			local z = bz - 2.6
+			while z < bz + 2.2 do
+				local w = rng:NextNumber(0.35, 0.6)
+				local h = rng:NextNumber(1.3, 2)
+				Props.part(model, Vector3.new(1.1, h, w), at(bx - 0.1, sy + 0.15 + h / 2, z + w / 2), bookColors[rng:NextInteger(1, #bookColors)], Enum.Material.SmoothPlastic)
+				z += w + 0.05
+			end
+		end
+	end
+
+	-- rug and a small hoard of gold by the fire
+	local rug = Props.part(model, Vector3.new(0.1, 10, 10), at(1, fy + 0.05, -1) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(150, 50, 60), Enum.Material.Fabric)
+	rug.Shape = Enum.PartType.Cylinder
+	local rugInner = Props.part(model, Vector3.new(0.12, 6.5, 6.5), at(1, fy + 0.06, -1) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(220, 170, 80), Enum.Material.Fabric)
+	rugInner.Shape = Enum.PartType.Cylinder
+	Props.ellipsoid(model, Vector3.new(4, 1.6, 3), at(fx - 6, fy + 0.5, fzBack - 2), Color3.fromRGB(240, 190, 60), Enum.Material.Metal)
+	Props.part(model, Vector3.new(0.7, 0.7, 0.7), at(fx - 6.4, fy + 1.3, fzBack - 2.2) * CFrame.Angles(0.6, 0.8, 0), Color3.fromRGB(80, 200, 255), Enum.Material.Glass)
+
+	-- tie beams and a hanging lantern
+	for _, z in ipairs({ -depth / 4, depth / 4 }) do
+		Props.part(model, Vector3.new(width - 2 * t, 1, 1), at(0, height - 0.5, z), DARK_WOOD, Enum.Material.Wood)
+	end
+	Props.part(model, Vector3.new(0.2, 3, 0.2), at(0, height - 1.5, 0), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+	local lantern = Props.part(model, Vector3.new(1.4, 1.6, 1.4), at(0, height - 3.8, 0), Color3.fromRGB(255, 220, 140), Enum.Material.Neon)
+	lantern.CastShadow = false
+	Props.light(lantern, Color3.fromRGB(255, 215, 150), 30, 1.3)
+
 	model.Parent = parent
 	return model
 end
@@ -403,22 +588,56 @@ function Props.chest(parent: Instance, cf: CFrame, campId: string)
 	local model = Instance.new("Model")
 	model.Name = "Chest"
 	local wood = Color3.fromRGB(125, 80, 45)
+	local dark = Color3.fromRGB(70, 45, 28)
 	local gold = Color3.fromRGB(240, 190, 60)
 	-- platform
 	Props.part(model, Vector3.new(12, 1, 10), cf * CFrame.new(0, 0.5, 0), Color3.fromRGB(110, 80, 50), Enum.Material.WoodPlanks)
-	local base = Props.part(model, Vector3.new(6, 3, 4), cf * CFrame.new(0, 2.5, 0), wood, Enum.Material.WoodPlanks)
+	-- A hollow box: floor and four walls, so the open chest shows what's inside.
+	local base = Props.part(model, Vector3.new(6, 0.5, 4), cf * CFrame.new(0, 1.25, 0), dark, Enum.Material.WoodPlanks)
 	base.Name = "Base"
 	model.PrimaryPart = base
-	for _, x in ipairs({ -2.2, 2.2 }) do
-		Props.part(model, Vector3.new(0.4, 3.1, 4.1), cf * CFrame.new(x, 2.5, 0), gold, Enum.Material.Metal)
+	for _, z in ipairs({ -1.8, 1.8 }) do
+		Props.part(model, Vector3.new(6, 2.5, 0.4), cf * CFrame.new(0, 2.25, z), wood, Enum.Material.WoodPlanks)
+		for _, x in ipairs({ -2.2, 2.2 }) do -- gold straps
+			Props.part(model, Vector3.new(0.4, 2.6, 0.1), cf * CFrame.new(x, 2.25, z + math.sign(z) * 0.25), gold, Enum.Material.Metal)
+		end
 	end
-	local glow = Props.part(model, Vector3.new(5.2, 0.5, 3.2), cf * CFrame.new(0, 4.05, 0), Color3.fromRGB(255, 220, 90), Enum.Material.Neon)
+	for _, x in ipairs({ -2.8, 2.8 }) do
+		Props.part(model, Vector3.new(0.4, 2.5, 3.2), cf * CFrame.new(x, 2.25, 0), wood, Enum.Material.WoodPlanks)
+	end
+	-- The treasure inside (hidden by each player's client while the chest is empty for them).
+	local treasure = Instance.new("Model")
+	treasure.Name = "Treasure"
+	local glow = Props.part(treasure, Vector3.new(5, 0.4, 3.1), cf * CFrame.new(0, 2.9, 0), Color3.fromRGB(255, 215, 80), Enum.Material.Neon)
 	glow.Name = "Glow"
 	glow.CastShadow = false
 	Props.light(glow, Color3.fromRGB(255, 210, 100), 18, 2)
-	local lid = Props.part(model, Vector3.new(6, 1.4, 4), cf * CFrame.new(0, 4.7, 0), wood, Enum.Material.WoodPlanks)
+	Props.ellipsoid(treasure, Vector3.new(4.6, 1, 2.8), cf * CFrame.new(0.1, 2.75, 0), gold, Enum.Material.Metal)
+	local rng = Random.new(#campId * 7)
+	for i = 1, 9 do
+		local coin = Props.part(treasure, Vector3.new(0.15, 0.7, 0.7), cf * CFrame.new(rng:NextNumber(-2.1, 2.1), 3.1 + rng:NextNumber(0, 0.1), rng:NextNumber(-1.1, 1.1)) * CFrame.Angles(rng:NextNumber(-0.4, 0.4), rng:NextNumber(0, 6), math.rad(90) + rng:NextNumber(-0.5, 0.5)), gold, Enum.Material.Metal)
+		coin.Shape = Enum.PartType.Cylinder
+		coin.Name = "Coin" .. i
+	end
+	for i, color in ipairs({ Color3.fromRGB(230, 40, 60), Color3.fromRGB(60, 140, 255), Color3.fromRGB(80, 220, 120) }) do
+		local gem = Props.part(treasure, Vector3.new(0.6, 0.6, 0.6), cf * CFrame.new(-1.6 + i * 0.9, 3.0, -0.5 + (i % 2) * 0.8) * CFrame.Angles(0.6, 0.8, 0), color, Enum.Material.Glass)
+		gem.Name = "Gem"
+	end
+	Props.part(treasure, Vector3.new(0.3, 1.8, 0.3), cf * CFrame.new(-1.4, 3.05, 0.6) * CFrame.Angles(0, 0, math.rad(78)), Color3.fromRGB(200, 205, 215), Enum.Material.Metal) -- a sword in the loot
+	treasure.Parent = model
+	-- Lid (a model so its gold bands move with it), hinged along the back edge. Each player's
+	-- client opens it while the chest is empty for them.
+	local lid = Instance.new("Model")
 	lid.Name = "Lid"
-	Props.part(model, Vector3.new(0.9, 1.1, 0.3), cf * CFrame.new(0, 3.9, -2.1), gold, Enum.Material.Metal)
+	local top = Props.part(lid, Vector3.new(6.2, 1.2, 4.2), cf * CFrame.new(0, 4.1, 0), wood, Enum.Material.WoodPlanks)
+	top.Name = "Top"
+	lid.PrimaryPart = top
+	for _, x in ipairs({ -2.2, 2.2 }) do
+		Props.part(lid, Vector3.new(0.4, 1.25, 4.25), cf * CFrame.new(x, 4.1, 0), gold, Enum.Material.Metal)
+	end
+	lid.Parent = model
+	local lock = Props.part(model, Vector3.new(0.9, 1.1, 0.3), cf * CFrame.new(0, 3.6, -2.15), gold, Enum.Material.Metal)
+	lock.Name = "Lock"
 	for _, x in ipairs({ -4.8, 4.8 }) do
 		Props.torch(model, (cf * CFrame.new(x, 1, -3.8)).Position)
 	end
@@ -546,10 +765,38 @@ function Props.golem(parent: Instance, pos: Vector3, facing: Vector3)
 		local eye = Props.part(model, Vector3.new(0.6, 0.4, 0.2), cf * CFrame.new(x, 11.5, -1.72), Color3.fromRGB(120, 230, 255), Enum.Material.Neon)
 		eye.CastShadow = false
 	end
-	for _, x in ipairs({ -4.2, 4.2 }) do
-		Props.part(model, Vector3.new(2, 5.5, 2), cf * CFrame.new(x, 7, -0.4) * CFrame.Angles(0.2, 0, x * 0.04), rock, Enum.Material.Slate)
-		Props.part(model, Vector3.new(0.4, 3, 0.4), cf * CFrame.new(x, 4.2, -1.6), WOOD, Enum.Material.Wood)
-		Props.part(model, Vector3.new(0.2, 1.2, 1.4), cf * CFrame.new(x, 5.3, -2.1), Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
+	-- Arms hang from shoulder joints (Motor6D "ArmL"/"ArmR") so clients can swing them; the right
+	-- hand holds the practice axe it throws.
+	local torso = model:FindFirstChildWhichIsA("BasePart")
+	for _, side in ipairs({ -1, 1 }) do
+		local x = 4.2 * side
+		local shoulder = cf * CFrame.new(x, 9.6, -0.4)
+		local arm = Props.part(model, Vector3.new(2, 5.5, 2), cf * CFrame.new(x, 7, -0.4) * CFrame.Angles(0.2, 0, side * 0.04), rock, Enum.Material.Slate)
+		arm.Name = side > 0 and "RightArm" or "LeftArm"
+		arm.Anchored = false
+		arm.CanCollide = false
+		local handParts = {
+			Props.part(model, Vector3.new(1.8, 1.6, 1.8), cf * CFrame.new(x, 4.3, -0.9), rock, Enum.Material.Slate),
+		}
+		if side > 0 then
+			table.insert(handParts, Props.part(model, Vector3.new(0.4, 3, 0.4), cf * CFrame.new(x, 4.2, -1.9), WOOD, Enum.Material.Wood))
+			table.insert(handParts, Props.part(model, Vector3.new(0.2, 1.2, 1.4), cf * CFrame.new(x, 5.3, -2.4), Color3.fromRGB(150, 150, 160), Enum.Material.Metal))
+		end
+		for _, p in ipairs(handParts) do
+			p.Anchored = false
+			p.CanCollide = false
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = arm
+			w.Part1 = p
+			w.Parent = p
+		end
+		local motor = Instance.new("Motor6D")
+		motor.Name = side > 0 and "ArmR" or "ArmL"
+		motor.Part0 = torso
+		motor.Part1 = arm
+		motor.C0 = torso.CFrame:Inverse() * shoulder
+		motor.C1 = arm.CFrame:Inverse() * shoulder
+		motor.Parent = torso
 	end
 	model:SetAttribute("Kind", "Golem")
 	model:SetAttribute("Height", 10)

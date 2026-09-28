@@ -1,5 +1,5 @@
--- The three gear shops in town: Emberforge Armory (buy), Hoard Exchange (sell) and the Anvil of
--- Ages (upgrade). Shop stalls have ProximityPrompts that open the shop UI on the matching tab.
+-- The three gear shops in town, one job each: the Emberforge Armory buys, the Hoard Exchange
+-- sells (gear and food) and the Anvil of Ages upgrades. Each stall's prompt opens its own page.
 -- Other stalls (the Bubbling Cauldron, the Hatchery) are tagged "PanelPrompt" and just open
 -- their window; PotionService and PetService handle the buying.
 
@@ -34,10 +34,6 @@ function ShopService.isNear(player: Player, ids: { string }?): boolean
 		end
 	end
 	return false
-end
-
-local function nearShop(player: Player): boolean
-	return ShopService.isNear(player, nil)
 end
 
 local function getStock(player: Player)
@@ -76,8 +72,8 @@ local function onBuy(player: Player, index)
 	if type(index) ~= "number" then
 		return false, "Invalid item."
 	end
-	if not nearShop(player) then
-		return false, "Visit a shop in town to buy gear."
+	if not ShopService.isNear(player, { "Armory" }) then
+		return false, "Visit the Emberforge Armory to buy gear."
 	end
 	local s = getStock(player)
 	local template = s and s.items[index]
@@ -102,8 +98,8 @@ local function onSell(player: Player, itemId)
 	if type(itemId) ~= "string" then
 		return false, "Invalid item."
 	end
-	if not nearShop(player) then
-		return false, "Visit a shop in town to sell gear."
+	if not ShopService.isNear(player, { "Exchange" }) then
+		return false, "Visit the Hoard Exchange to sell gear."
 	end
 	local profile = S.PlayerService.getProfile(player)
 	local item = profile and S.PlayerService.findItem(profile, itemId)
@@ -124,7 +120,7 @@ local function onUpgrade(player: Player, itemId)
 	if type(itemId) ~= "string" then
 		return false, "Invalid item."
 	end
-	if not nearShop(player) then
+	if not ShopService.isNear(player, { "Forge" }) then
 		return false, "Visit the Anvil of Ages to upgrade gear."
 	end
 	local profile = S.PlayerService.getProfile(player)

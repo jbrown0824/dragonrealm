@@ -256,12 +256,14 @@ function PlayerService.snapshot(player: Player)
 		potions = profile.potions,
 		eggs = profile.eggs,
 		pets = profile.pets,
+		treats = profile.treats,
 		petsEquipped = profile.petsEquipped,
 		petSlots = Game.petSlots(profile.level),
 		robots = profile.robots,
 		garden = S.FarmService.summary(player),
 		tutorial = profile.tutorial,
 		isAdmin = S.AdminService.isAdmin(player),
+		settings = profile.settings,
 	}
 end
 
@@ -772,6 +774,14 @@ function PlayerService.start()
 	Remotes.func("EquipItem").OnServerInvoke = onEquip
 	Remotes.func("UnequipItem").OnServerInvoke = onUnequip
 	Remotes.func("EquipBest").OnServerInvoke = onEquipBest
+	-- small per-player UI preferences (only known keys, only booleans)
+	Remotes.event("SetSetting").OnServerEvent:Connect(function(player, key, value)
+		local profile = PlayerService.getProfile(player)
+		if profile and key == "minimap" and type(value) == "boolean" then
+			profile.settings[key] = value
+			PlayerService.markDirty(player)
+		end
+	end)
 	Remotes.func("TeleportHome").OnServerInvoke = onTeleportHome
 	Remotes.event("SetFlying").OnServerEvent:Connect(function(player, flying)
 		local character = player.Character

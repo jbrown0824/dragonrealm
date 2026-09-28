@@ -13,6 +13,23 @@ local Pets = {}
 Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
 Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000 }
 
+-- Growing pets: feed them Pet Treats (from harvesting flowers) to level them up. Every level adds
+-- LEVEL_BONUS to their boosts (level 5 = double). Merge MERGE_COUNT of the same species into one
+-- ✨ Golden pet: GOLDEN_MULT times the boosts, a golden sparkle, and it keeps the best level.
+Pets.MAX_LEVEL = 5
+Pets.LEVEL_COSTS = { 3, 6, 10, 15 } -- treats to go from level N to N+1
+Pets.LEVEL_BONUS = 0.25
+Pets.GOLDEN_MULT = 1.5
+Pets.MERGE_COUNT = 3
+Pets.MergeGold = { Common = 100, Uncommon = 250, Rare = 600, Epic = 1500, Legendary = 4000 }
+Pets.GOLDEN_LOOK = { -- painted over the species colors for golden pets
+	accent = Color3.fromRGB(255, 205, 60),
+	horn = Color3.fromRGB(255, 215, 90),
+	eyes = Color3.fromRGB(255, 250, 200),
+	fireA = Color3.fromRGB(255, 235, 140),
+	fireB = Color3.fromRGB(255, 170, 30),
+}
+
 local function palette(primary, secondary, belly, accent, eyes, wing, horn, fireA, fireB)
 	return {
 		colors = { primary = primary, secondary = secondary, belly = belly, accent = accent, eyes = eyes, wing = wing, horn = horn },
@@ -87,6 +104,16 @@ Pets.RarityColors = {
 
 function Pets.get(speciesId: string)
 	return Pets.Species[speciesId]
+end
+
+-- How much a pet's boosts are multiplied by its level and golden-ness.
+function Pets.multiplier(level: number?, golden: boolean?): number
+	return (1 + Pets.LEVEL_BONUS * ((level or 1) - 1)) * (golden and Pets.GOLDEN_MULT or 1)
+end
+
+function Pets.displayName(pet): string
+	local species = Pets.get(pet.species)
+	return (pet.golden and "✨ Golden " or "") .. (species and species.name or pet.species)
 end
 
 function Pets.speciesOfRarity(rarity: string)

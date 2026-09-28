@@ -1,6 +1,7 @@
 -- Draws every dragon's nano dragon pets on this client. The server only sets the "Pets"
--- attribute on each character (comma-separated species ids); each client builds small local
--- copies that hover beside their owner, flap their wings and bob along.
+-- attribute on each character ("species:level:golden", comma-separated); each client builds
+-- small local copies that hover beside their owner, flap their wings and bob along, with a
+-- nametag (name, then rarity and level) so other players can see what you've got.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -16,6 +17,7 @@ local PetFollow = {}
 
 local PET_SCALE = 0.26
 local SHOW_DISTANCE = 220
+local TAG_DISTANCE = 70 -- nametags show within this range of the camera
 local folder: Folder
 local owners = {} -- [Model] = { key, pets = { { model, root, motors, info, pos, phase } } }
 
@@ -29,18 +31,86 @@ local function clearPets(entry)
 	entry.pets = {}
 end
 
-local function buildPet(speciesId: string)
+-- Species colors, with gold horns, trim and eyes for golden pets.
+function PetFollow.look(speciesId: string, golden: boolean)
 	local species = Pets.get(speciesId)
+	if not golden then
+		return species.look.colors, species.look.fire
+	end
+	local g = Pets.GOLDEN_LOOK
+	local colors = table.clone(species.look.colors)
+	colors.accent, colors.horn, colors.eyes = g.accent, g.horn, g.eyes
+	colors.wing = colors.wing:Lerp(g.accent, 0.35)
+	return colors, { colorA = g.fireA, colorB = g.fireB }
+end
+
+local function nametag(root: BasePart, speciesId: string, level: number, golden: boolean)
+	local species = Pets.get(speciesId)
+	local tag = Instance.new("BillboardGui")
+	tag.Name = "PetTag"
+	tag.Size = UDim2.fromOffset(160, 36)
+	tag.StudsOffset = Vector3.new(0, 2.2, 0)
+	tag.MaxDistance = TAG_DISTANCE
+	tag.LightInfluence = 0
+	tag.Adornee = root
+	local name = Instance.new("TextLabel")
+	name.BackgroundTransparency = 1
+	name.Size = UDim2.new(1, 0, 0, 18)
+	name.Font = Enum.Font.FredokaOne
+	name.TextSize = 15
+	name.TextStrokeTransparency = 0.3
+	name.TextColor3 = golden and Pets.GOLDEN_LOOK.accent or Color3.new(1, 1, 1)
+	name.Text = (golden and "✨ Golden " or "") .. species.name
+	name.Parent = tag
+	local sub = Instance.new("TextLabel")
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.fromOffset(0, 18)
+	sub.Size = UDim2.new(1, 0, 0, 16)
+	sub.Font = Enum.Font.GothamBold
+	sub.TextSize = 12
+	sub.TextStrokeTransparency = 0.4
+	sub.TextColor3 = Pets.RarityColors[species.rarity]
+	sub.Text = string.format("%s  •  Lv %d", species.rarity, level)
+	sub.Parent = tag
+	tag.Parent = root
+	return tag
+end
+
+local function goldenSparkle(root: BasePart)
+	local sparkle = Instance.new("ParticleEmitter")
+	sparkle.Name = "GoldenSparkle"
+	sparkle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparkle.Color = ColorSequence.new(Color3.fromRGB(255, 225, 90))
+	sparkle.LightEmission = 1
+	sparkle.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+	sparkle.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	sparkle.Lifetime = NumberRange.new(0.6, 1)
+	sparkle.Rate = 10
+	sparkle.Speed = NumberRange.new(0.5, 1.5)
+	sparkle.SpreadAngle = Vector2.new(180, 180)
+	sparkle.Parent = root
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 210, 90)
+	light.Range = 6
+	light.Brightness = 1.2
+	light.Parent = root
+end
+
+local function buildPet(entryText: string)
+	local speciesId, level, golden = string.match(entryText, "^([^:]+):?(%d*):?(%d*)$")
+	local species = speciesId and Pets.get(speciesId)
 	if not species then
 		return nil
 	end
+	local isGolden = golden == "1"
+	local colors, fire = PetFollow.look(speciesId, isGolden)
 	local model = DragonBuilder.build(species.plan, {
 		scale = PET_SCALE,
 		anchored = true,
 		noParticles = true,
 		lite = true,
-		colors = species.look.colors,
-		fire = species.look.fire,
+		colors = colors,
+		fire = fire,
 		name = species.name,
 	})
 	local motors = {}
@@ -54,6 +124,10 @@ local function buildPet(speciesId: string)
 		elseif d:IsA("Motor6D") then
 			motors[d.Name] = d
 		end
+	end
+	nametag(model.PrimaryPart, speciesId, tonumber(level) or 1, isGolden)
+	if isGolden then
+		goldenSparkle(model.PrimaryPart)
 	end
 	model.Parent = folder
 	return { model = model, root = model.PrimaryPart, motors = motors, info = DragonRig.info(model), phase = math.random() * 10 }
@@ -71,8 +145,8 @@ local function sync(character: Model)
 	end
 	entry.key = key
 	clearPets(entry)
-	for speciesId in string.gmatch(key, "[^,]+") do
-		local pet = buildPet(speciesId)
+	for entryText in string.gmatch(key, "[^,]+") do
+		local pet = buildPet(entryText)
 		if pet then
 			table.insert(entry.pets, pet)
 		end
