@@ -43,7 +43,7 @@ Abilities.Fireball = {
 ---------------------------------------------------------------- signature abilities
 -- Every dragon type gets its own one at Game.SIGNATURE_LEVEL (see Classes.X.signature).
 Abilities.RendingClaws = {
-	id = "RendingClaws", name = "Rending Claws", icon = "🩸", kind = "nova", signature = true,
+	id = "RendingClaws", name = "Rending Claws", icon = "💢", kind = "nova", signature = true,
 	cooldown = 7, mult = 2.2, radius = 11,
 	effects = { lifestealBonus = 25 },
 	desc = "Rake everything around you with shadow claws, healing for 25% of the damage dealt.",
@@ -184,7 +184,7 @@ Abilities.IceFortress = {
 	desc = "Encase yourself in ice: heal 30% and gain +200% defense for 8 seconds.",
 }
 Abilities.IcicleRain = {
-	id = "IcicleRain", name = "Icicle Rain", icon = "🧊", kind = "strike",
+	id = "IcicleRain", name = "Icicle Rain", icon = "☔", kind = "strike",
 	cooldown = 12, mult = 3, radius = 14, delay = 0.8, castRange = 90, style = "ice",
 	effects = { slowPct = 40, slowDuration = 3 },
 	desc = "Rain jagged icicles on your aim point, slowing survivors.",

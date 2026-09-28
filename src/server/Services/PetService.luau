@@ -1,10 +1,12 @@
--- Eggs and nano dragon pets. Buy eggs at Nestmother's Hatchery (or find them), hatch them for a
--- random pet, and equip up to Game.petSlots(level) pets. Equipped pets follow you around (drawn
+-- Eggs and nano dragon pets. Buying an egg at Nestmother's Hatchery (limited stock) hatches it
+-- on the spot; eggs found on champions, bosses and chests wait in your nest until you hatch
+-- them. Equip up to Game.petSlots(level) pets. Equipped pets follow you around (drawn
 -- by each client from the "Pets" attribute on your character) and boost your stats.
 -- Pets level up on Pet Treats (from harvesting flowers), and three of a species merge into a
 -- ✨ Golden one.
 
 local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -58,58 +60,97 @@ local function rollSpecies(eggId: string): string?
 	return list[math.random(1, #list)]
 end
 
-local function onBuyEgg(player: Player, eggId)
-	local egg = type(eggId) == "string" and Pets.Eggs[eggId]
-	if not egg or not egg.price then
-		return false, "That egg isn't for sale."
+local function nestFull(profile): string?
+	if #profile.pets >= Game.PET_LIMIT then
+		return string.format("Your nest is full (%d pets). Release or merge a pet first.", Game.PET_LIMIT)
 	end
-	if not S.ShopService.isNear(player, { "Hatchery" }) then
-		return false, "Visit Nestmother's Hatchery in town to buy eggs."
-	end
-	if not S.PlayerService.spendGold(player, egg.price) then
-		return false, string.format("You need %s gold.", Util.formatNumber(egg.price))
-	end
-	local profile = S.PlayerService.getProfile(player)
-	profile.eggs[eggId] = (profile.eggs[eggId] or 0) + 1
-	S.PlayerService.markDirty(player)
-	return true
+	return nil
 end
 
-local function onHatch(player: Player, eggId)
+-- Hatch a pet of `species` into the player's nest (eggs, the Robux secret egg, rewards).
+function PetService.givePet(player: Player, species: string, golden: boolean?, level: number?)
 	local profile = S.PlayerService.getProfile(player)
-	if not profile or type(eggId) ~= "string" or (profile.eggs[eggId] or 0) <= 0 then
-		return false, "You don't have that egg."
-	end
-	if #profile.pets >= Game.PET_LIMIT then
-		return false, string.format("Your nest is full (%d pets). Release a pet first.", Game.PET_LIMIT)
-	end
-	local species = rollSpecies(eggId)
-	if not species then
-		return false, "The egg wobbled but didn't hatch. Try again."
-	end
-	profile.eggs[eggId] -= 1
-	if profile.eggs[eggId] <= 0 then
-		profile.eggs[eggId] = nil
+	if not profile or not Pets.get(species) then
+		return nil
 	end
 	profile.petCounter += 1
-	local pet = { uid = "p" .. profile.petCounter .. "_" .. HttpService:GenerateGUID(false):sub(1, 6), species = species }
+	local pet = { uid = "p" .. profile.petCounter .. "_" .. HttpService:GenerateGUID(false):sub(1, 6), species = species, golden = golden or nil }
+	if level and level > 1 then
+		pet.level = math.clamp(math.floor(level), 1, Pets.MAX_LEVEL)
+	end
 	table.insert(profile.pets, pet)
 	-- Auto-equip into a free slot so new players see their first pet right away.
 	if #profile.petsEquipped < Game.petSlots(profile.level) then
 		table.insert(profile.petsEquipped, pet.uid)
 	end
 	S.QuestService.progress(player, "hatch", species, 1)
+	S.AchievementService.discoverPet(player, species, golden == true)
 	changed(player)
 	local info = Pets.get(species)
-	if info.rarity == "Legendary" or info.rarity == "Epic" then
-		Remotes.event("Announce"):FireAllClients({
-			title = "🐲 " .. info.rarity:upper() .. " HATCH!",
-			text = string.format("%s hatched a %s!", player.DisplayName, info.name),
-			color = Pets.RarityColors[info.rarity],
-			duration = 4,
-		})
+	if info.rarity == "Legendary" or info.rarity == "Epic" or info.rarity == "Secret" then
+		-- Everyone else hears about it; the hatcher sees it in their own reveal (a banner now
+		-- would spoil the egg animation).
+		for _, other in ipairs(Players:GetPlayers()) do
+			if other ~= player then
+				Remotes.event("Announce"):FireClient(other, {
+					title = "🐲 " .. info.rarity:upper() .. " HATCH!",
+					text = string.format("%s hatched a %s!", player.DisplayName, info.name),
+					color = Pets.RarityColors[info.rarity],
+					duration = 4,
+				})
+			end
+		end
 	end
-	return true, pet
+	return pet
+end
+
+local function hatch(player: Player, eggId: string)
+	local species = rollSpecies(eggId)
+	if not species then
+		return false, "The egg wobbled but didn't hatch. Try again."
+	end
+	return true, PetService.givePet(player, species)
+end
+
+-- Buying at the Hatchery hatches the egg right away.
+local function onBuyEgg(player: Player, eggId)
+	local egg = type(eggId) == "string" and Pets.Eggs[eggId]
+	local profile = S.PlayerService.getProfile(player)
+	if not egg or not egg.price or not profile then
+		return false, "That egg isn't for sale."
+	end
+	if not S.ShopService.isNear(player, { "Hatchery" }) then
+		return false, "Visit Nestmother's Hatchery in town to buy eggs."
+	end
+	local full = nestFull(profile)
+	if full then
+		return false, full
+	end
+	if S.StockService.left(player, "eggs", eggId) <= 0 then
+		return false, "The Hatchery is out of " .. egg.name .. "s. New eggs arrive soon."
+	end
+	if not S.PlayerService.spendGold(player, egg.price) then
+		return false, string.format("You need %s gold.", Util.formatNumber(egg.price))
+	end
+	S.StockService.take(player, "eggs", eggId)
+	return hatch(player, eggId)
+end
+
+-- Hatch an egg you found (champions, bosses, chests, rewards).
+local function onHatch(player: Player, eggId)
+	local profile = S.PlayerService.getProfile(player)
+	if not profile or type(eggId) ~= "string" or (profile.eggs[eggId] or 0) <= 0 then
+		return false, "You don't have that egg."
+	end
+	local full = nestFull(profile)
+	if full then
+		return false, full
+	end
+	profile.eggs[eggId] -= 1
+	if profile.eggs[eggId] <= 0 then
+		profile.eggs[eggId] = nil
+	end
+	return hatch(player, eggId)
 end
 
 local function onEquip(player: Player, uid)
@@ -241,6 +282,7 @@ local function onMerge(player: Player, uid)
 	end
 	pet.golden = true
 	pet.level = best
+	S.AchievementService.discoverPet(player, pet.species, true)
 	if wasEquipped and not table.find(profile.petsEquipped, pet.uid) then
 		table.insert(profile.petsEquipped, pet.uid)
 	end

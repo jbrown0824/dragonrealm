@@ -1,7 +1,9 @@
 -- Codes and admin mode. Players type codes into the 🎁 Codes window: promo codes give a one-time
 -- reward, and the admin code (Config/AdminConfig, server-only) unlocks the admin panel for the
--- rest of the session. Admins can change any dragon's level and type, hand out items, start
--- bosses, and tune balance live (Shared/Tuning) for everyone on the server.
+-- rest of the session. Admins can change any dragon's level, Paragon and type, hand out items,
+-- pets, treats, skins and titles, fill the pet book and achievements, switch Robux passes and
+-- products on for testing, restock shops, start bosses, and tune balance live (Shared/Tuning)
+-- for everyone on the server.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,7 +17,11 @@ local Seeds = require(Shared.Config.Seeds)
 local Pets = require(Shared.Config.Pets)
 local Items = require(Shared.Config.Items)
 local Zones = require(Shared.Config.Zones)
+local Skins = require(Shared.Config.Skins)
+local Collections = require(Shared.Config.Collections)
+local StoreInfo = require(Shared.Config.Store)
 local Tuning = require(Shared.Tuning)
+local TalentUtil = require(Shared.TalentUtil)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
@@ -295,6 +301,142 @@ ACTIONS.tutorial = function(_, target)
 	S.PlayerService.markDirty(target)
 	return true, "Tutorial will restart."
 end
+---------------------------------------------------------------- paragon, pets, collection, store
+
+ACTIONS.setParagon = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	local value = math.clamp(math.floor(tonumber(args.value) or 0), 0, 5000)
+	if value > 0 and profile.level < Game.LEVEL_CAP then
+		S.PlayerService.setLevel(target, Game.LEVEL_CAP)
+	end
+	profile.paragon = value
+	profile.xp = 0
+	if TalentUtil.available(profile.level, profile.talents, profile.paragon) < 0 then
+		profile.talents = {} -- fewer points than already spent: refund them
+	end
+	S.PlayerService.recompute(target)
+	return true, string.format("%s is now Paragon %d (%d skill points to spend).", target.DisplayName, value, TalentUtil.available(profile.level, profile.talents, profile.paragon))
+end
+ACTIONS.addParagon = function(admin, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	return ACTIONS.setParagon(admin, target, { value = (profile.paragon or 0) + (tonumber(args.amount) or 1) })
+end
+ACTIONS.treats = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	profile.treats = math.max(0, (profile.treats or 0) + math.clamp(math.floor(tonumber(args.amount) or 0), -100000, 100000))
+	return true, string.format("%s has %d treats.", target.DisplayName, profile.treats)
+end
+ACTIONS.pet = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	if not Pets.get(args.species) then
+		return false, "Unknown pet."
+	end
+	if #profile.pets >= Game.PET_LIMIT then
+		return false, "Their nest is full (" .. Game.PET_LIMIT .. ")."
+	end
+	S.PetService.givePet(target, args.species, args.golden == true, tonumber(args.level))
+	return true, string.format("Gave %s%s (level %d).", args.golden and "a Golden " or "a ", Pets.get(args.species).name, tonumber(args.level) or 1)
+end
+ACTIONS.clearPets = function(_, target)
+	local profile = S.PlayerService.getProfile(target)
+	profile.pets = {}
+	profile.petsEquipped = {}
+	S.PlayerService.recompute(target)
+	S.PetService.applyToCharacter(target)
+	return true, "All pets released (no gold)."
+end
+ACTIONS.petBook = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	if args.mode == "clear" then
+		profile.petBook = {}
+		profile.milestones = {}
+		profile.bookSynced = true
+		return true, "Pet book and its milestones cleared (rewards won't come back until you collect again)."
+	end
+	for id in pairs(Pets.Species) do
+		profile.petBook[id] = math.max(profile.petBook[id] or 0, args.mode == "golden" and 2 or 1)
+	end
+	S.AchievementService.check(target)
+	return true, args.mode == "golden" and "Every species found and made golden." or "Every species found."
+end
+ACTIONS.skins = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	if args.mode == "unlockAll" then
+		for id in pairs(Skins.List) do
+			profile.skins[id] = true
+		end
+		return true, "Every skin unlocked."
+	elseif args.mode == "lockAll" then
+		profile.skins = {}
+		S.AchievementService.wearSkin(target, "Classic")
+		return true, "Skins locked again (back to Classic)."
+	elseif args.mode == "wear" and Skins.get(args.skin) then
+		profile.skins[args.skin] = true
+		S.AchievementService.wearSkin(target, args.skin)
+		return true, "Wearing " .. Skins.get(args.skin).name .. "."
+	end
+	return false, "Unknown skin."
+end
+ACTIONS.titles = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	if args.mode == "unlockAll" then
+		for _, title in ipairs(Collections.allTitles()) do
+			profile.titles[title] = true
+		end
+		return true, "Every title unlocked."
+	elseif args.mode == "clear" then
+		profile.titles = {}
+		profile.title = ""
+		S.PlayerService.recompute(target)
+		return true, "Titles cleared."
+	elseif args.mode == "set" and type(args.title) == "string" then
+		if args.title ~= "" then
+			profile.titles[args.title] = true
+		end
+		profile.title = args.title
+		S.PlayerService.recompute(target) -- refreshes the nametag
+		return true, args.title == "" and "Title removed." or ("Title set: " .. args.title)
+	end
+	return false, "Unknown title action."
+end
+ACTIONS.achievements = function(_, target, args)
+	local profile = S.PlayerService.getProfile(target)
+	if args.mode == "reset" then
+		profile.achievements = {}
+		return true, "Achievements reset (they'll be earned again from current stats in a few seconds)."
+	end
+	-- "reach": raise every counted stat to its top tier (level and Paragon have their own buttons)
+	for _, a in ipairs(Collections.Achievements) do
+		if a.stat ~= "level" and a.stat ~= "paragon" then
+			profile[a.stat] = math.max(tonumber(profile[a.stat]) or 0, a.tiers[#a.tiers].count)
+		end
+	end
+	S.AchievementService.check(target)
+	return true, "Every achievement stat maxed (rewards granted)."
+end
+ACTIONS.pass = function(_, target, args)
+	if not StoreInfo.Passes[args.pass] then
+		return false, "Unknown pass."
+	end
+	local profile = S.PlayerService.getProfile(target)
+	profile.passes[args.pass] = args.on == true or nil
+	return true, string.format("%s %s for %s (test).", StoreInfo.Passes[args.pass].name, args.on and "ON" or "off", target.DisplayName)
+end
+ACTIONS.product = function(_, target, args)
+	if not StoreInfo.Products[args.product] then
+		return false, "Unknown product."
+	end
+	return true, "Given (test): " .. S.StoreService.grantProduct(target, args.product)
+end
+ACTIONS.starterReset = function(_, target)
+	S.PlayerService.getProfile(target).starterPack = false
+	return true, "Starter Pack can be bought (and is advertised) again."
+end
+ACTIONS.restockMine = function(_, target)
+	S.StockService.restockNow(target)
+	return true, target.DisplayName .. "'s shops restocked."
+end
+
 ACTIONS.bossNow = function(_, _, args)
 	return S.BossService.adminStart(math.clamp(tonumber(args.seconds) or 30, 5, 600))
 end
@@ -305,6 +447,12 @@ end
 ACTIONS.resetChests = function()
 	S.CampService.resetChests()
 	return true, "Chests refilled."
+end
+ACTIONS.restockShops = function()
+	for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
+		S.StockService.restockNow(player)
+	end
+	return true, "Every shop restocked."
 end
 ACTIONS.miniBosses = function()
 	S.CampService.respawnMiniBosses()

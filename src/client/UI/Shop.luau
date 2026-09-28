@@ -1,5 +1,6 @@
--- Town shops, one job each: buy gear at the Armory, sell gear and food at the Hoard Exchange,
--- upgrade at the Anvil of Ages. The window shows only the page of the shop you're visiting.
+-- Town shops, one job each: buy gear at the Armory (limited stock that restocks every few
+-- minutes), sell gear and food at the Hoard Exchange, upgrade at the Anvil of Ages. The window
+-- shows only the page of the shop you're visiting.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,12 +22,11 @@ local window, content, titleLabel
 local tab = "Buy"
 local goldLabel
 local list
-local stock = {}
-local stockLevel = nil
+local restockButton
 local busy = false
 
 local TAB_INFO = {
-	Buy = { title = "⚔️ Emberforge Armory", hint = "Fresh gear for your level. Rarer gear drops from vikings and bosses!" },
+	Buy = { title = "⚔️ Emberforge Armory", hint = "Limited stock for your level, always with one Epic." },
 	Sell = { title = "💰 Hoard Exchange", hint = "Sell gear you don't need (unequip it first), and extra food." },
 	Upgrade = { title = "🔨 Anvil of Ages", hint = "Each upgrade adds +10% to an item's stats, up to +" .. Game.MAX_UPGRADE .. "." },
 }
@@ -44,7 +44,7 @@ local function row(order: number, item, rightText: string, buttonText: string, b
 	if badge then
 		local tag = Theme.label({
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -300, 0, 15),
+			Position = UDim2.new(1, -330, 0, 15),
 			Size = UDim2.fromOffset(150, 20),
 			BackgroundTransparency = 0,
 			BackgroundColor3 = badge.color,
@@ -59,7 +59,7 @@ local function row(order: number, item, rightText: string, buttonText: string, b
 	end
 	Theme.label({
 		Position = UDim2.fromOffset(10, 4),
-		Size = UDim2.new(1, badge and -460 or -300, 0, 22),
+		Size = UDim2.new(1, badge and -470 or -335, 0, 22),
 		TextSize = 16,
 		TextColor3 = ItemUtil.rarityColor(item.rarity),
 		TextWrapped = false,
@@ -69,7 +69,7 @@ local function row(order: number, item, rightText: string, buttonText: string, b
 	})
 	Theme.label({
 		Position = UDim2.fromOffset(10, 28),
-		Size = UDim2.new(1, -300, 0, 24),
+		Size = UDim2.new(1, -335, 0, 24),
 		TextSize = 12,
 		Font = Theme.Fonts.body,
 		TextColor3 = C.subtext,
@@ -79,7 +79,7 @@ local function row(order: number, item, rightText: string, buttonText: string, b
 	Theme.label({
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -140, 0.5, 0),
-		Size = UDim2.fromOffset(150, 24),
+		Size = UDim2.fromOffset(185, 24),
 		TextSize = 16,
 		TextColor3 = C.gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -104,14 +104,20 @@ local function act(remoteName: string, arg, successText: string?)
 		local ok, result = Remotes.func(remoteName):InvokeServer(arg)
 		busy = false
 		if not ok then
-			App.Notifications.toast(result or "Couldn't do that.", C.bad, "🛒")
+			App.Windows.notify(result or "Couldn't do that.", C.bad, "🛒")
 		else
 			App.Sfx.play("Coin")
 			if successText then
-				App.Notifications.toast(successText, C.good, "🛒")
+				App.Windows.notify(successText, C.good, "🛒")
 			end
 		end
 	end)
+end
+
+-- "Restocks in 3:12" (shared by the Armory, the Hatchery and the Cauldron).
+function Shop.restockText(p): string
+	local left = math.max(0, (p.restockAt or 0) - workspace:GetServerTimeNow())
+	return "🔄 Restocks in " .. Util.formatTime(left)
 end
 
 function Shop.refresh()
@@ -120,17 +126,22 @@ function Shop.refresh()
 		return
 	end
 	titleLabel.Text = TAB_INFO[tab].title
-	goldLabel.Text = string.format("💰 %s gold   <font color=\"#B9AFD2\">%s</font>", Util.formatNumber(p.gold), TAB_INFO[tab].hint)
+	restockButton.Visible = tab == "Buy"
+	goldLabel.Text = string.format("💰 %s gold   <font color=\"#B9AFD2\">%s</font>%s", Util.formatNumber(p.gold), TAB_INFO[tab].hint,
+		tab == "Buy" and ("   <font color=\"#8CE678\">" .. Shop.restockText(p) .. "</font>") or "")
 	Theme.clear(list)
 
 	if tab == "Buy" then
-		for i, entry in ipairs(stock) do
-			local item = entry.item
-			local affordable = p.gold >= entry.price
+		local gear = p.shopStock and p.shopStock.gear or {}
+		for i, entry in ipairs(gear) do
+			local item = ItemUtil.new(entry.slot, p.level, entry.rarity)
+			local price = ItemUtil.buyPrice(item)
+			local soldOut = entry.left <= 0
 			local worn = p.equipped[item.slot] and App.State.findItem(p.equipped[item.slot])
-			local badge = ItemUtil.isUpgrade(item, worn) and { text = "⬆️ Better than yours", color = Color3.fromRGB(110, 230, 110) } or nil
-			row(i, item, Util.formatNumber(entry.price) .. " 💰", "Buy", Color3.fromRGB(60, 140, 70), affordable, function()
-				act("BuyItem", entry.index, "Bought " .. ItemUtil.displayName(item) .. "! Equip it from your Bag.")
+			local badge = not soldOut and ItemUtil.isUpgrade(item, worn) and { text = "⬆️ Better than yours", color = Color3.fromRGB(110, 230, 110) } or nil
+			local stockText = soldOut and "<font color=\"#F05A5A\">SOLD OUT</font>" or string.format("%d left  •  ", entry.left)
+			row(i, item, soldOut and stockText or (stockText .. Util.formatNumber(price) .. " 💰"), soldOut and "Sold out" or "Buy", Color3.fromRGB(60, 140, 70), not soldOut and p.gold >= price, function()
+				act("BuyItem", i, "Bought " .. ItemUtil.displayName(item) .. "! Equip it from your Bag.")
 			end, nil, badge)
 		end
 	elseif tab == "Sell" then
@@ -169,7 +180,7 @@ function Shop.refresh()
 						if ok then
 							App.Sfx.play("Coin")
 						else
-							App.Notifications.toast(result or "Couldn't sell that.", C.bad, "🛒")
+							App.Windows.notify(result or "Couldn't sell that.", C.bad, "🛒")
 						end
 					end)
 				end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(110, 34), Parent = frame })
@@ -204,16 +215,6 @@ function Shop.refresh()
 	end
 end
 
-local function loadStock()
-	stockLevel = App.State.profile and App.State.profile.level
-	task.spawn(function()
-		stock = Remotes.func("GetShopStock"):InvokeServer() or {}
-		if window.Visible then
-			Shop.refresh()
-		end
-	end)
-end
-
 function Shop.open(which: string?)
 	tab = which or "Buy"
 	App.Windows.open("Shop")
@@ -227,21 +228,27 @@ function Shop.init(app)
 	close.Activated:Connect(function()
 		App.Windows.close("Shop")
 	end)
-	goldLabel = Theme.label({ Size = UDim2.new(1, 0, 0, 32), TextSize = 14, Text = "", Parent = content })
+	goldLabel = Theme.label({ Size = UDim2.new(1, -170, 0, 32), TextSize = 14, Text = "", Parent = content })
+	restockButton = Theme.button("🔄 Restock now (R$)", Color3.fromRGB(40, 150, 70), function()
+		App.Store.buy("product", "Restock")
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 2), Size = UDim2.fromOffset(160, 28), TextSize = 13, Parent = content })
 	list = Theme.scroll(content, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })
 	Theme.list(list, 6)
 
-	App.Windows.register("Shop", window, function()
-		loadStock()
-		Shop.refresh()
-	end)
+	App.Windows.register("Shop", window, Shop.refresh)
 	App.State.changed:Connect(function()
 		if window.Visible then
-			local p = App.State.profile
-			if tab == "Buy" and p and p.level ~= stockLevel then
-				loadStock()
-			end
 			Shop.refresh()
+		end
+	end)
+	-- keep the restock countdown ticking
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local p = App.State.profile
+			if window.Visible and tab == "Buy" and p then
+				goldLabel.Text = string.format("💰 %s gold   <font color=\"#B9AFD2\">%s</font>   <font color=\"#8CE678\">%s</font>", Util.formatNumber(p.gold), TAB_INFO.Buy.hint, Shop.restockText(p))
+			end
 		end
 	end)
 	Remotes.event("OpenShop").OnClientEvent:Connect(function(which)

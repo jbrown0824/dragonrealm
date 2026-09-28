@@ -102,10 +102,28 @@ task.spawn(function()
 	check(not panel.Visible, "tutorial panel hidden")
 
 	-- every window
-	for _, name in ipairs({ "SkillTree", "Inventory", "QuestLog", "Help", "Potions", "Pets", "Robots", "Codes" }) do
+	for _, name in ipairs({ "SkillTree", "Inventory", "QuestLog", "Help", "Potions", "Pets", "Robots", "Codes", "Store", "Collection" }) do
 		Windows.open(name)
 		task.wait(0.1)
 		check(Windows.isOpen(name), "window opens: " .. name)
+	end
+	-- collection tabs, a Studio test purchase, the skill tree's key picker
+	Windows.open("Collection")
+	local collection = Windows.registry.Collection.frame
+	click(collection, "Achievements")
+	click(collection, "Skins")
+	click(collection, "Pet Book")
+	local treatsBefore = State.profile.treats or 0
+	Windows.open("Store")
+	mod("UI/Store").buy("product", "TreatBag")
+	task.wait(1)
+	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Studio test)")
+	Windows.open("SkillTree")
+	local keySlot = Windows.registry.SkillTree.frame:FindFirstChild("KeySlot1", true)
+	check(keySlot ~= nil, "skill tree has the keys 2-5 strip")
+	if keySlot then
+		keySlot.Activated:Fire()
+		task.wait(0.1)
 	end
 	Windows.open("Inventory")
 	local inv = Windows.registry.Inventory.frame
@@ -124,7 +142,9 @@ task.spawn(function()
 	mod("UI/Pets").open("Eggs")
 	task.wait(0.2)
 	local pets = Windows.registry.Pets.frame
-	click(pets, "Hatch") -- the tutorial egg
+	click(pets, "Hatch yours") -- the tutorial egg
+	task.wait(2.5)
+	click(Windows.guis.Top, "Awesome") -- close the reveal
 	task.wait(3)
 	click(pets, "My Pets")
 	task.wait(0.2)
@@ -296,7 +316,7 @@ task.spawn(function()
 	local tree = Windows.registry.SkillTree.frame
 	local tile = nil
 	for _, d in ipairs(tree:GetDescendants()) do
-		if d.ClassName == "TextButton" and d.Size and d.Size[1] == 50 and d.Size[2] == 50 then
+		if d.ClassName == "TextButton" and d.Size and d.Size.X.Offset == 50 and d.Size.Y.Offset == 50 then
 			tile = d
 			break
 		end
@@ -370,7 +390,11 @@ task.spawn(function()
 	task.wait(1.5)
 	local banner = Windows.guis.HUD:FindFirstChild("BossBanner")
 	check(banner and banner.Visible, "boss banner shows")
-	click(banner, "➖")
+	local minimize = banner:FindFirstChild("Minimize", true)
+	check(minimize ~= nil, "boss banner has a minimize button")
+	if minimize then
+		minimize.Activated:Fire()
+	end
 	task.wait(0.3)
 	local pillButton = Windows.guis.HUD:FindFirstChild("BossPill")
 	check(pillButton and pillButton.Visible and not banner.Visible, "banner minimized to a pill")

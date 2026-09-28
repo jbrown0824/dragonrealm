@@ -10,8 +10,9 @@ end
 
 local Pets = {}
 
-Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
-Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000 }
+-- "Secret" pets only come from the Secret Egg in the 💎 Store (Robux).
+Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
+Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000, Secret = 3000 }
 
 -- Growing pets: feed them Pet Treats (from harvesting flowers) to level them up. Every level adds
 -- LEVEL_BONUS to their boosts (level 5 = double). Merge MERGE_COUNT of the same species into one
@@ -21,7 +22,7 @@ Pets.LEVEL_COSTS = { 3, 6, 10, 15 } -- treats to go from level N to N+1
 Pets.LEVEL_BONUS = 0.25
 Pets.GOLDEN_MULT = 1.5
 Pets.MERGE_COUNT = 3
-Pets.MergeGold = { Common = 100, Uncommon = 250, Rare = 600, Epic = 1500, Legendary = 4000 }
+Pets.MergeGold = { Common = 100, Uncommon = 250, Rare = 600, Epic = 1500, Legendary = 4000, Secret = 6000 }
 Pets.GOLDEN_LOOK = { -- painted over the species colors for golden pets
 	accent = Color3.fromRGB(255, 205, 60),
 	horn = Color3.fromRGB(255, 215, 90),
@@ -77,11 +78,20 @@ Pets.Species = {
 		look = palette(rgb(15, 12, 22), rgb(40, 30, 60), rgb(30, 25, 45), rgb(70, 255, 240), rgb(90, 255, 255), rgb(20, 15, 30), rgb(70, 255, 240), rgb(120, 255, 255), rgb(20, 90, 140)) },
 	MagmaTitanling = { name = "Magma Titanling", rarity = "Legendary", plan = "Behemoth", stats = { healthPct = 15, defensePct = 10, attackPct = 6 },
 		look = palette(rgb(40, 32, 30), rgb(25, 20, 20), rgb(90, 50, 30), rgb(255, 110, 20), rgb(255, 170, 40), rgb(50, 35, 30), rgb(255, 120, 30), rgb(255, 200, 60), rgb(220, 40, 0)) },
+
+	---------------------------------------------------------------- Secret (Robux Secret Egg)
+	-- `aura` is the sparkle they always trail.
+	PrismaticWyrmlet = { name = "Prismatic Wyrmlet", rarity = "Secret", plan = "Frostwyrm", stats = { xpPct = 15, goldPct = 15, lootPct = 10 }, aura = rgb(255, 150, 240),
+		look = palette(rgb(185, 150, 255), rgb(120, 230, 255), rgb(255, 250, 255), rgb(255, 120, 220), rgb(255, 255, 150), rgb(255, 185, 240), rgb(255, 255, 255), rgb(255, 170, 240), rgb(90, 220, 255)) },
+	CelestialDrake = { name = "Celestial Drake", rarity = "Secret", plan = "Stormwing", stats = { attackPct = 12, critChance = 5, flightSpeedPct = 12 }, aura = rgb(255, 225, 140),
+		look = palette(rgb(22, 26, 72), rgb(255, 215, 120), rgb(60, 70, 140), rgb(150, 200, 255), rgb(255, 255, 255), rgb(40, 50, 125), rgb(255, 220, 130), rgb(255, 250, 220), rgb(255, 200, 80)) },
+	PhantomNibbler = { name = "Phantom Nibbler", rarity = "Secret", plan = "Shadowstalker", stats = { healthPct = 14, defensePct = 10, dodge = 5 }, aura = rgb(120, 255, 220),
+		look = palette(rgb(205, 232, 242), rgb(120, 160, 180), rgb(240, 250, 255), rgb(120, 255, 220), rgb(120, 255, 220), rgb(170, 210, 225), rgb(232, 242, 246), rgb(170, 255, 235), rgb(40, 170, 150)) },
 }
 
 -- Eggs. `weights` pick the rarity; the species is then random within that rarity.
 -- Eggs without a price can't be bought: they drop from mini-bosses, bosses and chests.
-Pets.EggOrder = { "EmberEgg", "StormEgg", "MythicEgg" }
+Pets.EggOrder = { "EmberEgg", "StormEgg", "MythicEgg", "SecretEgg" }
 Pets.Eggs = {
 	EmberEgg = { name = "Ember Egg", icon = "🥚", price = 400, color = rgb(255, 150, 90),
 		weights = { Common = 62, Uncommon = 30, Rare = 7, Epic = 1 },
@@ -92,6 +102,9 @@ Pets.Eggs = {
 	MythicEgg = { name = "Mythic Egg", icon = "🌟", price = nil, color = rgb(255, 210, 90),
 		weights = { Rare = 45, Epic = 40, Legendary = 15 },
 		desc = "Only found on mini-bosses, bosses and camp chests. Never hatches anything below Rare." },
+	SecretEgg = { name = "Secret Egg", icon = "🔮", price = nil, robux = true, color = rgb(255, 150, 240),
+		weights = { Secret = 100 },
+		desc = "A shimmering egg from the 💎 Store. Always hatches one of the three Secret nano dragons." },
 }
 
 Pets.RarityColors = {
@@ -100,6 +113,7 @@ Pets.RarityColors = {
 	Rare = rgb(80, 160, 255),
 	Epic = rgb(195, 95, 255),
 	Legendary = rgb(255, 165, 40),
+	Secret = rgb(255, 120, 230),
 }
 
 function Pets.get(speciesId: string)

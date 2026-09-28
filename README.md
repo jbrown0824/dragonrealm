@@ -38,14 +38,17 @@ Progress saves with DataStores. To test saving in Studio, first publish the game
 | Dragon Breath | Hold Left Mouse (aim with the mouse) |
 | Fireball | Q |
 | Your dragon's signature ability (from level 3) | 1 |
-| Skill tree abilities | 2, 3, 4 |
+| Skill tree abilities | 2, 3, 4, 5 (choose which ones in the skill tree's "Keys 2-5" strip) |
 | Interact (shops, quests, plants, fishing, carcasses) | E |
 | Water a plant / pack meat from a carcass | R |
 | Eat the best food in your bag | G |
 | Reel in a fish | T (or click REEL) |
-| Skills / Bag / Pets / Quests / Map / Fly home | K / B / P / J / M / H |
+| Skills / Bag / Pets / Quests / Collection / Map / Fly home | K / B / P / J / L / M / H |
+| Hide or show the minimap | N |
 
-On mobile, on-screen buttons handle breath, abilities, flying, up and down.
+The 💎 Store, 🎁 Codes and ❓ Help are the round buttons at the top right.
+
+**Phones and tablets:** the ability buttons sit in a thumb cluster around Roblox's jump button (with Fly, Up and Down above it), the health bars move to the top, the menu is a grid on the left, and abilities aim themselves at the enemy nearest to where the camera is looking. Windows shrink to fit small screens. Test it in Studio with the device emulator (Test → Device).
 
 ## What's in the game
 
@@ -76,23 +79,38 @@ On mobile, on-screen buttons handle breath, abilities, flying, up and down.
 - **Gear**: **⚡ Equip Best** wears your best item in every slot. Items better than what you're wearing are marked ⬆️ in your Bag and in the Armory, and worn items are marked EQUIPPED at the Anvil.
 - **Loot**: gold on every kill; gear drops in Common, Uncommon, Rare, Epic and Legendary; seeds and eggs are rare drops. Loot only shows up for the player who earned it.
 - **Shops** on the town square: the Emberforge Armory (buy), the Hoard Exchange (sell gear and food) and the Anvil of Ages (upgrade items up to +10).
+- **Limited stock**: the Armory, the Hatchery and the Cauldron restock every 5 minutes with random items in random amounts (the Armory always has at least one Epic). Each player has their own stock, so friends never empty the shelves for each other, and it's saved, so rejoining doesn't reroll it. A countdown shows the next restock.
 - **Potions** at the **Bubbling Cauldron**: permanent upgrades with 5 ranks each: Wing Tonic (flight time), Gale Draught (flight speed), Swiftclaw Brew (walk speed), Heartblood Elixir (health), Iron Belly Stew (slower hunger), Emberheart Tonic (attack) and Stoneskin Draught (defense).
-- **Nano dragon pets**: buy eggs at **Nestmother's Hatchery** (or find them on champions, bosses and chests) and hatch them. 15 species across 5 rarities, each a tiny version of one of the five body plans in its own colors, with its own boosts. One pet follows you at first, two at level 10, three at level 20. **⚡ Equip Best** picks your best ones. Pets show their name, rarity and level above them for everyone to see.
+- **Nano dragon pets**: buying an egg at **Nestmother's Hatchery** hatches it on the spot; eggs found on champions, bosses and chests wait in the Eggs tab until you hatch them. Every egg lists all the pets it can hatch, with their chances and boosts. 15 species across 5 rarities, each a tiny version of one of the five body plans in its own colors, with its own boosts. One pet follows you at first, two at level 10, three at level 20. **⚡ Equip Best** picks your best ones. Pets show their name, rarity and level above them for everyone to see.
   - **Pet Treats** 🍬 drop when you harvest full-grown flowers (rarer and better-watered flowers drop more). Feed them to a pet to level it up (to level 5; each level adds +25% to its boosts, so level 5 doubles them).
   - **Golden pets**: merge three of the same species into one ✨ Golden pet with ×1.5 boosts, gold trim and a sparkle. It keeps the highest level of the three.
+  - **Secret pets**: three extra species (Prismatic Wyrmlet, Celestial Drake, Phantom Nibbler) that only hatch from the Secret Egg in the 💎 Store. They always trail a sparkle.
+- **Paragon levels**: after level 30, XP keeps counting into Paragon levels (💫 on your nametag). Each one makes you a little stronger, and every 5 gives an extra skill point, so you can slowly fill more of your tree. With more abilities than keys, pick which four go on keys 2-5.
+- **📖 Collection** (L): the pet book (every species you've hatched and made golden, with milestone rewards), achievements with bronze, silver and gold tiers (vikings, champions, bosses, flowers, fish, hunting, chests, Glory, levels, Paragon), and the **skins** and **titles** they unlock. Skins recolor your dragon (the shape and signature stay the same); titles show over your name. Rewards arrive automatically.
 - **Lairs and farming**: every player gets a base with 6 planting spots, and up to 12 can be unlocked. The spot you're facing glows, and only its prompts show. Plants grow Seed → Seedling → Sprout → Flower. A few times per stage a plant gets thirsty (💧 and a countdown over it). If you miss the window it keeps growing, but its quality drops, and quality sets the harvest value. You can harvest at any stage; full Flowers give seeds back and often Pet Treats. The **Bot Dock** in your lair sells robots: the Drizzle-Bot waters for you, and the Reap-Bot harvests flowers (and replants them once upgraded).
 - **Quests** from 4 village dragons: a main story, combat bounties (including a champion hunt), gardening and fishing, and adventure chains (hunting, treasure chests). ❗ means a new quest, ❓ means one is ready to turn in.
 - **World bosses** (Jarl Ragnar, Grimhilda, Hrothgar): the whole server gets a 90-second warning (the banner can be minimized), and anyone can join the queue from the banner or the War Horn. The boss's health scales with the group's damage and its hits scale with the group's health. Fights include telegraphed slams, rune strikes, axe volleys, summoned vikings and an enrage phase. Each dragon gets 3 lives per fight, and you can leave at any time. Rewards are Epic or Legendary gear, boss-only uniques, rare seeds, eggs, big XP and gold.
 - **Battle Zone**: the walled arena at the north end of town is PvP. Wins earn Glory and gold, and kill streaks get announced to the server.
 - **Codes**: the 🎁 button redeems promo codes (set in `src/server/Config/AdminConfig.luau`).
+- **💎 Store** (Robux): 2x XP and 2x Gold game passes, a cheap Starter Pack (advertised on screen until level 10), gold packs sized to your level, the Secret Egg, a bag of Pet Treats and an instant shop restock. See "Robux store setup" below.
 
 ## Admin mode
 
 Type the admin code into the 🎁 **Codes** window (the default is `DRAGONLORD`: **change it in `src/server/Config/AdminConfig.luau` before you publish**, or lock it to your user id with `ALLOWED_USER_IDS`). A 🛠️ button appears and opens the admin panel:
 
-- **Dragon**: pick any player in the server (🎯, top right), then set their level (1-30), dragon type, gold, gear, eggs, seeds, food, potions, robots and hunger; heal, god mode, no cooldowns, teleports.
-- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions.
+- **Dragon**: pick any player in the server (🎯, top right), then set their level (1-30) and Paragon, dragon type, gold, gear, eggs, seeds, food, potions, robots and hunger; give any pet (including Secret ones, golden and at any level) and Pet Treats; fill or clear the pet book; max or reset achievements; unlock, lock or put on skins and titles; switch the 2x XP / 2x Gold passes on or off and hand out any store product for testing (no Robux involved); reset the Starter Pack; restock their shops; heal, god mode, no cooldowns, teleports.
+- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions, restock everyone's shops.
 - **Balance**: live multipliers for every ability's damage and cooldown, every skill's values, and global damage, health, XP and gold rates. Changes apply to everyone on the server right away and reset when it restarts. **Print changes** lists the new numbers so you can paste them into `src/shared/Config`.
+
+## Robux store setup
+
+The Store needs real ids from Roblox before it can sell anything:
+
+1. Publish the game, then open it in the Creator Dashboard (create.roblox.com) → **Monetization**.
+2. Create two **Game Passes** (2x XP, 2x Gold) and a **Developer Product** for each item in `src/shared/Config/Store.luau` (Starter Pack, three gold packs, Secret Egg, Bag of Treats, Restock Shops).
+3. Paste each id into `Store.luau` (`assetId` for passes, `productId` for products) and set the dashboard prices to the `robux` numbers there (that's what the Store shows).
+
+Until an item has an id, clicking Buy in **Studio** grants it for free so you can test it; in a live game it says "coming soon". Purchases are saved with a receipt id first, so Roblox's retries never grant anything twice.
 
 ## Tuning
 
@@ -100,12 +118,15 @@ All balance numbers live in `src/shared/Config/`:
 
 | File | What it controls |
 |---|---|
-| `Game.luau` | Level cap, XP curve, boss timers, regen, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
+| `Game.luau` | Level cap, XP curve, Paragon levels, boss timers, regen, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
 | `Classes.luau` | Dragon stats, colors, fire styles |
 | `Talents.luau`, `Abilities.luau` | Skill trees and abilities |
 | `Enemies.luau` | Viking, champion (mini-boss) and boss stats and attacks |
 | `Animals.luau`, `Food.luau` | Wild animals, meat and fish, fishing difficulty |
-| `Potions.luau`, `Pets.luau` | Potion ranks and prices; pet species, boosts, eggs, levels, treat costs and golden merges |
+| `Potions.luau`, `Pets.luau` | Potion ranks and prices; pet species (including Secret ones), boosts, eggs, levels, treat costs and golden merges |
+| `Shops.luau` | Limited stock: restock timer, how many items, rarities and amounts |
+| `Store.luau` | Robux passes and products: ids, prices, contents, how gold packs scale |
+| `Collections.luau`, `Skins.luau` | Pet book milestones, achievements and their rewards; dragon skins |
 | `Civilians.luau` | The village dragons: names, looks, homes, what they say, walking pace |
 | `Items.luau`, `Seeds.luau`, `Quests.luau` | Gear, plants, quests |
 | `Zones.luau` | Map layout: camps, shops, bases, houses, the villagers' walking routes, Battle Zone, hunting grounds, lakes, river, fishing spots, training grounds |

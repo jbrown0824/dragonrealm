@@ -10,8 +10,9 @@ local Tuning = require(script.Parent.Tuning)
 
 local TalentUtil = {}
 
-function TalentUtil.totalPoints(level: number): number
-	return math.max(0, level - 1)
+-- One point per level after level 1, plus one every Game.PARAGON_POINT_EVERY Paragon levels.
+function TalentUtil.totalPoints(level: number, paragon: number?): number
+	return math.max(0, level - 1) + math.floor((paragon or 0) / Game.PARAGON_POINT_EVERY)
 end
 
 function TalentUtil.spent(talents): number
@@ -22,8 +23,8 @@ function TalentUtil.spent(talents): number
 	return n
 end
 
-function TalentUtil.available(level: number, talents): number
-	return TalentUtil.totalPoints(level) - TalentUtil.spent(talents)
+function TalentUtil.available(level: number, talents, paragon: number?): number
+	return TalentUtil.totalPoints(level, paragon) - TalentUtil.spent(talents)
 end
 
 function TalentUtil.spentInBranch(talents, classId: string, branchIndex: number): number
@@ -42,7 +43,7 @@ function TalentUtil.tierRequirement(tier: number): number
 end
 
 -- Returns ok, reason
-function TalentUtil.canLearn(classId: string, level: number, talents, talentId: string)
+function TalentUtil.canLearn(classId: string, level: number, talents, talentId: string, paragon: number?)
 	local t = Talents.byId[talentId]
 	if not t or t.classId ~= classId then
 		return false, "That skill isn't in your tree."
@@ -51,7 +52,7 @@ function TalentUtil.canLearn(classId: string, level: number, talents, talentId: 
 	if rank >= t.maxRank then
 		return false, "Already maxed."
 	end
-	if TalentUtil.available(level, talents) <= 0 then
+	if TalentUtil.available(level, talents, paragon) <= 0 then
 		return false, "No skill points left. Level up to earn more!"
 	end
 	local need = TalentUtil.tierRequirement(t.tier)
@@ -72,7 +73,7 @@ end
 -- Spend as many points as possible down one branch: each tier's skills are filled (left, then
 -- right) before moving on, and passes repeat because filling a tier unlocks the next.
 -- Changes `talents` in place and returns how many ranks were learned.
-function TalentUtil.autoFill(classId: string, level: number, talents, branchIndex: number): number
+function TalentUtil.autoFill(classId: string, level: number, talents, branchIndex: number, paragon: number?): number
 	local branch = Talents[classId] and Talents[classId][branchIndex]
 	if not branch then
 		return 0
@@ -89,7 +90,7 @@ function TalentUtil.autoFill(classId: string, level: number, talents, branchInde
 	while progress do
 		progress = false
 		for _, t in ipairs(order) do
-			while TalentUtil.canLearn(classId, level, talents, t.id) do
+			while TalentUtil.canLearn(classId, level, talents, t.id, paragon) do
 				talents[t.id] = (talents[t.id] or 0) + 1
 				learned += 1
 				progress = true
@@ -97,6 +98,45 @@ function TalentUtil.autoFill(classId: string, level: number, talents, branchInde
 		end
 	end
 	return learned
+end
+
+-- The action bar: Mouse = breath, Q = fireball, 1 = your dragon's own ability, and keys 2-5
+-- hold abilities from the skill tree. With more abilities than keys (Paragon points let you
+-- learn more), `loadout` is the player's pick; empty or stale keys fill with the rest, in the
+-- order they were unlocked. Returns [1..LOADOUT_SLOTS] = ability id or nil.
+TalentUtil.LOADOUT_SLOTS = 4
+function TalentUtil.treeAbilities(abilities, signature: string?): { string }
+	local list = {}
+	for _, id in ipairs(abilities or {}) do
+		if id ~= "Breath" and id ~= "Fireball" and id ~= signature then
+			table.insert(list, id)
+		end
+	end
+	return list
+end
+
+function TalentUtil.resolveLoadout(abilities, loadout, signature: string?)
+	local learned = TalentUtil.treeAbilities(abilities, signature)
+	local out, used = {}, {}
+	for i = 1, TalentUtil.LOADOUT_SLOTS do
+		local id = loadout and loadout[i]
+		if type(id) == "string" and table.find(learned, id) and not used[id] then
+			out[i] = id
+			used[id] = true
+		end
+	end
+	for i = 1, TalentUtil.LOADOUT_SLOTS do
+		if not out[i] then
+			for _, id in ipairs(learned) do
+				if not used[id] then
+					out[i] = id
+					used[id] = true
+					break
+				end
+			end
+		end
+	end
+	return out
 end
 
 function TalentUtil.respecCost(level: number): number

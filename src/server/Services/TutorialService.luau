@@ -25,7 +25,7 @@ local function onStep(player: Player, step)
 		if finished and not profile.tutorialRewarded then
 			profile.tutorialRewarded = true
 			S.LootService.grant(player, TutorialService.REWARD)
-			S.PlayerService.notify(player, "Tutorial complete! Here's 150 gold and a dragon egg. Open Pets (P) to hatch it!", Color3.fromRGB(255, 215, 80), "🎓")
+			S.PlayerService.notify(player, "Tutorial complete! Here's 150 gold and a dragon egg. Open Pets (P), Eggs, to hatch it!", Color3.fromRGB(255, 215, 80), "🎓")
 		end
 	elseif step >= 0 and step <= MAX_STEP then
 		profile.tutorial = step

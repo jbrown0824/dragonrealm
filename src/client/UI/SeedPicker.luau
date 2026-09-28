@@ -46,9 +46,9 @@ local function refresh()
 				task.spawn(function()
 					local ok, err = Remotes.func("PlantSeed"):InvokeServer(target, seedId)
 					if not ok then
-						App.Notifications.toast(err or "Couldn't plant there.", C.bad, "🌱")
+						App.Windows.notify(err or "Couldn't plant there.", C.bad, "🌱")
 					else
-						App.Notifications.toast("Planted " .. seed.name .. "! Water it [R] when it gets thirsty 💧.", seed.bloom, "🌱")
+						App.Windows.notify("Planted " .. seed.name .. "! Water it [R] when it gets thirsty 💧.", seed.bloom, "🌱")
 					end
 				end)
 			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(100, 40), Parent = row })

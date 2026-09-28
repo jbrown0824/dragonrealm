@@ -1,8 +1,10 @@
 -- Admin panel (unlocked by typing the admin code in 🎁 Codes). Every button asks the server
 -- (AdminService), which checks you're really an admin.
---   Dragon:  level 1-30, dragon type, gold, gear, eggs, potions, hunger, god mode, teleports...
+--   Dragon:  level 1-30 and Paragon, dragon type, gold, gear, eggs, pets (any species, golden,
+--            levelled), treats, the pet book, skins, titles, achievements, Robux passes and
+--            products (test grants), potions, hunger, god mode, teleports...
 --            for yourself or any player you pick at the top
---   World:   start a boss, respawn camps, refill chests
+--   World:   start a boss, respawn camps, refill chests, restock everyone's shops
 --   Balance: live multipliers for ability damage/cooldowns, skill values and global rates,
 --            plus "Print changes" to copy the new numbers into the Config files
 
@@ -16,6 +18,9 @@ local Abilities = require(Shared.Config.Abilities)
 local Talents = require(Shared.Config.Talents)
 local Items = require(Shared.Config.Items)
 local Pets = require(Shared.Config.Pets)
+local Skins = require(Shared.Config.Skins)
+local Collections = require(Shared.Config.Collections)
+local StoreInfo = require(Shared.Config.Store)
 local Zones = require(Shared.Config.Zones)
 local Tuning = require(Shared.Tuning)
 local TalentUtil = require(Shared.TalentUtil)
@@ -35,7 +40,8 @@ local pages = {}
 local targetButton, statusLabel
 local targetId = nil
 local balanceList, reportBox
-local levelBox
+local levelBox, paragonBox
+local petGolden, petLevel = false, 1
 
 local function target(): Player
 	return (targetId and Players:GetPlayerByUserId(targetId)) or Players.LocalPlayer
@@ -73,7 +79,7 @@ local function section(parent: Instance, order: number, title: string)
 end
 
 local function button(parent: Instance, text: string, color: Color3?, fn)
-	return Theme.button(text, color or C.panel3, fn, { TextSize = 13, Parent = parent })
+	return Theme.button(text, color or C.panel3, fn, { TextSize = 13, TextWrapped = true, Parent = parent })
 end
 
 ---------------------------------------------------------------- Dragon page
@@ -98,14 +104,31 @@ local function buildDragonPage(page: Instance)
 		act("resetTalents")
 	end)
 
-	local classRow = section(scroll, 2, "🐉 Dragon type (free, instant)")
+	local paragonRow = section(scroll, 2, "💫 Paragon (sets level 30; a skill point every " .. Game.PARAGON_POINT_EVERY .. ")")
+	paragonBox = Theme.make("TextBox", { BackgroundColor3 = C.panel, TextColor3 = C.text, Font = Theme.Fonts.bold, TextSize = 16, Text = "10", PlaceholderText = "0+", Parent = paragonRow })
+	Theme.corner(paragonBox, 6)
+	button(paragonRow, "Set Paragon", Color3.fromRGB(120, 80, 170), function()
+		act("setParagon", { value = tonumber(paragonBox.Text) or 0 })
+	end)
+	for _, amount in ipairs({ 1, 5, 25 }) do
+		button(paragonRow, "+" .. amount .. " Paragon", nil, function()
+			act("addParagon", { amount = amount })
+		end)
+	end
+	for _, value in ipairs({ 0, 100 }) do
+		button(paragonRow, "Paragon " .. value, nil, function()
+			act("setParagon", { value = value })
+		end)
+	end
+
+	local classRow = section(scroll, 3, "🐉 Dragon type (free, instant)")
 	for _, classId in ipairs(Classes.Order) do
 		button(classRow, classId, Classes.get(classId).colors.accent:Lerp(Color3.new(0, 0, 0), 0.45), function()
 			act("setClass", { classId = classId })
 		end)
 	end
 
-	local giveRow = section(scroll, 3, "🎁 Give")
+	local giveRow = section(scroll, 4, "🎁 Give")
 	for _, amount in ipairs({ 1000, 10000, 100000 }) do
 		button(giveRow, "+" .. Util.formatNumber(amount) .. " 💰", Color3.fromRGB(150, 120, 40), function()
 			act("gold", { amount = amount })
@@ -140,7 +163,117 @@ local function buildDragonPage(page: Instance)
 		act("unlockPlots")
 	end)
 
-	local stateRow = section(scroll, 4, "❤️ State")
+	-- pets: pick golden / level first, then a species
+	local petRow = section(scroll, 5, "🐲 Pets (choose golden and level, then a species) and treats")
+	local goldenButton, levelButton
+	goldenButton = button(petRow, "Golden: no", Color3.fromRGB(150, 120, 40), function()
+		petGolden = not petGolden
+		goldenButton.Text = petGolden and "Golden: YES" or "Golden: no"
+	end)
+	levelButton = button(petRow, "Level: 1", Color3.fromRGB(150, 120, 40), function()
+		petLevel = petLevel % Pets.MAX_LEVEL + 1
+		levelButton.Text = "Level: " .. petLevel
+	end)
+	local species = {}
+	for id, s in pairs(Pets.Species) do
+		table.insert(species, { id = id, s = s })
+	end
+	table.sort(species, function(a, b)
+		local ra, rb = table.find(Pets.RarityOrder, a.s.rarity), table.find(Pets.RarityOrder, b.s.rarity)
+		if ra ~= rb then
+			return ra < rb
+		end
+		return a.s.name < b.s.name
+	end)
+	for _, entry in ipairs(species) do
+		button(petRow, entry.s.name, Pets.RarityColors[entry.s.rarity]:Lerp(Color3.new(0, 0, 0), 0.55), function()
+			act("pet", { species = entry.id, golden = petGolden, level = petLevel })
+		end)
+	end
+	for _, amount in ipairs({ 20, 200 }) do
+		button(petRow, "+" .. amount .. " 🍬 treats", nil, function()
+			act("treats", { amount = amount })
+		end)
+	end
+	button(petRow, "Release all pets", Color3.fromRGB(120, 50, 60), function()
+		act("clearPets")
+	end)
+
+	local bookRow = section(scroll, 6, "📖 Collection: pet book, achievements, skins, titles")
+	button(bookRow, "Book: all found", nil, function()
+		act("petBook", { mode = "found" })
+	end)
+	button(bookRow, "Book: all golden", nil, function()
+		act("petBook", { mode = "golden" })
+	end)
+	button(bookRow, "Book: clear", Color3.fromRGB(120, 50, 60), function()
+		act("petBook", { mode = "clear" })
+	end)
+	button(bookRow, "Max achievements", Color3.fromRGB(150, 120, 40), function()
+		act("achievements", { mode = "reach" })
+	end)
+	button(bookRow, "Reset achievements", Color3.fromRGB(120, 50, 60), function()
+		act("achievements", { mode = "reset" })
+	end)
+	button(bookRow, "Unlock all skins", Color3.fromRGB(150, 120, 40), function()
+		act("skins", { mode = "unlockAll" })
+	end)
+	button(bookRow, "Lock all skins", Color3.fromRGB(120, 50, 60), function()
+		act("skins", { mode = "lockAll" })
+	end)
+	button(bookRow, "Unlock all titles", Color3.fromRGB(150, 120, 40), function()
+		act("titles", { mode = "unlockAll" })
+	end)
+	button(bookRow, "Clear titles", Color3.fromRGB(120, 50, 60), function()
+		act("titles", { mode = "clear" })
+	end)
+	local skinRow = section(scroll, 7, "🎨 Wear a skin (unlocks it)")
+	for _, id in ipairs(Skins.Order) do
+		local skin = Skins.get(id)
+		-- tint the button with the skin's main color, darker for pale skins so white text still reads
+		local tint = nil
+		if skin.colors then
+			local c = skin.colors.primary
+			tint = c:Lerp(Color3.new(0, 0, 0), (c.R + c.G + c.B) > 1.8 and 0.6 or 0.35)
+		end
+		button(skinRow, skin.name, tint, function()
+			act("skins", { mode = "wear", skin = id })
+		end)
+	end
+	local titleRow = section(scroll, 8, "🏷️ Set a title (unlocks it)")
+	button(titleRow, "No title", nil, function()
+		act("titles", { mode = "set", title = "" })
+	end)
+	for _, title in ipairs(Collections.allTitles()) do
+		button(titleRow, title, nil, function()
+			act("titles", { mode = "set", title = title })
+		end)
+	end
+
+	local storeRow = section(scroll, 9, "💎 Store (test grants: no Robux involved)")
+	for _, passId in ipairs(StoreInfo.PassOrder) do
+		local pass = StoreInfo.Passes[passId]
+		button(storeRow, pass.name .. " on", Color3.fromRGB(40, 130, 70), function()
+			act("pass", { pass = passId, on = true })
+		end)
+		button(storeRow, pass.name .. " off", nil, function()
+			act("pass", { pass = passId, on = false })
+		end)
+	end
+	for _, key in ipairs(StoreInfo.ProductOrder) do
+		local product = StoreInfo.Products[key]
+		button(storeRow, product.icon .. " " .. product.name, Color3.fromRGB(40, 110, 70), function()
+			act("product", { product = key })
+		end)
+	end
+	button(storeRow, "Reset Starter Pack", nil, function()
+		act("starterReset")
+	end)
+	button(storeRow, "Restock their shops", nil, function()
+		act("restockMine")
+	end)
+
+	local stateRow = section(scroll, 10, "❤️ State")
 	button(stateRow, "Heal", nil, function()
 		act("heal")
 	end)
@@ -169,7 +302,7 @@ local function buildDragonPage(page: Instance)
 		act("tutorial")
 	end)
 
-	local tpRow = section(scroll, 5, "🧭 Teleport")
+	local tpRow = section(scroll, 11, "🧭 Teleport")
 	local places = { "Town", "Training" }
 	for _, camp in ipairs(Zones.Camps) do
 		table.insert(places, camp.id)
@@ -204,6 +337,10 @@ local function buildWorldPage(page: Instance)
 	end)
 	button(campRow, "Respawn champions", nil, function()
 		act("miniBosses")
+	end)
+	local shopRow = section(scroll, 3, "🛒 Shops")
+	button(shopRow, "Restock shops", nil, function()
+		act("restockShops")
 	end)
 end
 

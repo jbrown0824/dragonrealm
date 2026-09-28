@@ -23,10 +23,10 @@ local function invoke(remote: string, questId: string, successText: string?)
 	task.spawn(function()
 		local ok, err = Remotes.func(remote):InvokeServer(questId)
 		if not ok then
-			App.Notifications.toast(err or "Couldn't do that.", C.bad, "📜")
+			App.Windows.notify(err or "Couldn't do that.", C.bad, "📜")
 		else
 			if successText then
-				App.Notifications.toast(successText, C.accent, "📜")
+				App.Windows.notify(successText, C.accent, "📜")
 			end
 			App.Sfx.play("Quest")
 			-- show what this giver has next

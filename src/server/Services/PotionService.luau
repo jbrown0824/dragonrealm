@@ -25,9 +25,13 @@ local function onBuy(player: Player, potionId)
 	if not cost then
 		return false, potion.name .. " is already at max rank."
 	end
+	if S.StockService.left(player, "potions", potionId) <= 0 then
+		return false, "The Cauldron is out of " .. potion.name .. ". New stock arrives soon."
+	end
 	if not S.PlayerService.spendGold(player, cost) then
 		return false, string.format("You need %s gold.", Util.formatNumber(cost))
 	end
+	S.StockService.take(player, "potions", potionId)
 	profile.potions[potionId] = rank + 1
 	S.PlayerService.recompute(player)
 	S.QuestService.progress(player, "potion", potionId, 1)

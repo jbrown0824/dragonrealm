@@ -4,6 +4,8 @@
 --   * every skill shows filled bars for the ranks you have (like 2 of 3) and a big "2/3"
 --   * "Max" learns all remaining ranks at once when you have the points
 --   * each branch has an "Auto" button that spends your points down that path
+--   * the "Keys 2-5" strip picks which learned abilities go on your action bar (Paragon points
+--     let you learn more abilities than there are keys)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -27,6 +29,7 @@ local columns = {}
 local details = {}
 local popup = {}
 local selectedId = nil
+local bar = { slots = {} } -- the keys 2-5 strip and its picker
 local builtFor = nil
 local autoArmed = nil
 local busy = false
@@ -73,7 +76,7 @@ local function learn(talentId: string, count: number?)
 		local ok, err = Remotes.func("SpendTalent"):InvokeServer(talentId, count or 1)
 		busy = false
 		if not ok and err then
-			App.Notifications.toast(err, C.bad, "🌟")
+			App.Windows.notify(err, C.bad, "🌟")
 		else
 			App.Sfx.play("LevelUp", 0.4)
 		end
@@ -90,16 +93,16 @@ local function autoFill(branchIndex: number)
 		busy = false
 		if ok then
 			App.Sfx.play("LevelUp", 0.4)
-			App.Notifications.toast(string.format("Learned %d skill rank%s!", result, result == 1 and "" or "s"), C.good, "🌟")
+			App.Windows.notify(string.format("Learned %d skill rank%s!", result, result == 1 and "" or "s"), C.good, "🌟")
 		elseif result then
-			App.Notifications.toast(result, C.bad, "🌟")
+			App.Windows.notify(result, C.bad, "🌟")
 		end
 	end)
 end
 
 -- How many more ranks of this skill you could learn right now (0 if none).
 local function learnableRanks(p, talent): number
-	if not TalentUtil.canLearn(p.class, p.level, p.talents, talent.id) then
+	if not TalentUtil.canLearn(p.class, p.level, p.talents, talent.id, p.paragon) then
 		return 0
 	end
 	local rank = p.talents[talent.id] or 0
@@ -127,7 +130,7 @@ local function showDetails()
 		table.insert(lines, "<b>" .. (rank > 0 and "Next rank" or "Learn") .. ":</b> " .. TalentUtil.describe(talent, rank + 1):gsub("\n", ", "))
 	end
 	details.body.Text = table.concat(lines, "\n")
-	local ok, reason = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id)
+	local ok, reason = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id, p.paragon)
 	if rank >= talent.maxRank then
 		details.req.Text = "✅ Fully learned!"
 		details.req.TextColor3 = C.good
@@ -179,6 +182,62 @@ local function setPips(b, rank: number, maxRank: number, color: Color3)
 	b.rank.TextColor3 = rank >= maxRank and GOLD or (rank > 0 and C.text or C.subtext)
 end
 
+-- Put `abilityId` on key slot `index` (1-4 = keys 2-5), swapping if it's already on another key.
+local function assignKey(index: number, abilityId: string)
+	local p = App.State.profile
+	local current = {}
+	for i = 1, TalentUtil.LOADOUT_SLOTS do
+		current[i] = App.HUD.abilityForSlot(i + 3) or false
+	end
+	local from = table.find(current, abilityId)
+	if from then
+		current[from] = current[index]
+	end
+	current[index] = abilityId
+	bar.picker.Visible = false
+	task.spawn(function()
+		Remotes.func("SetLoadout"):InvokeServer(current)
+	end)
+	if p then
+		App.Sfx.play("Click")
+	end
+end
+
+local function refreshBar(p)
+	local class = Classes.get(p.class)
+	local learned = TalentUtil.treeAbilities(p.stats and p.stats.abilities, class and class.signature)
+	for i, slot in ipairs(bar.slots) do
+		local id = App.HUD.abilityForSlot(i + 3)
+		local a = id and Abilities.get(id)
+		slot.Text = a and a.icon or ""
+		slot.BackgroundTransparency = a and 0 or 0.5
+	end
+	local extra = #learned - TalentUtil.LOADOUT_SLOTS
+	bar.hint.Text = extra > 0 and string.format("<font color=\"#FFD24A\">+%d more</font>: click a key to swap", extra) or "click a key to choose"
+end
+
+local function openPicker(index: number)
+	local p = App.State.profile
+	if not p then
+		return
+	end
+	local class = Classes.get(p.class)
+	local learned = TalentUtil.treeAbilities(p.stats and p.stats.abilities, class and class.signature)
+	Theme.clear(bar.pickerList)
+	if #learned == 0 then
+		Theme.label({ Size = UDim2.new(1, 0, 0, 36), TextSize = 13, TextColor3 = C.subtext, ZIndex = 32, Text = "Learn abilities (the big icons in each branch) to put them on your keys.", Parent = bar.pickerList })
+	end
+	for i, id in ipairs(learned) do
+		local a = Abilities.get(id)
+		local b = Theme.button(string.format("%s  %s", a.icon, a.name), a.ultimate and Color3.fromRGB(120, 60, 40) or C.panel3, function()
+			assignKey(index, id)
+		end, { Size = UDim2.new(1, 0, 0, 30), TextSize = 14, LayoutOrder = i, ZIndex = 32, TextXAlignment = Enum.TextXAlignment.Left, Parent = bar.pickerList })
+		Theme.pad(b, 8)
+	end
+	bar.pickerTitle.Text = "Put on key " .. (index + 1) .. ":"
+	bar.picker.Visible = true
+end
+
 local function refresh()
 	local p = App.State.profile
 	if not p or not p.class then
@@ -188,7 +247,9 @@ local function refresh()
 	if builtFor ~= p.class then
 		SkillTree.build(p.class)
 	end
-	pointsLabel.Text = string.format("Skill points: <font color=\"#FFD24A\">%d</font>   •   Level %d / %d", p.talentPoints, p.level, Game.LEVEL_CAP)
+	pointsLabel.Text = string.format("Skill points: <font color=\"#FFD24A\">%d</font>  •  Lv %d%s", p.talentPoints, p.level,
+		(p.paragon or 0) > 0 and string.format("  •  💫 %d", p.paragon) or "")
+	refreshBar(p)
 	local spent = TalentUtil.spent(p.talents)
 	resetButton.Text = string.format("Reset (%d gold)", TalentUtil.respecCost(p.level))
 	Theme.setButtonEnabled(resetButton, spent > 0)
@@ -205,7 +266,7 @@ local function refresh()
 		for _, talent in ipairs(branch.talents) do
 			local b = col.buttons[talent.id]
 			local rank = p.talents[talent.id] or 0
-			local canLearn = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id)
+			local canLearn = TalentUtil.canLearn(p.class, p.level, p.talents, talent.id, p.paragon)
 			anyLearnable = anyLearnable or canLearn
 			local tierOk = inBranch >= TalentUtil.tierRequirement(talent.tier)
 			setPips(b, rank, talent.maxRank, rank >= talent.maxRank and GOLD or C.good)
@@ -391,18 +452,45 @@ function SkillTree.init(app)
 	end)
 
 	pointsLabel = Theme.label({
-		Size = UDim2.fromOffset(500, 30),
-		TextSize = 18,
+		Size = UDim2.fromOffset(300, 30),
+		TextSize = 17,
+		TextWrapped = false,
 		Text = "",
 		Parent = content,
 	})
+
+	-- Keys 2-5: which learned abilities are on the action bar
+	local strip = Theme.make("Frame", { Position = UDim2.fromOffset(305, -2), Size = UDim2.fromOffset(350, 34), BackgroundTransparency = 1, Parent = content })
+	Theme.label({ Size = UDim2.fromOffset(74, 34), TextSize = 13, TextColor3 = C.accent, Text = "Keys 2-5", Parent = strip })
+	for i = 1, TalentUtil.LOADOUT_SLOTS do
+		local slot = Theme.button("", C.panel2, function()
+			if bar.picker.Visible and bar.pickerIndex == i then
+				bar.picker.Visible = false
+			else
+				bar.pickerIndex = i
+				openPicker(i)
+			end
+		end, { Name = "KeySlot" .. i, Position = UDim2.fromOffset(74 + (i - 1) * 38, 0), Size = UDim2.fromOffset(34, 34), TextSize = 20, Parent = strip })
+		Theme.stroke(slot, C.accentDark, 1.5)
+		Theme.label({ Position = UDim2.fromOffset(2, 0), Size = UDim2.fromOffset(12, 12), TextSize = 10, TextColor3 = C.accent, Text = tostring(i + 1), ZIndex = 3, Parent = slot })
+		bar.slots[i] = slot
+	end
+	bar.hint = Theme.label({ Position = UDim2.fromOffset(228, 0), Size = UDim2.fromOffset(122, 34), TextSize = 11, TextColor3 = C.subtext, Text = "", Parent = strip })
+	bar.picker = Theme.make("Frame", { Position = UDim2.fromOffset(379, 36), Size = UDim2.fromOffset(260, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, Visible = false, ZIndex = 30, Parent = content })
+	Theme.corner(bar.picker, 8)
+	Theme.stroke(bar.picker, C.accent, 2)
+	Theme.pad(bar.picker, 8)
+	Theme.list(bar.picker, 6)
+	bar.pickerTitle = Theme.label({ Size = UDim2.new(1, 0, 0, 18), TextSize = 14, TextColor3 = C.accent, LayoutOrder = 0, ZIndex = 31, Parent = bar.picker })
+	bar.pickerList = Theme.make("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = 31, Parent = bar.picker })
+	Theme.list(bar.pickerList, 4)
 	resetButton = Theme.button("Reset", Color3.fromRGB(120, 50, 60), function()
 		task.spawn(function()
 			local ok, err = Remotes.func("ResetTalents"):InvokeServer()
 			if not ok and err then
-				App.Notifications.toast(err, C.bad, "🌟")
+				App.Windows.notify(err, C.bad, "🌟")
 			elseif ok then
-				App.Notifications.toast("Skill points refunded!", C.good, "🌟")
+				App.Windows.notify("Skill points refunded!", C.good, "🌟")
 			end
 		end)
 	end, {

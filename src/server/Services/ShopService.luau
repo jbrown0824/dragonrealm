@@ -1,5 +1,6 @@
--- The three gear shops in town, one job each: the Emberforge Armory buys, the Hoard Exchange
--- sells (gear and food) and the Anvil of Ages upgrades. Each stall's prompt opens its own page.
+-- The three gear shops in town, one job each: the Emberforge Armory buys (limited stock from
+-- StockService), the Hoard Exchange sells (gear and food) and the Anvil of Ages upgrades. Each
+-- stall's prompt opens its own page.
 -- Other stalls (the Bubbling Cauldron, the Hatchery) are tagged "PanelPrompt" and just open
 -- their window; PotionService and PetService handle the buying.
 
@@ -8,7 +9,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
-local Items = require(Shared.Config.Items)
 local Zones = require(Shared.Config.Zones)
 local ItemUtil = require(Shared.ItemUtil)
 local Remotes = require(Shared.Remotes)
@@ -16,10 +16,7 @@ local Remotes = require(Shared.Remotes)
 local ShopService = {}
 local S
 
-local STOCK_RARITIES = { "Common", "Uncommon", "Rare" }
 local SHOP_RANGE = 45
-
-local stock = {} -- [Player] = { level, items = { item } }
 
 -- Is the player standing near one of these shops (by id)? With no ids: any gear shop.
 function ShopService.isNear(player: Player, ids: { string }?): boolean
@@ -36,38 +33,6 @@ function ShopService.isNear(player: Player, ids: { string }?): boolean
 	return false
 end
 
-local function getStock(player: Player)
-	local profile = S.PlayerService.getProfile(player)
-	if not profile then
-		return nil
-	end
-	local current = stock[player]
-	if current and current.level == profile.level then
-		return current
-	end
-	local items = {}
-	for _, slot in ipairs(Items.Slots) do
-		for _, rarity in ipairs(STOCK_RARITIES) do
-			table.insert(items, ItemUtil.new(slot, profile.level, rarity))
-		end
-	end
-	current = { level = profile.level, items = items }
-	stock[player] = current
-	return current
-end
-
-local function onGetStock(player: Player)
-	local s = getStock(player)
-	if not s then
-		return {}
-	end
-	local list = {}
-	for i, item in ipairs(s.items) do
-		table.insert(list, { index = i, item = item, price = ItemUtil.buyPrice(item) })
-	end
-	return list
-end
-
 local function onBuy(player: Player, index)
 	if type(index) ~= "number" then
 		return false, "Invalid item."
@@ -75,20 +40,24 @@ local function onBuy(player: Player, index)
 	if not ShopService.isNear(player, { "Armory" }) then
 		return false, "Visit the Emberforge Armory to buy gear."
 	end
-	local s = getStock(player)
-	local template = s and s.items[index]
+	local stock = S.StockService.get(player)
+	local entry = stock and stock.gear[index]
 	local profile = S.PlayerService.getProfile(player)
-	if not template or not profile then
+	if not entry or not profile then
 		return false, "That item is no longer for sale."
+	end
+	if entry.left <= 0 then
+		return false, "Sold out! New stock arrives soon."
 	end
 	if #profile.inventory >= Game.INVENTORY_LIMIT then
 		return false, "Your bag is full. Sell something first!"
 	end
-	local price = ItemUtil.buyPrice(template)
+	local item = ItemUtil.new(entry.slot, profile.level, entry.rarity)
+	local price = ItemUtil.buyPrice(item)
 	if not S.PlayerService.spendGold(player, price) then
 		return false, string.format("You need %d gold.", price)
 	end
-	local item = ItemUtil.new(template.slot, template.ilvl, template.rarity)
+	S.StockService.take(player, "gear", index)
 	S.PlayerService.addItem(player, item, true)
 	S.QuestService.progress(player, "buy", nil, 1)
 	return true, item
@@ -149,7 +118,6 @@ function ShopService.init(services)
 end
 
 function ShopService.start()
-	Remotes.func("GetShopStock").OnServerInvoke = onGetStock
 	Remotes.func("BuyItem").OnServerInvoke = onBuy
 	Remotes.func("SellItem").OnServerInvoke = onSell
 	Remotes.func("UpgradeItem").OnServerInvoke = onUpgrade
@@ -164,10 +132,6 @@ function ShopService.start()
 			Remotes.event("OpenPanel"):FireClient(player, prompt:GetAttribute("Panel"))
 		end)
 	end
-
-	game:GetService("Players").PlayerRemoving:Connect(function(player)
-		stock[player] = nil
-	end)
 end
 
 return ShopService

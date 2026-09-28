@@ -1,0 +1,106 @@
+-- GUI screenshots: runs the real client for one player at a chosen screen size (desktop or a
+-- phone), gives them some things to look at, opens the main screens one by one and dumps each
+-- as JSON (GUI_DUMP) for tools/preview/gui_render.py. Settings come from a header:
+--   GUI_W, GUI_H (viewport in points), GUI_TOUCH (true = phone: touch, no keyboard)
+-- Run: tools/sim/gui_shots.sh <width> <height> <touch> <outdir>
+local W, H, TOUCH = GUI_W or 1280, GUI_H or 720, GUI_TOUCH == true
+local function mod(path)
+	return require(__proxy("Client/" .. path))
+end
+
+task.spawn(function()
+	task.wait(2)
+	workspace.CurrentCamera.ViewportSize = Vector2.new(W, H)
+	local UIS = game:GetService("UserInputService")
+	UIS.TouchEnabled = TOUCH
+	UIS.KeyboardEnabled = not TOUCH
+	UIS.MouseEnabled = not TOUCH
+	local me = Instance.new("Player")
+	me.Name = "Shooter"
+	me.DisplayName = "Shooter"
+	me.UserId = 301
+	local gui = Instance.new("PlayerGui")
+	gui.Name = "PlayerGui"
+	gui.Parent = me
+	SIM_LOCAL_PLAYER = me
+	Players.LocalPlayer = me
+	me.Parent = Players
+	task.spawn(function()
+		require(__proxy("Client"))
+	end)
+	Players.PlayerAdded:Fire(me)
+	task.wait(2)
+	local function shot(tag: string)
+		task.wait(0.5)
+		for _, line in ipairs(GUI_DUMP(gui, tag)) do
+			print(line)
+		end
+	end
+	shot("classselect")
+	Remotes.func("ChooseClass"):InvokeServer("Stormwing")
+	mod("UI/ClassSelect").hide()
+	task.wait(1)
+	Remotes.event("TutorialStep"):FireServer(-1)
+	task.wait(1)
+	-- give the dragon a little of everything so the screens have content
+	local profile = S.PlayerService.getProfile(me)
+	S.PlayerService.setLevel(me, 12)
+	S.PlayerService.addGold(me, 25000)
+	profile.treats = 12
+	profile.eggs.MythicEgg = 1
+	for _, species in ipairs({ "EmberKit", "EmberKit", "SparkSprite", "DuskwingImp", "SolarSeraph" }) do
+		S.PetService.givePet(me, species)
+	end
+	profile.vikingKills = 80
+	profile.fishCaught = 12
+	S.PlayerService.markDirty(me)
+	task.wait(4)
+	shot("hud")
+	local Windows = mod("UI/Windows")
+	mod("UI/Pets").open("Pets")
+	shot("pets")
+	mod("UI/Pets").open("Eggs")
+	shot("eggs")
+	mod("UI/Store").open()
+	shot("store")
+	for _, tab in ipairs({ "Pets", "Achievements", "Skins" }) do
+		mod("UI/Collection").open(tab)
+		shot("collection_" .. tab)
+	end
+	Windows.open("SkillTree")
+	shot("skilltree")
+	Windows.open("Potions")
+	shot("potions")
+	mod("UI/Shop").open("Buy")
+	shot("armory")
+	Windows.open("Map")
+	shot("map")
+	-- the admin panel, scrolled through its Dragon page
+	Remotes.func("RedeemCode"):InvokeServer("DRAGONLORD")
+	task.wait(0.5)
+	Windows.open("Admin")
+	shot("admin1")
+	local adminScroll = nil
+	for _, d in ipairs(Windows.registry.Admin.frame:GetDescendants()) do
+		if d.ClassName == "ScrollingFrame" and d.Visible ~= false and not adminScroll then
+			adminScroll = d
+		end
+	end
+	for i, y in ipairs({ 420, 840, 1260 }) do
+		if adminScroll then
+			adminScroll.CanvasPosition = Vector2.new(0, y)
+		end
+		shot("admin" .. (i + 1))
+	end
+	Windows.close()
+	shot("hud2")
+	SIM.done = true
+end)
+
+local limit = 120
+while not SIM.done and SIM.now < limit do
+	SIM.step(1 / 30)
+end
+for _, e in ipairs(SIM.errors) do
+	io.stderr:write(string.format("\nERROR (x%d): %s\n%s\n", e.count, e.msg, e.trace))
+end

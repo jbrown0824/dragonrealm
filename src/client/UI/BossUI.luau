@@ -152,11 +152,11 @@ function BossUI.init(app)
 	})
 	hpBar, hpFill, hpText = Theme.bar(banner, Color3.fromRGB(220, 50, 50), UDim2.new(1, -28, 0, 22), UDim2.fromOffset(14, 64))
 	hpBar.Visible = false
-	local hide = Theme.button("➖", C.panel3, function()
+	local hide = Theme.minimizeButton(function()
 		minimized = true
 		update()
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(26, 22), TextSize = 12, ZIndex = 3, Parent = banner })
-	Theme.corner(hide, 11)
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(28, 28), ZIndex = 3, Parent = banner })
+	hide:FindFirstChildOfClass("Frame").ZIndex = 4
 	queueButton.Position = UDim2.new(1, -34, 0, 38)
 	pill = Theme.button("", Color3.fromRGB(60, 25, 30), function()
 		minimized = false

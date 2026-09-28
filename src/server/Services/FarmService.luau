@@ -582,7 +582,7 @@ local function harvest(player: Player, baseIndex: number, plotIndex: number, byB
 	profile.plots[plotIndex] = false
 
 	local gold = harvestValue(plant)
-	S.PlayerService.addGold(player, gold)
+	gold = S.PlayerService.addEarnedGold(player, gold)
 	local parts = { string.format("+%d gold", gold) }
 	local flower = plant.stage >= 4
 	if flower then

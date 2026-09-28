@@ -30,6 +30,7 @@ local ORDER = {
 	"EnemyService",
 	"LootService",
 	"ShopService",
+	"StockService",
 	"FarmService",
 	"QuestService",
 	"PvPService",
@@ -43,6 +44,8 @@ local ORDER = {
 	"TrainingService",
 	"CampService",
 	"CivilianService",
+	"AchievementService",
+	"StoreService",
 	"AdminService",
 	"TutorialService",
 }

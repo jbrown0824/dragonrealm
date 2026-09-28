@@ -98,10 +98,18 @@ task.spawn(function()
 
 	step("potions + eggs + pets")
 	tp(p1, Zones.getShop("Alchemist").position + Vector3.new(0, 5, -8))
-	ok, msg = invoke("BuyPotion", p1, "IronBellyStew")
+	local potionStock = S.StockService.get(p1).potions
+	local potionId = next(potionStock)
+	check(potionId ~= nil, "the cauldron has potions in stock")
+	ok, msg = invoke("BuyPotion", p1, potionId)
 	check(ok, "buy potion: " .. tostring(msg))
+	potionStock[potionId] = 0
+	check(not invoke("BuyPotion", p1, potionId), "sold-out potions can't be bought")
 	tp(p1, Zones.getShop("Hatchery").position + Vector3.new(0, 5, -8))
-	check(invoke("BuyEgg", p1, "EmberEgg"), "buy egg")
+	local petsBeforeBuy = #profile.pets
+	S.StockService.get(p1).eggs.EmberEgg = 1
+	check(invoke("BuyEgg", p1, "EmberEgg") and #profile.pets == petsBeforeBuy + 1, "buying an egg hatches it")
+	check(not invoke("BuyEgg", p1, "EmberEgg"), "eggs run out of stock")
 	check(not invoke("BuyEgg", p1, "MythicEgg"), "mythic eggs aren't sold")
 	local pets = {}
 	for _ = 1, 3 do
@@ -121,6 +129,30 @@ task.spawn(function()
 	check(invoke("UnequipPet", p1, profile.petsEquipped[1]), "unequip")
 	local okRelease = invoke("ReleasePet", p1, profile.pets[1].uid)
 	check(okRelease, "release pet")
+
+	step("limited stock")
+	local Shops = require(__proxy("Shared/Config/Shops"))
+	local stock = S.StockService.get(p1)
+	check(#stock.gear >= Shops.Gear.count[1], "armory has gear in stock")
+	local epics = 0
+	for _, entry in ipairs(stock.gear) do
+		if entry.rarity == "Epic" then
+			epics += 1
+		end
+	end
+	check(epics >= 1, "the armory always has an Epic")
+	tp(p1, Zones.getShop("Armory").position + Vector3.new(0, 5, -8))
+	S.PlayerService.addGold(p1, 2e6)
+	local lastIndex = #stock.gear
+	local entry = stock.gear[lastIndex]
+	local leftBefore = entry.left
+	ok, msg = invoke("BuyItem", p1, lastIndex)
+	check(ok and entry.left == leftBefore - 1, "buying gear uses up stock: " .. tostring(msg))
+	entry.left = 0
+	check(not invoke("BuyItem", p1, lastIndex), "sold-out gear can't be bought")
+	check(S.StockService.get(p2) ~= S.StockService.get(p1), "every dragon has their own stock")
+	check(invoke("AdminAction", p1, "restockShops", {}), "admin restock")
+	check(S.StockService.get(p1) ~= stock, "restock rerolls the shelves")
 
 	step("hunger + food")
 	fire("TutorialStep", p1, 0)
@@ -375,6 +407,109 @@ task.spawn(function()
 	task.wait(Game.RESPAWN_TIME + 1)
 	check(rootOf(p1) ~= nil, "respawned")
 	check(profile.hunger >= Game.HUNGER_AFTER_DEATH - 1, "respawn hunger floor (" .. profile.hunger .. ")")
+
+	step("paragon + loadout")
+	local TalentUtil = require(__proxy("Shared/TalentUtil"))
+	local Classes = require(__proxy("Shared/Config/Classes"))
+	S.PlayerService.setLevel(p1, Game.LEVEL_CAP)
+	profile.talents = {}
+	S.PlayerService.recompute(p1)
+	local hpBeforeParagon = S.PlayerService.getStats(p1).maxHealth
+	S.PlayerService.addXP(p1, Game.paragonXp(0) * 6, true)
+	check(profile.paragon >= 5, "XP past the cap fills Paragon levels (" .. profile.paragon .. ")")
+	check(TalentUtil.available(profile.level, profile.talents, profile.paragon) == Game.LEVEL_CAP - 1 + math.floor(profile.paragon / Game.PARAGON_POINT_EVERY), "Paragon levels give skill points")
+	check(S.PlayerService.getStats(p1).maxHealth > hpBeforeParagon, "Paragon levels add a little health")
+	profile.paragon = 200 -- enough points for every branch
+	S.PlayerService.recompute(p1)
+	for branch = 1, 3 do
+		invoke("AutoSpendBranch", p1, branch)
+	end
+	local signature = Classes.get(profile.class).signature
+	local tree = TalentUtil.treeAbilities(S.PlayerService.getStats(p1).abilities, signature)
+	check(#tree > TalentUtil.LOADOUT_SLOTS, "more abilities than keys (" .. #tree .. ")")
+	check(invoke("SetLoadout", p1, { tree[#tree], tree[1], tree[2], tree[3] }), "set loadout")
+	check(TalentUtil.resolveLoadout(S.PlayerService.getStats(p1).abilities, profile.loadout, signature)[1] == tree[#tree], "the chosen ability goes on key 2")
+
+	step("collection + achievements")
+	local species = profile.pets[1] and profile.pets[1].species
+	check(species ~= nil and profile.petBook[species] ~= nil, "the pet book records hatched pets")
+	profile.vikingKills = math.max(profile.vikingKills, 60)
+	local goldBefore = profile.gold
+	task.wait(4)
+	check((profile.achievements.Vikings or 0) >= 1 and profile.gold > goldBefore, "achievement reached and rewarded")
+	check(not invoke("SetSkin", p1, "Obsidian"), "locked skins can't be worn")
+	profile.skins.Obsidian = true
+	check(invoke("SetSkin", p1, "Obsidian") and profile.skin == "Obsidian", "wear a skin")
+	task.wait(0.5)
+	check(rootOf(p1) ~= nil, "dragon rebuilt in its new skin")
+	check(not invoke("SetTitle", p1, "Viking Bane"), "titles have to be earned")
+	profile.titles["Viking Bane"] = true
+	check(invoke("SetTitle", p1, "Viking Bane"), "wear a title")
+
+	step("store")
+	local StoreInfo = require(__proxy("Shared/Config/Store"))
+	check(S.StoreService.xpMultiplier(p1) == 1, "no XP pass yet")
+	check(invoke("StudioPurchase", p1, "pass", "DoubleXP"), "Studio test purchase of a pass")
+	check(S.StoreService.xpMultiplier(p1) == 2, "2x XP is active")
+	local stormBefore = profile.eggs.StormEgg or 0
+	check(invoke("StudioPurchase", p1, "product", "StarterPack") and profile.starterPack and profile.skins.Sunrise, "starter pack")
+	check((profile.eggs.StormEgg or 0) == stormBefore + 2, "starter pack eggs")
+	check(not invoke("StudioPurchase", p1, "product", "StarterPack"), "the starter pack is once only")
+	-- a real Roblox receipt: granted once, even if Roblox sends it again
+	StoreInfo.Products.GoldSmall.productId = 12345
+	local mps = game:GetService("MarketplaceService")
+	local receipt = { PlayerId = p1.UserId, ProductId = 12345, PurchaseId = "receipt-1" }
+	local gold0 = profile.gold
+	check(mps.ProcessReceipt(receipt) == Enum.ProductPurchaseDecision.PurchaseGranted and profile.gold > gold0, "receipt granted")
+	local gold1 = profile.gold
+	check(mps.ProcessReceipt(receipt) == Enum.ProductPurchaseDecision.PurchaseGranted and profile.gold == gold1, "the same receipt is never granted twice")
+	StoreInfo.Products.GoldSmall.productId = 0
+	check(invoke("StudioPurchase", p1, "product", "SecretEgg") and profile.eggs.SecretEgg == 1, "secret egg")
+	while #profile.pets >= Game.PET_LIMIT do
+		table.remove(profile.pets)
+	end
+	local okSecret, secretPet = invoke("HatchEgg", p1, "SecretEgg")
+	check(okSecret and require(__proxy("Shared/Config/Pets")).get(secretPet.species).rarity == "Secret", "the secret egg hatches a Secret pet")
+
+	step("admin: paragon, pets, collection, store")
+	local function admin(action, args)
+		args = args or {}
+		args.userId = p2.UserId
+		local okAdmin, message = invoke("AdminAction", p1, action, args)
+		check(okAdmin, "admin " .. action .. ": " .. tostring(message))
+		return okAdmin
+	end
+	local buddy = S.PlayerService.getProfile(p2)
+	admin("setParagon", { value = 12 })
+	check(buddy.level == Game.LEVEL_CAP and buddy.paragon == 12, "admin sets Paragon (and level 30)")
+	admin("addParagon", { amount = 3 })
+	check(buddy.paragon == 15, "admin adds Paragon levels")
+	local petsBeforeAdmin = #buddy.pets
+	admin("pet", { species = "CelestialDrake", golden = true, level = 4 })
+	local newPet = buddy.pets[#buddy.pets]
+	check(#buddy.pets == petsBeforeAdmin + 1 and newPet.golden and newPet.level == 4, "admin gives a golden level 4 Secret pet")
+	admin("treats", { amount = 20 })
+	admin("petBook", { mode = "golden" })
+	local anyMissing = false
+	for id in pairs(require(__proxy("Shared/Config/Pets")).Species) do
+		anyMissing = anyMissing or buddy.petBook[id] ~= 2
+	end
+	check(not anyMissing, "admin fills the pet book")
+	admin("skins", { mode = "wear", skin = "Royal" })
+	check(buddy.skin == "Royal" and buddy.skins.Royal, "admin puts a skin on")
+	admin("titles", { mode = "set", title = "Boss Breaker" })
+	check(buddy.title == "Boss Breaker", "admin sets a title")
+	admin("achievements", { mode = "reach" })
+	check((buddy.achievements.Vikings or 0) == 3, "admin maxes achievements")
+	admin("pass", { pass = "DoubleGold", on = true })
+	check(S.StoreService.goldMultiplier(p2) == 2, "admin turns on 2x Gold")
+	admin("pass", { pass = "DoubleGold", on = false })
+	check(S.StoreService.goldMultiplier(p2) == 1, "admin turns 2x Gold off")
+	admin("product", { product = "TreatBag" })
+	admin("starterReset")
+	admin("restockMine")
+	admin("clearPets")
+	check(#buddy.pets == 0, "admin releases every pet")
 
 	step("snapshot + leave")
 	local snap = S.PlayerService.snapshot(p1)

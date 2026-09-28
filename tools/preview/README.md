@@ -32,6 +32,11 @@ printf 'TERRAIN_STEP=4\n' > _hdr.luau && cat _hdr.luau terrain_dump.luau > _td.l
 python3 bundle.py _td.luau _tdb.luau && luau _tdb.luau > terrain.txt
 python3 terrain_map.py terrain.txt map.png 0.6
 
+# GUI screenshots: the real client, at any screen size (phone: touch on, no keyboard)
+../sim/gui_shots.sh 1280 720 false _shots_desktop      # -> PNGs + layout problems
+../sim/gui_shots.sh 844 390 true _shots_phone
+# (tools/checks/gui_check.sh runs both and fails on overflowing text or off-screen panels)
+
 # Lake and river depths: no water over the void, not too much shallow water, longships afloat
 # (also run by tools/checks/run_all.sh)
 python3 bundle.py water_check.luau _wc.luau && luau _wc.luau

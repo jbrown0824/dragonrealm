@@ -27,9 +27,9 @@ local function buy(kind: string)
 		busy = false
 		if ok then
 			App.Sfx.play("Coin")
-			App.Notifications.toast("Your new robot is warming up at the Bot Dock!", Color3.fromRGB(150, 230, 255), "🤖")
+			App.Windows.notify("Your new robot is warming up at the Bot Dock!", Color3.fromRGB(150, 230, 255), "🤖")
 		else
-			App.Notifications.toast(err or "Couldn't buy that.", C.bad, "🤖")
+			App.Windows.notify(err or "Couldn't buy that.", C.bad, "🤖")
 		end
 	end)
 end

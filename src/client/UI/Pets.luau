@@ -1,5 +1,6 @@
 -- Pets window: your nano dragons (equip, feed treats to level up, merge three into a golden
--- one, release) and your eggs (buy at the Hatchery, hatch anywhere with a little reveal).
+-- one, release) and eggs. Buying an egg at the Hatchery hatches it right away with a little
+-- reveal; eggs you find wait here until you hatch them. Each egg lists every pet it can hatch.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -25,12 +26,15 @@ local tab = "Pets"
 local tabButtons = {}
 local petsPage, eggsPage
 local header, grid, details = nil, nil, {}
-local eggsList
+local eggsList, eggsHeader
 local selected = nil
 local releaseArmed = nil
 local busy = false
+local hatching = false -- the reveal is playing: no more hatching until it's closed
 local overlay
+local emptyLabel
 
+local ROBUX_GREEN = Color3.fromRGB(40, 150, 70)
 local PLAN_ICONS = { Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" }
 
 local function statText(stats): string
@@ -77,7 +81,7 @@ local function preview(parent: GuiObject, speciesId: string, golden: boolean?)
 end
 
 local function invoke(remote: string, arg, onOk)
-	if busy then
+	if busy or hatching then
 		return
 	end
 	busy = true
@@ -89,7 +93,7 @@ local function invoke(remote: string, arg, onOk)
 				onOk(result)
 			end
 		elseif result then
-			App.Notifications.toast(result, C.bad, "🐲")
+			App.Windows.notify(result, C.bad, "🐲")
 		end
 	end)
 end
@@ -99,6 +103,7 @@ end
 local function showHatch(pet)
 	local species = PetInfo.get(pet.species)
 	local color = PetInfo.RarityColors[species.rarity]
+	hatching = true
 	overlay.Visible = true
 	overlay.BackgroundTransparency = 1
 	TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 0.35 }):Play()
@@ -122,10 +127,12 @@ local function showHatch(pet)
 		card.Visible = true
 		card.Title.Text = species.name
 		card.Title.TextColor3 = color
-		card.Rarity.Text = species.rarity:upper() .. " NANO DRAGON"
+		local rare = species.rarity == "Epic" or species.rarity == "Legendary" or species.rarity == "Secret"
+		card.Rarity.Text = (rare and "✨ " or "") .. species.rarity:upper() .. " NANO DRAGON" .. (rare and " ✨" or "")
 		card.Rarity.TextColor3 = color
 		card.Stats.Text = statText(species.stats)
 		card.UIStroke.Color = color
+		card.UIStroke.Thickness = rare and 5 or 3
 		preview(card.View, pet.species)
 		App.Sfx.play("LevelUp")
 	end)
@@ -178,9 +185,8 @@ local function refreshPets(p)
 			Pets.refresh()
 		end)
 	end
-	if #list == 0 then
-		Theme.label({ Size = UDim2.new(1, 0, 0, 60), TextSize = 15, TextColor3 = C.subtext, Text = "No pets yet! Buy an egg at Nestmother's Hatchery in town, or find one on a camp champion.", Parent = grid })
-	end
+	-- (outside the grid: a grid cell would squash the message into a 100-pixel box)
+	emptyLabel.Visible = #list == 0
 
 	local pet = nil
 	for _, candidate in ipairs(p.pets or {}) do
@@ -229,43 +235,88 @@ local function refreshPets(p)
 	end
 end
 
-local function refreshEggs(p)
-	Theme.clear(eggsList)
-	for i, eggId in ipairs(PetInfo.EggOrder) do
-		local egg = PetInfo.Eggs[eggId]
-		local count = (p.eggs and p.eggs[eggId]) or 0
-		local row = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 86), BackgroundColor3 = C.panel2, LayoutOrder = i, Parent = eggsList })
-		Theme.corner(row, 8)
-		Theme.stroke(row, egg.color, 1.5, 0.4)
-		Theme.label({ Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(60, 70), TextSize = 44, TextXAlignment = Enum.TextXAlignment.Center, Text = egg.icon, Parent = row })
-		Theme.label({ Position = UDim2.fromOffset(74, 6), Size = UDim2.new(1, -330, 0, 24), Font = Theme.Fonts.title, TextSize = 20, TextColor3 = egg.color, Text = string.format("%s  <font color=\"#FFFFFF\">x%d</font>", egg.name, count), Parent = row })
-		local odds = {}
-		for _, r in ipairs(PetInfo.RarityOrder) do
-			if egg.weights[r] then
-				table.insert(odds, string.format("<font color=\"%s\">%s %d%%</font>", Theme.colorHex(PetInfo.RarityColors[r]), r, egg.weights[r]))
+-- Every pet an egg can hatch, with its chance and boosts.
+local function eggContents(eggId: string)
+	local egg = PetInfo.Eggs[eggId]
+	local total = 0
+	for _, w in pairs(egg.weights) do
+		total += w
+	end
+	local list = {}
+	for _, rarity in ipairs(PetInfo.RarityOrder) do
+		local w = egg.weights[rarity]
+		if w then
+			local species = PetInfo.speciesOfRarity(rarity)
+			for _, id in ipairs(species) do
+				table.insert(list, { id = id, chance = w / total / #species * 100 })
 			end
 		end
-		Theme.label({ Position = UDim2.fromOffset(74, 32), Size = UDim2.new(1, -330, 0, 48), TextSize = 12, Font = Theme.Fonts.body, TextColor3 = C.subtext, TextYAlignment = Enum.TextYAlignment.Top, Text = egg.desc .. "\n" .. table.concat(odds, "  "), Parent = row })
-		local hatch = Theme.button("🐣 Hatch", Color3.fromRGB(200, 120, 60), function()
-			invoke("HatchEgg", eggId, function(pet)
-				selected = pet.uid
-				showHatch(pet)
-			end)
-		end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(110, 40), Parent = row })
-		Theme.setButtonEnabled(hatch, count > 0)
+	end
+	return list
+end
+
+local function refreshEggs(p)
+	Theme.clear(eggsList)
+	local stock = p.shopStock and p.shopStock.eggs or {}
+	local nestFull = #(p.pets or {}) >= Game.PET_LIMIT
+	eggsHeader.Text = string.format("💰 %s gold   •   Nest: %s%d / %d</font>   •   <font color=\"#8CE678\">%s</font>",
+		Util.formatNumber(p.gold), nestFull and "<font color=\"#F05A5A\">" or "<font color=\"#FFFFFF\">", #(p.pets or {}), Game.PET_LIMIT, App.Shop.restockText(p))
+	for i, eggId in ipairs(PetInfo.EggOrder) do
+		local egg = PetInfo.Eggs[eggId]
+		local owned = (p.eggs and p.eggs[eggId]) or 0
+		if egg.robux and owned == 0 then
+			continue -- sold in the 💎 Store; shows here once you have one to hatch
+		end
+		local contents = eggContents(eggId)
+		local rows = math.ceil(#contents / 4)
+		local card = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 96 + rows * 50), BackgroundColor3 = C.panel2, LayoutOrder = i, Parent = eggsList })
+		Theme.corner(card, 10)
+		Theme.stroke(card, egg.color, 2, 0.3)
+		Theme.label({ Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(64, 70), TextSize = 48, TextXAlignment = Enum.TextXAlignment.Center, Text = egg.icon, Parent = card })
+		Theme.label({ Position = UDim2.fromOffset(78, 8), Size = UDim2.new(1, -330, 0, 26), Font = Theme.Fonts.title, TextSize = 22, TextColor3 = egg.color, Text = egg.name, Parent = card })
+		Theme.label({ Position = UDim2.fromOffset(78, 36), Size = UDim2.new(1, -330, 0, 40), TextSize = 12, Font = Theme.Fonts.body, TextColor3 = C.subtext, TextYAlignment = Enum.TextYAlignment.Top, Text = egg.desc, Parent = card })
+
+		-- right side: buy & hatch (Hatchery eggs), and hatch the ones you found
 		if egg.price then
-			local buy = Theme.button(Util.formatNumber(egg.price) .. " 💰", Color3.fromRGB(70, 140, 80), function()
-				invoke("BuyEgg", eggId, function()
+			local left = stock[eggId] or 0
+			local buy = Theme.button(left > 0 and string.format("🐣 Buy & Hatch  %s 💰", Util.formatNumber(egg.price)) or "Sold out", Color3.fromRGB(70, 150, 80), function()
+				invoke("BuyEgg", eggId, function(pet)
 					App.Sfx.play("Coin")
-					App.Notifications.toast("Bought a " .. egg.name .. "! Hatch it whenever you like.", egg.color, "🥚")
+					selected = pet.uid
+					showHatch(pet)
 				end)
-			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -126, 0.5, 0), Size = UDim2.fromOffset(110, 40), Parent = row })
-			Theme.setButtonEnabled(buy, p.gold >= egg.price)
-		else
-			Theme.label({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -126, 0.5, 0), Size = UDim2.fromOffset(110, 40), TextSize = 11, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Drops from champions, bosses & chests", Parent = row })
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 16, Parent = card })
+			Theme.setButtonEnabled(buy, left > 0 and not nestFull and p.gold >= egg.price)
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 52), Size = UDim2.fromOffset(230, 18), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = left > 0 and C.good or C.bad, Text = nestFull and "Your nest is full!" or (left > 0 and string.format("%d in stock", left) or "Out of stock"), Parent = card })
+		end
+		if owned > 0 then
+			local hatch = Theme.button(string.format("🥚 Hatch yours (%d)", owned), Color3.fromRGB(200, 120, 60), function()
+				invoke("HatchEgg", eggId, function(pet)
+					selected = pet.uid
+					showHatch(pet)
+				end)
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, egg.price and -250 or -10, 0, 10), Size = UDim2.fromOffset(190, 40), TextSize = 15, Parent = card })
+			Theme.setButtonEnabled(hatch, not nestFull)
+		elseif not egg.price then
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 12), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
+		end
+
+		-- what's inside
+		local grid = Theme.make("Frame", { Position = UDim2.fromOffset(10, 86), Size = UDim2.new(1, -20, 0, rows * 50), BackgroundTransparency = 1, Parent = card })
+		Theme.make("UIGridLayout", { CellSize = UDim2.new(0.25, -6, 0, 44), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+		for k, entry in ipairs(contents) do
+			local species = PetInfo.get(entry.id)
+			local color = PetInfo.RarityColors[species.rarity]
+			local cell = Theme.make("Frame", { BackgroundColor3 = C.panel, LayoutOrder = k, Parent = grid })
+			Theme.corner(cell, 6)
+			Theme.stroke(cell, color, 1, 0.4)
+			Theme.label({ Position = UDim2.fromOffset(6, 2), Size = UDim2.new(1, -60, 0, 18), TextSize = 12, TextColor3 = color, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, Text = species.name, Parent = cell })
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -6, 0, 2), Size = UDim2.fromOffset(54, 18), TextSize = 12, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Right, Text = Util.fmt(math.floor(entry.chance * 10 + 0.5) / 10) .. "%", Parent = cell })
+			Theme.label({ Position = UDim2.fromOffset(6, 21), Size = UDim2.new(1, -12, 0, 20), TextSize = 10, Font = Theme.Fonts.body, TextColor3 = C.good, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, Text = statText(species.stats), Parent = cell })
 		end
 	end
-	Theme.label({ Size = UDim2.new(1, -10, 0, 30), LayoutOrder = 10, TextSize = 12, TextColor3 = C.subtext, Text = "Buy eggs at Nestmother's Hatchery in town (east of the plaza). You can hatch them anywhere.", Parent = eggsList })
+	Theme.label({ Size = UDim2.new(1, -10, 0, 30), LayoutOrder = 10, TextSize = 12, TextColor3 = C.subtext, Text = "Nestmother's Hatchery is east of the plaza. Its stock refills every few minutes.", Parent = eggsList })
 end
 
 function Pets.refresh()
@@ -306,15 +357,26 @@ function Pets.init(app)
 	petsPage = Theme.make("Frame", { Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, Parent = content })
 	eggsPage = Theme.make("Frame", { Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, Visible = false, Parent = content })
 
-	header = Theme.label({ Size = UDim2.new(1, -300, 0, 22), TextSize = 14, Parent = petsPage })
+	header = Theme.label({ Size = UDim2.new(1, -290, 0, 22), TextSize = 14, TextWrapped = false, Parent = petsPage })
 	Theme.button("⚡ Equip Best", Color3.fromRGB(60, 140, 70), function()
 		invoke("EquipBestPets", nil, function()
 			App.Sfx.play("Click")
-			App.Notifications.toast("Your best pets are following you!", C.good, "🐲")
+			App.Windows.notify("Your best pets are following you!", C.good, "🐲")
 		end)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -290, 0, -4), Size = UDim2.fromOffset(140, 28), TextSize = 14, Parent = petsPage })
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, -4), Size = UDim2.fromOffset(280, 28), TextSize = 14, Parent = petsPage })
 	grid = Theme.scroll(petsPage, { Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, -290, 1, -26) })
 	Theme.make("UIGridLayout", { CellSize = UDim2.fromOffset(100, 74), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+	emptyLabel = Theme.label({
+		Position = UDim2.fromOffset(10, 50),
+		Size = UDim2.new(1, -310, 0, 90),
+		TextSize = 17,
+		TextColor3 = C.subtext,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Text = "No pets yet!\nBuy an egg at Nestmother's Hatchery in town (the 🥚 Eggs tab shows what each one can hatch), or find one on a camp champion.",
+		Visible = false,
+		Parent = petsPage,
+	})
 
 	details.frame = Theme.make("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 26), Size = UDim2.new(0, 280, 1, -26), BackgroundColor3 = C.panel2, Visible = false, Parent = petsPage })
 	Theme.corner(details.frame, 10)
@@ -329,7 +391,7 @@ function Pets.init(app)
 		if selected then
 			invoke("FeedPet", selected, function(level)
 				App.Sfx.play("LevelUp")
-				App.Notifications.toast(string.format("Yum! Your pet grew to level %d!", level or 0), C.good, "🍬")
+				App.Windows.notify(string.format("Yum! Your pet grew to level %d!", level or 0), C.good, "🍬")
 			end)
 		end
 	end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -90), Size = UDim2.new(0.5, -4, 0, 38), TextSize = 15, Parent = details.frame })
@@ -337,7 +399,7 @@ function Pets.init(app)
 		if selected then
 			invoke("MergePets", selected, function()
 				App.Sfx.play("LevelUp")
-				App.Notifications.toast("Three became one... a GOLDEN nano dragon!", PetInfo.GOLDEN_LOOK.accent, "✨")
+				App.Windows.notify("Three became one... a GOLDEN nano dragon!", PetInfo.GOLDEN_LOOK.accent, "✨")
 			end)
 		end
 	end, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, -90), Size = UDim2.new(0.5, -4, 0, 38), TextSize = 15, Parent = details.frame })
@@ -365,15 +427,29 @@ function Pets.init(app)
 		releaseArmed = nil
 		selected = nil
 		invoke("ReleasePet", uid, function(gold)
-			App.Notifications.toast(string.format("Your pet flew off into the wild. +%d gold", gold or 0), C.gold, "🐲")
+			App.Windows.notify(string.format("Your pet flew off into the wild. +%d gold", gold or 0), C.gold, "🐲")
 		end)
 	end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 36), TextSize = 14, Parent = details.frame })
 
-	eggsList = Theme.scroll(eggsPage, { Size = UDim2.fromScale(1, 1) })
+	eggsHeader = Theme.label({ Size = UDim2.new(1, -170, 0, 22), TextSize = 14, Parent = eggsPage })
+	Theme.button("🔄 Restock now (R$)", ROBUX_GREEN, function()
+		App.Store.buy("product", "Restock")
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, -3), Size = UDim2.fromOffset(160, 26), TextSize = 13, Parent = eggsPage })
+	eggsList = Theme.scroll(eggsPage, { Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 1, -28) })
 	Theme.list(eggsList, 8)
+	-- keep the restock countdown ticking
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if window.Visible and tab == "Eggs" and App.State.profile then
+				local p = App.State.profile
+				eggsHeader.Text = string.gsub(eggsHeader.Text, "🔄 Restocks in [%d:]+", App.Shop.restockText(p))
+			end
+		end
+	end)
 
-	-- Hatch reveal overlay
-	overlay = Theme.make("Frame", { Name = "HatchOverlay", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, Visible = false, ZIndex = 50, Parent = App.Windows.guis.Top })
+	-- Hatch reveal overlay: a button, so clicks can't reach the windows underneath while it shows
+	overlay = Theme.make("TextButton", { Name = "HatchOverlay", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, AutoButtonColor = false, Text = "", Active = true, Modal = true, Visible = false, ZIndex = 50, Parent = App.Windows.guis.Top })
 	Theme.label({ Name = "Egg", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromOffset(160, 160), TextSize = 140, TextXAlignment = Enum.TextXAlignment.Center, Text = "🥚", ZIndex = 51, Parent = overlay })
 	local card = Theme.make("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromOffset(380, 400), BackgroundColor3 = C.panel, Visible = false, ZIndex = 51, Parent = overlay })
 	Theme.corner(card, 14)
@@ -385,6 +461,8 @@ function Pets.init(app)
 	Theme.label({ Name = "Stats", Position = UDim2.fromOffset(20, 290), Size = UDim2.new(1, -40, 0, 44), TextSize = 15, TextColor3 = C.good, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 52, Parent = card })
 	Theme.button("Awesome!", Color3.fromRGB(60, 140, 70), function()
 		overlay.Visible = false
+		hatching = false
+		Pets.refresh()
 	end, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(180, 42), ZIndex = 52, Parent = card })
 
 	App.Windows.register("Pets", window, Pets.refresh)

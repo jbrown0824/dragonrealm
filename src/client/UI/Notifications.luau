@@ -57,7 +57,7 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 		Text = (icon and (icon .. "  ") or "") .. text,
 		Parent = frame,
 	})
-	-- keep at most 6
+	-- keep at most 6 (3 on phones)
 	local items = {}
 	for _, child in ipairs(toastHolder:GetChildren()) do
 		if child:IsA("Frame") then
@@ -67,7 +67,7 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 	table.sort(items, function(a, b)
 		return a.LayoutOrder < b.LayoutOrder
 	end)
-	for i = 6, #items do
+	for i = (App.Windows.mobile and 3 or 6), #items do
 		items[i]:Destroy()
 	end
 	task.delay(TOAST_SECONDS, function()
@@ -82,6 +82,9 @@ end
 
 -- Push the toast column down so it never covers something above it (the tutorial panel).
 function Notifications.setTopInset(bottomOfAbove: number?)
+	if App.Windows.mobile then
+		return -- phones keep toasts at the top center, under the bars
+	end
 	toastHolder.Position = UDim2.fromOffset(12, math.max(TOAST_TOP, (bottomOfAbove or 0) + 10))
 end
 
@@ -215,6 +218,7 @@ function Notifications.death(seconds: number)
 end
 
 function Notifications.init(app)
+	app.Windows.toast = Notifications.toast
 	App = app
 	local overlay = App.Windows.guis.Overlay
 	local top = App.Windows.guis.Top
@@ -228,6 +232,11 @@ function Notifications.init(app)
 		Parent = App.Windows.guis.HUD,
 	})
 	Theme.list(toastHolder, 6)
+	if App.Windows.mobile then
+		toastHolder.AnchorPoint = Vector2.new(0.5, 0)
+		toastHolder.Position = UDim2.new(0.5, 0, 0, 104)
+		toastHolder.Size = UDim2.fromOffset(380, 200)
+	end
 
 	announceFrame = Theme.make("Frame", {
 		Name = "Announce",

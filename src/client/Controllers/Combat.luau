@@ -1,6 +1,7 @@
 -- Player input for combat: aiming, casting abilities, local cooldowns, and instant local
 -- effects (the server decides what actually gets hit).
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -23,12 +24,14 @@ local lastTouch = false
 local aimParams = RaycastParams.new()
 aimParams.FilterType = Enum.RaycastFilterType.Exclude
 
+-- Keys for the action bar slots (HUD.abilityForSlot says what's in each).
 local KEY_SLOTS = {
 	[Enum.KeyCode.Q] = 2,
 	[Enum.KeyCode.One] = 3,
 	[Enum.KeyCode.Two] = 4,
 	[Enum.KeyCode.Three] = 5,
 	[Enum.KeyCode.Four] = 6,
+	[Enum.KeyCode.Five] = 7,
 }
 
 function Combat.getCooldown(abilityId: string)
@@ -44,10 +47,49 @@ function Combat.setBreathHeld(held: boolean, input: InputObject?)
 	breathInput = held and input or nil
 end
 
+-- Touch screens have no mouse to aim with, so lock onto the enemy nearest to where the camera
+-- is looking (within range and roughly in front), if there is one.
+local AUTO_AIM_RANGE = 140
+local function touchTarget(): Vector3?
+	local camera = workspace.CurrentCamera
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not camera or not root then
+		return nil
+	end
+	local look = camera.CFrame.LookVector
+	local best, bestScore = nil, -math.huge
+	for _, tag in ipairs({ "Viking", "Animal", "TrainingDummy" }) do
+		for _, model in ipairs(CollectionService:GetTagged(tag)) do
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			local target = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart")
+			if target and (not humanoid or humanoid.Health > 0) then
+				local offset = target.Position - root.Position
+				local dist = offset.Magnitude
+				if dist <= AUTO_AIM_RANGE and dist > 0.1 then
+					local facing = look:Dot(offset.Unit)
+					if facing > 0.35 then
+						-- mostly "how centered", a little "how close"
+						local score = facing * 2 - dist / AUTO_AIM_RANGE
+						if score > bestScore then
+							best, bestScore = target.Position, score
+						end
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
 function Combat.aimPoint(): Vector3
 	local camera = workspace.CurrentCamera
 	local screen
 	if lastTouch then
+		local target = touchTarget()
+		if target then
+			return target
+		end
 		screen = camera.ViewportSize / 2
 	else
 		screen = UserInputService:GetMouseLocation()
@@ -150,8 +192,7 @@ function Combat.cast(abilityId: string?)
 end
 
 local function slotAbility(slot: number): string?
-	local p = App.State.profile
-	return p and p.stats and p.stats.abilities[slot]
+	return App.HUD.abilityForSlot(slot)
 end
 
 function Combat.init(app)
@@ -160,7 +201,7 @@ function Combat.init(app)
 	UserInputService.LastInputTypeChanged:Connect(function(inputType)
 		lastTouch = inputType == Enum.UserInputType.Touch
 	end)
-	lastTouch = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
+	lastTouch = App.Windows.mobile or UserInputService:GetLastInputType() == Enum.UserInputType.Touch
 
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then
@@ -183,6 +224,8 @@ function Combat.init(app)
 			App.HUD.goHome()
 		elseif input.KeyCode == Enum.KeyCode.P then
 			App.Windows.toggle("Pets")
+		elseif input.KeyCode == Enum.KeyCode.L then
+			App.Windows.toggle("Collection")
 		elseif input.KeyCode == Enum.KeyCode.M then
 			App.Windows.toggle("Map")
 		elseif input.KeyCode == Enum.KeyCode.N then

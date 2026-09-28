@@ -196,7 +196,7 @@ function Inventory.refresh()
 					task.spawn(function()
 						local ok, err = Remotes.func("EatFood"):InvokeServer(foodId)
 						if not ok and err then
-							App.Notifications.toast(err, Color3.fromRGB(255, 190, 110), "🍖")
+							App.Windows.notify(err, Color3.fromRGB(255, 190, 110), "🍖")
 						end
 					end)
 				end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = row })
@@ -348,7 +348,7 @@ function Inventory.init(app)
 			local ok, changed = Remotes.func("EquipBest"):InvokeServer()
 			if ok then
 				App.Sfx.play("Click")
-				App.Notifications.toast(changed and changed > 0 and string.format("Equipped %d better item%s!", changed, changed == 1 and "" or "s") or "You're already wearing your best gear.", C.good, "⚔️")
+				App.Windows.notify(changed and changed > 0 and string.format("Equipped %d better item%s!", changed, changed == 1 and "" or "s") or "You're already wearing your best gear.", C.good, "⚔️")
 			end
 		end)
 	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, -4), Size = UDim2.fromOffset(140, 28), TextSize = 14, Parent = right })

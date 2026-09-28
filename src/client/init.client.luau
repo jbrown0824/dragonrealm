@@ -44,6 +44,8 @@ App.Fishing = require(UI.Fishing)
 App.Training = require(UI.Training)
 App.Tutorial = require(UI.Tutorial)
 App.Map = require(UI.Map)
+App.Store = require(UI.Store)
+App.Collection = require(UI.Collection)
 
 App.Windows.init()
 App.Sfx.init()
@@ -73,6 +75,8 @@ App.Training.init(App)
 App.Tutorial.init(App)
 App.Waypoint.init(App)
 App.Map.init(App)
+App.Store.init(App)
+App.Collection.init(App)
 task.spawn(App.WorldView.init, App)
 
 -- Stalls and the Bot Dock ask to open a window.

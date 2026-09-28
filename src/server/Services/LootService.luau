@@ -222,7 +222,7 @@ function LootService.grant(player: Player, rewards)
 		return
 	end
 	if rewards.gold then
-		S.PlayerService.addGold(player, rewards.gold)
+		S.PlayerService.addEarnedGold(player, rewards.gold)
 	end
 	if rewards.xp then
 		S.PlayerService.addXP(player, rewards.xp)

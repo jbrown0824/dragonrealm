@@ -47,6 +47,22 @@ local function defaultProfile()
 		petsEquipped = {}, -- list of pet uids
 		petCounter = 0,
 		treats = 0, -- Pet Treats from harvesting, fed to pets to level them up
+		shopStock = false, -- StockService: this player's limited stock at the town vendors
+		-- added in the collections / paragon / store update
+		paragon = 0, -- levels past the cap (xp keeps counting)
+		loadout = {}, -- ability ids on keys 2-5 (see TalentUtil.resolveLoadout)
+		championKills = 0,
+		petBook = {}, -- [species] = 1 hatched, 2 made golden
+		bookSynced = false, -- pets owned before the pet book existed have been added to it
+		achievements = {}, -- [achievementId] = tiers reached
+		milestones = {}, -- [pet milestone index as string] = true
+		skins = {}, -- [skinId] = true
+		skin = "Classic",
+		titles = {}, -- [title] = true
+		title = "",
+		passes = {}, -- [passId] = true (Robux game passes, remembered for Studio tests)
+		receipts = {}, -- recent Robux purchase ids, so a purchase is never granted twice
+		starterPack = false, -- bought the Starter Pack
 		robots = { water = false, harvest = 0 },
 		tutorial = 0, -- step reached; -1 = finished or skipped
 		tutorialRewarded = false,

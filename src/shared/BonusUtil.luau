@@ -96,10 +96,21 @@ function BonusUtil.petStats(profile)
 end
 
 -- Every non-gear, non-talent bonus as StatCalc buff entries.
+-- The small permanent bonus from Paragon levels.
+function BonusUtil.paragonStats(paragon: number?)
+	local levels = math.min(paragon or 0, Game.PARAGON_BONUS_CAP)
+	local out = {}
+	for stat, v in pairs(Game.PARAGON_BONUS) do
+		out[stat] = v * levels
+	end
+	return out
+end
+
 function BonusUtil.entries(profile)
 	local list = {}
 	table.insert(list, { stats = BonusUtil.potionStats(profile.potions) })
 	table.insert(list, { stats = BonusUtil.petStats(profile) })
+	table.insert(list, { stats = BonusUtil.paragonStats(profile.paragon) })
 	local hungry = Game.hungerLevel(profile.hunger or Game.HUNGER_MAX)
 	if hungry then
 		table.insert(list, { stats = hungry.stats })

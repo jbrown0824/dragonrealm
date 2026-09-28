@@ -216,11 +216,81 @@ Color3 = {
 local function passthrough(...)
 	return { ... }
 end
-UDim2 = { new = passthrough, fromOffset = passthrough, fromScale = passthrough }
-UDim = { new = passthrough }
-Vector2 = { new = function(x, y)
-	return { X = x, Y = y }
-end }
+-- UDim / UDim2 / Vector2 behave like Roblox's (the GUI dump needs scale vs offset).
+local UDmt = {}
+local function udim(scale, offset)
+	return setmetatable({ Scale = scale or 0, Offset = offset or 0 }, UDmt)
+end
+UDmt.__add = function(a, b)
+	return udim(a.Scale + b.Scale, a.Offset + b.Offset)
+end
+UDmt.__sub = function(a, b)
+	return udim(a.Scale - b.Scale, a.Offset - b.Offset)
+end
+UDmt.__eq = function(a, b)
+	return a.Scale == b.Scale and a.Offset == b.Offset
+end
+local U2mt = {}
+local function udim2(xs, xo, ys, yo)
+	if type(xs) == "table" then -- UDim2.new(UDim, UDim)
+		return setmetatable({ X = xs, Y = xo, Width = xs, Height = xo }, U2mt)
+	end
+	local x, y = udim(xs, xo), udim(ys, yo)
+	return setmetatable({ X = x, Y = y, Width = x, Height = y }, U2mt)
+end
+U2mt.__add = function(a, b)
+	return udim2(a.X + b.X, a.Y + b.Y)
+end
+U2mt.__sub = function(a, b)
+	return udim2(a.X - b.X, a.Y - b.Y)
+end
+U2mt.__eq = function(a, b)
+	return a.X == b.X and a.Y == b.Y
+end
+UDim2 = {
+	new = udim2,
+	fromOffset = function(x, y)
+		return udim2(0, x or 0, 0, y or 0)
+	end,
+	fromScale = function(x, y)
+		return udim2(x or 0, 0, y or 0, 0)
+	end,
+}
+UDim = { new = udim }
+local V2mt = {}
+local function v2(x, y)
+	return setmetatable({ X = x or 0, Y = y or 0 }, V2mt)
+end
+V2mt.__index = function(v, k)
+	if k == "Magnitude" then
+		return math.sqrt(v.X * v.X + v.Y * v.Y)
+	end
+	return nil
+end
+V2mt.__add = function(a, b)
+	return v2(a.X + b.X, a.Y + b.Y)
+end
+V2mt.__sub = function(a, b)
+	return v2(a.X - b.X, a.Y - b.Y)
+end
+V2mt.__mul = function(a, b)
+	if type(a) == "number" then
+		return v2(a * b.X, a * b.Y)
+	elseif type(b) == "number" then
+		return v2(a.X * b, a.Y * b)
+	end
+	return v2(a.X * b.X, a.Y * b.Y)
+end
+V2mt.__div = function(a, b)
+	if type(b) == "number" then
+		return v2(a.X / b, a.Y / b)
+	end
+	return v2(a.X / b.X, a.Y / b.Y)
+end
+V2mt.__eq = function(a, b)
+	return a.X == b.X and a.Y == b.Y
+end
+Vector2 = { new = v2, zero = v2(0, 0), one = v2(1, 1) }
 NumberSequence = { new = passthrough }
 NumberSequenceKeypoint = { new = passthrough }
 NumberRange = { new = passthrough }
@@ -318,7 +388,7 @@ local EVENT_NAMES = {
 	PlayerRemoving = true, Heartbeat = true, Stepped = true, RenderStepped = true, Touched = true,
 	CharacterAdded = true, CharacterRemoving = true, AncestryChanged = true, MouseEnter = true, MouseLeave = true, Activated = true,
 	MouseButton1Click = true, MouseButton1Down = true, FocusLost = true, Focused = true, InputBegan = true,
-	InputEnded = true, InputChanged = true,
+	InputEnded = true, InputChanged = true, PromptGamePassPurchaseFinished = true, PromptProductPurchaseFinished = true,
 }
 SIM_LOCAL_PLAYER = nil -- set by the client sim: remotes then loop back between server and client
 REMOTE_LOG = {}
@@ -999,6 +1069,16 @@ local services = {
 services.Lighting.ExposureCompensation = 0
 services.Lighting.Brightness = 2
 services.Lighting.ClockTime = 14
+services.GuiService = Instance.new("GuiService")
+function services.GuiService.GetGuiInset()
+	return Vector2.new(0, 58), Vector2.new(0, 0) -- Roblox's top bar
+end
+services.MarketplaceService = Instance.new("MarketplaceService")
+function services.MarketplaceService.UserOwnsGamePassAsync()
+	return false
+end
+function services.MarketplaceService.PromptProductPurchase() end
+function services.MarketplaceService.PromptGamePassPurchase() end
 services.RunService.BindToRenderStep = function(_, _name, _priority, fn)
 	services.RunService.RenderStepped:Connect(fn)
 end
@@ -1082,6 +1162,105 @@ end
 local function jnum(n)
 	return string.format("%.4f", n)
 end
+-- GUI dump for tools/preview/gui_render.py: every ScreenGui / GuiObject / UI layout helper under
+-- `root` as one JSON line, with its parent's id so the renderer can rebuild the tree.
+local GUI_CLASSES = {
+	ScreenGui = true, Frame = true, TextLabel = true, TextButton = true, TextBox = true, ImageLabel = true,
+	ImageButton = true, ScrollingFrame = true, ViewportFrame = true, CanvasGroup = true,
+	UIListLayout = true, UIGridLayout = true, UIPadding = true, UICorner = true, UIStroke = true, UIScale = true,
+}
+local function jstr(v)
+	v = tostring(v or "")
+	v = v:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", ""):gsub("\t", " ")
+	return '"' .. v .. '"'
+end
+local function ju2(v)
+	if type(v) ~= "table" or not v.X then
+		return "null"
+	end
+	return string.format("[%s,%s,%s,%s]", jnum(v.X.Scale), jnum(v.X.Offset), jnum(v.Y.Scale), jnum(v.Y.Offset))
+end
+local function jud(v)
+	if type(v) ~= "table" or v.Scale == nil then
+		return "null"
+	end
+	return string.format("[%s,%s]", jnum(v.Scale), jnum(v.Offset))
+end
+local function jcol(c)
+	if type(c) ~= "table" or c.R == nil then
+		return "null"
+	end
+	return string.format("[%s,%s,%s]", jnum(c.R), jnum(c.G), jnum(c.B))
+end
+local function jv2(v)
+	if type(v) ~= "table" or v.X == nil then
+		return "null"
+	end
+	return string.format("[%s,%s]", jnum(v.X), jnum(v.Y))
+end
+local function jenum(e)
+	return e and jstr(e.Name) or "null"
+end
+function GUI_DUMP(root, tag)
+	local out = {}
+	local list = { root }
+	for _, d in ipairs(M.GetDescendants(root)) do
+		table.insert(list, d)
+	end
+	for _, d in ipairs(list) do
+		if GUI_CLASSES[d._class] then
+			local p = d._props
+			local fields = {
+				'"tag":' .. jstr(tag),
+				'"id":' .. d._id,
+				'"parent":' .. (d._parent and d._parent._id or 0),
+				'"class":' .. jstr(d._class),
+				'"name":' .. jstr(p.Name),
+				'"visible":' .. tostring(p.Visible ~= false),
+				'"enabled":' .. tostring(p.Enabled ~= false),
+				'"pos":' .. ju2(p.Position),
+				'"size":' .. ju2(p.Size),
+				'"anchor":' .. jv2(p.AnchorPoint),
+				'"bg":' .. jcol(p.BackgroundColor3),
+				'"bgt":' .. jnum(p.BackgroundTransparency or 0),
+				'"z":' .. (p.ZIndex or 1),
+				'"order":' .. (p.LayoutOrder or 0),
+				'"text":' .. (p.Text ~= nil and jstr(p.Text) or "null"),
+				'"textSize":' .. (p.TextSize or 14),
+				'"textColor":' .. jcol(p.TextColor3),
+				'"textT":' .. jnum(p.TextTransparency or 0),
+				'"xAlign":' .. jenum(p.TextXAlignment),
+				'"yAlign":' .. jenum(p.TextYAlignment),
+				'"wrapped":' .. tostring(p.TextWrapped == true),
+				'"scaled":' .. tostring(p.TextScaled == true),
+				'"font":' .. jenum(p.Font),
+				'"auto":' .. jenum(p.AutomaticSize),
+				'"clips":' .. tostring(p.ClipsDescendants == true),
+				'"canvasPos":' .. jv2(p.CanvasPosition),
+				'"displayOrder":' .. (p.DisplayOrder or 0),
+				'"ignoreInset":' .. tostring(p.IgnoreGuiInset == true),
+				'"fill":' .. jenum(p.FillDirection),
+				'"padding":' .. jud(p.Padding),
+				'"hAlign":' .. jenum(p.HorizontalAlignment),
+				'"vAlign":' .. jenum(p.VerticalAlignment),
+				'"cellSize":' .. ju2(p.CellSize),
+				'"cellPadding":' .. ju2(p.CellPadding),
+				'"padL":' .. jud(p.PaddingLeft),
+				'"padR":' .. jud(p.PaddingRight),
+				'"padT":' .. jud(p.PaddingTop),
+				'"padB":' .. jud(p.PaddingBottom),
+				'"radius":' .. jud(p.CornerRadius),
+				'"color":' .. jcol(p.Color),
+				'"thickness":' .. (p.Thickness or 1),
+				'"transparency":' .. jnum(p.Transparency or 0),
+				'"scale":' .. jnum(p.Scale or 1),
+			}
+			table.insert(out, "{" .. table.concat(fields, ",") .. "}")
+		end
+	end
+	return out
+end
+
 function DUMP(root, tag)
 	local out = {}
 	for _, d in ipairs(M.GetDescendants(root)) do

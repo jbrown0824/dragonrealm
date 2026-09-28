@@ -4,6 +4,7 @@ set -e
 D=${0:A:h}
 $D/lint.sh
 python3 $D/xref.py
+python3 $D/glyph_check.py
 python3 $D/bundle_tests.py $D/logic_test.luau $D/_tests.luau
 luau $D/_tests.luau | grep -E "FAIL|PASSED|FAILURES"
 rm -f $D/_tests.luau
@@ -17,4 +18,6 @@ tail -1 $P/_walks.txt
 python3 $P/bundle.py $P/water_check.luau $P/_wc.luau && luau $P/_wc.luau > $P/_water.txt
 grep -q "^0 water problems" $P/_water.txt || { cat $P/_water.txt; exit 1 }
 tail -1 $P/_water.txt
+# The client's screens rendered at desktop and phone size.
+$D/gui_check.sh
 cd $D/../.. && rojo build default.project.json -o DragonRealm.rbxlx

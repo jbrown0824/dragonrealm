@@ -12,6 +12,8 @@ local Abilities = require(Shared.Config.Abilities)
 local Quests = require(Shared.Config.Quests)
 local Game = require(Shared.Config.Game)
 local QuestUtil = require(Shared.QuestUtil)
+local TalentUtil = require(Shared.TalentUtil)
+local StoreInfo = require(Shared.Config.Store)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
@@ -31,14 +33,29 @@ local tooltip
 local tracker
 local skillBadge
 local mobile = {}
+local starterAd
 
-local SLOT_KEYS = { "Mouse", "Q", "1", "2", "3", "4" }
+-- Mouse = breath, Q = fireball, 1 = your dragon's own ability, 2-5 = your skill tree loadout.
+local SLOT_KEYS = { "Mouse", "Q", "1", "2", "3", "4", "5" }
 
 local function abilityForSlot(i: number): string?
 	local p = App.State.profile
 	local list = p and p.stats and p.stats.abilities
-	return list and list[i]
+	if not list then
+		return nil
+	end
+	local class = Classes.get(p.class)
+	local signature = class and class.signature
+	if i == 1 then
+		return table.find(list, "Breath") and "Breath" or nil
+	elseif i == 2 then
+		return table.find(list, "Fireball") and "Fireball" or nil
+	elseif i == 3 then
+		return signature and table.find(list, signature) and signature or nil
+	end
+	return TalentUtil.resolveLoadout(list, p.loadout, signature)[i - 3]
 end
+HUD.abilityForSlot = abilityForSlot
 
 local function buildCard()
 	local frame = Theme.make("Frame", {
@@ -290,10 +307,9 @@ local function buildMenu()
 		{ id = "bag", icon = "🎒", label = "Bag [B]", action = function() App.Windows.toggle("Inventory") end },
 		{ id = "pets", icon = "🐲", label = "Pets [P]", action = function() App.Windows.toggle("Pets") end },
 		{ id = "quests", icon = "📜", label = "Quests [J]", action = function() App.Windows.toggle("QuestLog") end },
+		{ id = "collection", icon = "📖", label = "Collection [L]", action = function() App.Windows.toggle("Collection") end },
 		{ id = "map", icon = "🗺️", label = "Map [M]", action = function() App.Windows.toggle("Map") end },
 		{ id = "home", icon = "🏠", label = "Home [H]", action = function() HUD.goHome() end },
-		{ id = "codes", icon = "🎁", label = "Codes", action = function() App.Windows.toggle("Codes") end },
-		{ id = "help", icon = "❓", label = "Help", action = function() App.Windows.toggle("Help") end },
 		{ id = "admin", icon = "🛠️", label = "Admin", action = function() App.Windows.toggle("Admin") end },
 	}
 	for i, e in ipairs(entries) do
@@ -337,6 +353,75 @@ local function buildMenu()
 	end
 end
 
+-- Round buttons at the top right, in the same row as Roblox's own top bar buttons: the Robux
+-- store, codes and help. They're sized from the top bar inset, so they line up with Roblox's.
+local function buildTopBar()
+	local gui = App.Windows.guis.TopBar
+	local inset = 58
+	local ok, topLeft = pcall(function()
+		return game:GetService("GuiService"):GetGuiInset()
+	end)
+	if ok and typeof(topLeft) == "Vector2" and topLeft.Y > 0 then
+		inset = topLeft.Y
+	end
+	local size = math.clamp(inset - 14, 30, 44)
+	local holder = Theme.make("Frame", {
+		Name = "TopButtons",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, math.floor((inset - size) / 2)),
+		Size = UDim2.fromOffset(3 * (size + 8), size),
+		BackgroundTransparency = 1,
+		Parent = gui,
+	})
+	local buttons = {
+		{ id = "store", icon = "💎", color = Color3.fromRGB(40, 150, 70), transparency = 0, action = function() App.Windows.toggle("Store") end },
+		{ id = "codes", icon = "🎁", action = function() App.Windows.toggle("Codes") end },
+		{ id = "help", icon = "❓", action = function() App.Windows.toggle("Help") end },
+	}
+	for i, entry in ipairs(buttons) do
+		local b = Theme.roundButton(entry.icon, entry.action, {
+			Name = entry.id,
+			Position = UDim2.fromOffset((i - 1) * (size + 8), 0),
+			Size = UDim2.fromOffset(size, size),
+			TextSize = math.floor(size * 0.5),
+			BackgroundColor3 = entry.color or Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = entry.transparency or 0.35,
+			Parent = holder,
+		})
+		if entry.color then
+			Theme.stroke(b, Color3.fromRGB(255, 230, 120), 2, 0.1)
+		end
+		menuButtons[entry.id] = b
+	end
+end
+
+-- A "Starter Pack" button under the player card until you buy it or reach Store.STARTER_MAX_LEVEL.
+local function buildStarterAd()
+	starterAd = Theme.button("🎁 Starter Pack!", Color3.fromRGB(200, 90, 40), function()
+		App.Store.open("StarterPack")
+	end, {
+		Name = "StarterAd",
+		Position = UDim2.fromOffset(12, 132),
+		Size = UDim2.fromOffset(190, 40),
+		TextSize = 18,
+		Font = Theme.Fonts.title,
+		Visible = false,
+		Parent = root,
+	})
+	Theme.stroke(starterAd, Color3.fromRGB(255, 230, 120), 2.5, 0)
+	-- a gentle pulse so it gets noticed
+	task.spawn(function()
+		local t = 0
+		while true do
+			task.wait(0.05)
+			t += 0.05
+			if starterAd.Visible then
+				starterAd.UIStroke.Transparency = 0.5 + math.sin(t * 4) * 0.5
+			end
+		end
+	end)
+end
+
 local function buildTracker()
 	tracker = Theme.make("Frame", {
 		Name = "QuestTracker",
@@ -350,23 +435,107 @@ local function buildTracker()
 	Theme.list(tracker, 4)
 end
 
+-- Phones and tablets: the ability buttons move into a thumb cluster around Roblox's jump button
+-- (in the unscaled Touch gui, so positions are in screen points like Roblox's own controls),
+-- the bars go to the top center, and the rest of the HUD tightens up.
+local function mobileLayout()
+	local touch = App.Windows.guis.Touch
+	local vp = workspace.CurrentCamera.ViewportSize
+	local small = math.min(vp.X, vp.Y) <= 500
+	local f = small and 1 or 1.6 -- tablets get Roblox's big jump button, so everything grows
+	-- Roblox's jump button: 70 points, 95 from the right and 90 from the bottom (small screens)
+	local cluster = Theme.make("Frame", { Name = "AbilityCluster", AnchorPoint = Vector2.new(1, 1), Position = UDim2.fromScale(1, 1), Size = UDim2.fromOffset(330 * f, 220 * f), BackgroundTransparency = 1, Parent = touch })
+	local spots = {
+		{ 72, 330 - 177, 220 - 86 }, -- breath, left of the jump button
+		{ 58, 330 - 243, 220 - 78 }, -- Q
+		{ 58, 330 - 309, 220 - 78 }, -- 1
+		{ 54, 330 - 265, 220 - 154 }, -- 2
+		{ 54, 330 - 203, 220 - 154 }, -- 3
+		{ 54, 330 - 141, 220 - 154 }, -- 4
+		{ 54, 330 - 79, 220 - 154 }, -- 5
+	}
+	for i, slot in ipairs(slots) do
+		local spot = spots[i]
+		slot.button.Parent = cluster
+		slot.button.Position = UDim2.fromOffset(spot[2] * f, spot[3] * f)
+		slot.button.Size = UDim2.fromOffset(spot[1] * f, spot[1] * f)
+		slot.button:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
+		slot.icon.TextSize = math.floor(spot[1] * f * 0.5)
+		slot.cdText.TextSize = math.floor(spot[1] * f * 0.34)
+		slot.key.Visible = false
+	end
+	root:FindFirstChild("Abilities").Visible = false
+	-- bars and XP along the top, between the player card and the minimap
+	local barsHolder = root:FindFirstChild("Bars")
+	barsHolder.AnchorPoint = Vector2.new(0.5, 0)
+	barsHolder.Position = UDim2.new(0.5, 0, 0, 6)
+	bars.xp.Position = UDim2.new(0.5, -235, 0, 64)
+	gardenLabel.AnchorPoint = Vector2.new(0.5, 0)
+	gardenLabel.Position = UDim2.new(0.5, 0, 0, 82)
+	gardenLabel.TextXAlignment = Enum.TextXAlignment.Center
+	-- the menu becomes a 2-column grid on the left, under the player card (Roblox's jump button
+	-- and your thumb live on the right), without the key labels (there's no keyboard)
+	local menu = root:FindFirstChild("Menu")
+	menu:FindFirstChildOfClass("UIListLayout"):Destroy()
+	Theme.make("UIGridLayout", { CellSize = UDim2.fromOffset(50, 50), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = menu })
+	menu.AnchorPoint = Vector2.new(0, 0)
+	menu.Position = UDim2.fromOffset(12, 196)
+	menu.Size = UDim2.fromOffset(106, 220)
+	for _, b in pairs(menuButtons) do
+		if b.Parent == menu then
+			b.TextSize = 24
+			for _, child in ipairs(b:GetChildren()) do
+				if child:IsA("TextLabel") and child ~= skillBadge then
+					child.Visible = false
+				end
+			end
+		end
+	end
+	-- quests: under the player card, above the menu (two at most)
+	tracker.AnchorPoint = Vector2.new(0, 0)
+	tracker.Position = UDim2.fromOffset(12, 104)
+	tracker.Size = UDim2.fromOffset(270, 0)
+	starterAd.Position = UDim2.fromOffset(128, 196)
+	tooltip.Visible = false
+end
+
 local function buildMobile()
 	if not UserInputService.TouchEnabled then
 		return
 	end
-	local holder = Theme.make("Frame", {
-		Name = "Touch",
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -170, 1, -120),
-		Size = UDim2.fromOffset(80, 200),
-		BackgroundTransparency = 1,
-		Parent = root,
-	})
-	mobile.fly = Theme.button("🦅 Fly", C.blue, function()
-		App.Movement.toggleFlight()
-	end, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 140), Parent = holder })
-	mobile.up = Theme.button("⬆️ Up", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 20), Parent = holder, Visible = false })
-	mobile.down = Theme.button("⬇️ Down", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 80), Parent = holder, Visible = false })
+	local cluster = App.Windows.guis.Touch and App.Windows.guis.Touch:FindFirstChild("AbilityCluster")
+	if cluster then
+		-- phones: Fly above the jump button, Up / Down beside it while flying
+		local f = cluster.Size.X.Offset / 330
+		local function place(button, x, y)
+			button.Position = UDim2.fromOffset(x * f, y * f)
+			button.Size = UDim2.fromOffset(62 * f, 44 * f)
+			button.TextSize = math.floor(15 * f)
+			button.Parent = cluster
+		end
+		mobile.fly = Theme.button("🦅 Fly", C.blue, function()
+			App.Movement.toggleFlight()
+		end, {})
+		mobile.up = Theme.button("⬆️ Up", C.panel3, nil, { Visible = false })
+		mobile.down = Theme.button("⬇️ Down", C.panel3, nil, { Visible = false })
+		place(mobile.fly, 251, 12)
+		place(mobile.up, 183, 12)
+		place(mobile.down, 115, 12)
+	else
+		local holder = Theme.make("Frame", {
+			Name = "Touch",
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -170, 1, -120),
+			Size = UDim2.fromOffset(80, 200),
+			BackgroundTransparency = 1,
+			Parent = root,
+		})
+		mobile.fly = Theme.button("🦅 Fly", C.blue, function()
+			App.Movement.toggleFlight()
+		end, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 140), Parent = holder })
+		mobile.up = Theme.button("⬆️ Up", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 20), Parent = holder, Visible = false })
+		mobile.down = Theme.button("⬇️ Down", C.panel3, nil, { Size = UDim2.fromOffset(76, 50), Position = UDim2.fromOffset(0, 80), Parent = holder, Visible = false })
+	end
 	for button, dir in pairs({ [mobile.up] = 1, [mobile.down] = -1 }) do
 		button.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -398,6 +567,9 @@ end
 
 -- The quest tracker sits under the minimap; it moves up when the minimap is hidden.
 function HUD.setTrackerTop(y: number)
+	if App.Windows.mobile then
+		return -- phones keep quests on the left
+	end
 	tracker.Position = UDim2.new(1, -86, 0, y)
 end
 
@@ -423,6 +595,19 @@ local function refreshTracker(p)
 		return a.quest.order < b.quest.order
 	end)
 	local tracked = App.Waypoint.trackedQuestId()
+	if App.Windows.mobile then
+		-- phones have room for two, starting with the tracked one
+		table.sort(order, function(a, b)
+			local ta, tb = a.quest.id == tracked, b.quest.id == tracked
+			if ta ~= tb then
+				return ta
+			end
+			return a.quest.order < b.quest.order
+		end)
+		while #order > 2 do
+			table.remove(order)
+		end
+	end
 	for i, entry in ipairs(order) do
 		local done = entry.progress >= entry.quest.objective.count
 		local isTracked = tracked == entry.quest.id
@@ -464,15 +649,18 @@ local function refresh()
 		return
 	end
 	local class = Classes.get(p.class)
-	card.class.Text = class and string.format("Lv %d %s", p.level, class.name) or "Choose your dragon!"
+	card.class.Text = class and string.format("Lv %d%s %s", p.level, (p.paragon or 0) > 0 and (" 💫" .. p.paragon) or "", class.name) or "Choose your dragon!"
+	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL
 	card.icon.Text = class and ({ Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" })[class.id] or "🐉"
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)
 	card.glory.Text = "⚔️ " .. Util.formatNumber(p.glory)
 	card.power.Text = "⚡ " .. Util.formatNumber(p.power or 0)
 
 	if p.level >= Game.LEVEL_CAP then
-		bars.xpFill.Size = UDim2.fromScale(1, 1)
-		bars.xpText.Text = "MAX LEVEL"
+		-- Paragon levels past the cap
+		local need = p.paragonXpToNext or 1
+		bars.xpFill.Size = UDim2.fromScale(math.clamp(p.xp / need, 0, 1), 1)
+		bars.xpText.Text = string.format("💫 Paragon %d  —  %s / %s XP", p.paragon or 0, Util.formatNumber(p.xp), Util.formatNumber(need))
 	else
 		bars.xpFill.Size = UDim2.fromScale(math.clamp(p.xp / p.xpToNext, 0, 1), 1)
 		bars.xpText.Text = string.format("Level %d  —  %s / %s XP", p.level, Util.formatNumber(p.xp), Util.formatNumber(p.xpToNext))
@@ -499,6 +687,12 @@ local function refresh()
 		slot.icon.TextTransparency = 0
 		slot.note.Text = ""
 		slot.button.BackgroundTransparency = a and 0 or 0.6
+		if not a and App.Windows.mobile and i > 3 then
+			-- phones: hide empty skill keys instead of showing a row of empty buttons
+			slot.button.Visible = false
+		elseif App.Windows.mobile then
+			slot.button.Visible = true
+		end
 		if not a then
 			-- A locked signature slot shows its level; other empty slots hint at the skill tree.
 			if i == 3 and class and p.level < Game.SIGNATURE_LEVEL then
@@ -534,7 +728,12 @@ function HUD.init(app)
 	buildBars()
 	buildAbilityBar()
 	buildMenu()
+	buildTopBar()
 	buildTracker()
+	buildStarterAd()
+	if App.Windows.mobile then
+		mobileLayout()
+	end
 	buildMobile()
 	root.Enabled = false
 	App.State.changed:Connect(refresh)

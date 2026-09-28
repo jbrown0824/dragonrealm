@@ -2,6 +2,8 @@
 
 local Theme = {}
 
+Theme.mobile = false -- set by Windows.init on phones and tablets (touch, no keyboard)
+
 Theme.Colors = {
 	bg = Color3.fromRGB(18, 14, 26),
 	panel = Color3.fromRGB(30, 24, 44),
@@ -206,7 +208,7 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 	local close = Theme.button("X", Color3.fromRGB(200, 60, 70), nil, {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.fromOffset(34, 34),
+		Size = Theme.mobile and UDim2.fromOffset(42, 42) or UDim2.fromOffset(34, 34), -- bigger for fingers
 		Font = Theme.Fonts.title,
 		TextSize = 22,
 		Parent = titleBar,
@@ -221,7 +223,92 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 		Parent = frame,
 	})
 	Theme.pad(content, 12)
+	-- Messages about this window (errors, "bought it!") show here instead of in a toast, which
+	-- would be hidden behind the window. See Windows.notify.
+	local banner = Theme.make("Frame", {
+		Name = "StatusBanner",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -10),
+		Size = UDim2.new(1, -40, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Theme.Colors.bg,
+		Visible = false,
+		ZIndex = 40,
+		Parent = frame,
+	})
+	Theme.corner(banner, 10)
+	Theme.stroke(banner, Theme.Colors.accent, 2)
+	Theme.pad(banner, 10)
+	Theme.label({
+		Name = "Text",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 41,
+		Parent = banner,
+	})
 	return frame, content, close, titleBar
+end
+
+-- Show a message in a window's status banner for a few seconds.
+local bannerTokens = {}
+function Theme.showBanner(frame: Instance, text: string, color: Color3?, seconds: number?)
+	local banner = frame:FindFirstChild("StatusBanner")
+	if not banner then
+		return false
+	end
+	local token = (bannerTokens[banner] or 0) + 1
+	bannerTokens[banner] = token
+	banner.Text.Text = text
+	banner.Text.TextColor3 = color or Theme.Colors.text
+	banner.UIStroke.Color = color or Theme.Colors.accent
+	banner.Visible = true
+	task.delay(seconds or 4, function()
+		if bannerTokens[banner] == token then
+			banner.Visible = false
+		end
+	end)
+	return true
+end
+
+-- A round icon button like Roblox's own top bar buttons: dark see-through circle, white icon.
+function Theme.roundButton(icon: string, onClick, props)
+	local defaults = {
+		Size = UDim2.fromOffset(44, 44),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.35,
+		TextSize = 22,
+		Font = Theme.Fonts.bold,
+	}
+	for k, v in pairs(props or {}) do
+		defaults[k] = v
+	end
+	local button = Theme.button(icon, defaults.BackgroundColor3, onClick, defaults)
+	button:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
+	return button
+end
+
+-- A minimize button: an amber circle with a white bar drawn as a Frame (a dash glyph was a gray
+-- smudge on a gray button).
+function Theme.minimizeButton(onClick, props)
+	local defaults = { Name = "Minimize", Size = UDim2.fromOffset(34, 34) }
+	for k, v in pairs(props or {}) do
+		defaults[k] = v
+	end
+	local button = Theme.button("", Color3.fromRGB(215, 140, 40), onClick, defaults)
+	button:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
+	Theme.stroke(button, Color3.fromRGB(255, 255, 255), 2, 0.3)
+	local bar = Theme.make("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.5, 0, 0, 4),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+		Parent = button,
+	})
+	Theme.corner(bar, 2)
+	return button
 end
 
 function Theme.scroll(parent: Instance, props)

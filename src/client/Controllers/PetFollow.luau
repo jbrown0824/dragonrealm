@@ -76,21 +76,22 @@ local function nametag(root: BasePart, speciesId: string, level: number, golden:
 	return tag
 end
 
-local function goldenSparkle(root: BasePart)
-	local sparkle = Instance.new("ParticleEmitter")
-	sparkle.Name = "GoldenSparkle"
-	sparkle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	sparkle.Color = ColorSequence.new(Color3.fromRGB(255, 225, 90))
-	sparkle.LightEmission = 1
-	sparkle.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
-	sparkle.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
-	sparkle.Lifetime = NumberRange.new(0.6, 1)
-	sparkle.Rate = 10
-	sparkle.Speed = NumberRange.new(0.5, 1.5)
-	sparkle.SpreadAngle = Vector2.new(180, 180)
-	sparkle.Parent = root
+-- Golden pets sparkle gold; Secret pets always trail their own `aura` color.
+local function sparkle(root: BasePart, color: Color3, name: string)
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Name = name
+	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	emitter.Color = ColorSequence.new(color)
+	emitter.LightEmission = 1
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Lifetime = NumberRange.new(0.6, 1)
+	emitter.Rate = 10
+	emitter.Speed = NumberRange.new(0.5, 1.5)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Parent = root
 	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(255, 210, 90)
+	light.Color = color
 	light.Range = 6
 	light.Brightness = 1.2
 	light.Parent = root
@@ -127,7 +128,10 @@ local function buildPet(entryText: string)
 	end
 	nametag(model.PrimaryPart, speciesId, tonumber(level) or 1, isGolden)
 	if isGolden then
-		goldenSparkle(model.PrimaryPart)
+		sparkle(model.PrimaryPart, Color3.fromRGB(255, 225, 90), "GoldenSparkle")
+	end
+	if species.aura then
+		sparkle(model.PrimaryPart, species.aura, "SecretAura")
 	end
 	model.Parent = folder
 	return { model = model, root = model.PrimaryPart, motors = motors, info = DragonRig.info(model), phase = math.random() * 10 }

@@ -13,6 +13,7 @@ local Classes = require(Shared.Config.Classes)
 local Abilities = require(Shared.Config.Abilities)
 local Zones = require(Shared.Config.Zones)
 local Seeds = require(Shared.Config.Seeds)
+local Skins = require(Shared.Config.Skins)
 local StatCalc = require(Shared.StatCalc)
 local TalentUtil = require(Shared.TalentUtil)
 local ItemUtil = require(Shared.ItemUtil)
@@ -116,7 +117,10 @@ local function updateNametag(player: Player)
 		return
 	end
 	local class = Classes.get(profile.class)
-	tag.Info.Text = string.format("Lv %d %s", profile.level, class and class.name or "")
+	local paragon = (profile.paragon or 0) > 0 and string.format(" 💫%d", profile.paragon) or ""
+	tag.Info.Text = string.format("Lv %d%s %s", profile.level, paragon, class and class.name or "")
+	tag.Title.Text = profile.title or ""
+	tag.Title.Visible = (profile.title or "") ~= ""
 	local pct = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
 	tag.Bar.Fill.Size = UDim2.fromScale(pct, 1)
 end
@@ -129,15 +133,29 @@ local function createNametag(player: Player, character: Model)
 	local scale = character:GetAttribute("DragonScale") or 1
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Nametag"
-	gui.Size = UDim2.fromOffset(200, 56)
-	gui.StudsOffset = Vector3.new(0, 3.2 * scale, 0)
+	gui.Size = UDim2.fromOffset(200, 72)
+	gui.StudsOffset = Vector3.new(0, 3.6 * scale, 0)
 	gui.MaxDistance = 140
 	gui.PlayerToHideFrom = player
 	gui.LightInfluence = 0
 
+	-- a title from the Collection ("Viking Bane"...)
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, 0, 0, 15)
+	title.Font = Enum.Font.GothamBold
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(255, 200, 90)
+	title.TextStrokeTransparency = 0.4
+	title.Text = ""
+	title.Visible = false
+	title.Parent = gui
+
 	local name = Instance.new("TextLabel")
 	name.Name = "PlayerName"
 	name.BackgroundTransparency = 1
+	name.Position = UDim2.fromOffset(0, 16)
 	name.Size = UDim2.new(1, 0, 0, 22)
 	name.Font = Enum.Font.FredokaOne
 	name.TextScaled = true
@@ -149,7 +167,7 @@ local function createNametag(player: Player, character: Model)
 	local info = Instance.new("TextLabel")
 	info.Name = "Info"
 	info.BackgroundTransparency = 1
-	info.Position = UDim2.fromOffset(0, 22)
+	info.Position = UDim2.fromOffset(0, 38)
 	info.Size = UDim2.new(1, 0, 0, 16)
 	info.Font = Enum.Font.GothamBold
 	info.TextScaled = true
@@ -160,7 +178,7 @@ local function createNametag(player: Player, character: Model)
 	local bar = Instance.new("Frame")
 	bar.Name = "Bar"
 	bar.AnchorPoint = Vector2.new(0.5, 0)
-	bar.Position = UDim2.new(0.5, 0, 0, 42)
+	bar.Position = UDim2.new(0.5, 0, 0, 58)
 	bar.Size = UDim2.fromOffset(110, 8)
 	bar.BackgroundColor3 = Color3.fromRGB(30, 20, 20)
 	bar.BorderSizePixel = 0
@@ -239,7 +257,25 @@ function PlayerService.snapshot(player: Player)
 		gold = profile.gold,
 		glory = profile.glory,
 		talents = profile.talents,
-		talentPoints = TalentUtil.available(profile.level, profile.talents),
+		talentPoints = TalentUtil.available(profile.level, profile.talents, profile.paragon),
+		paragon = profile.paragon,
+		paragonXpToNext = Game.paragonXp(profile.paragon or 0),
+		loadout = profile.loadout,
+		championKills = profile.championKills,
+		flowersHarvested = profile.flowersHarvested,
+		fishCaught = profile.fishCaught,
+		animalsHunted = profile.animalsHunted,
+		chestsOpened = profile.chestsOpened,
+		petBook = profile.petBook,
+		achievements = profile.achievements,
+		milestones = profile.milestones,
+		skins = profile.skins,
+		skin = profile.skin,
+		titles = profile.titles,
+		title = profile.title,
+		passes = S.StoreService.ownedPasses(player),
+		starterPack = profile.starterPack,
+		goldPackAmounts = S.StoreService.goldPackAmounts(player),
 		inventory = profile.inventory,
 		equipped = profile.equipped,
 		seeds = profile.seeds,
@@ -257,6 +293,8 @@ function PlayerService.snapshot(player: Player)
 		eggs = profile.eggs,
 		pets = profile.pets,
 		treats = profile.treats,
+		shopStock = S.StockService.get(player),
+		restockAt = S.StockService.nextRestockAt(),
 		petsEquipped = profile.petsEquipped,
 		petSlots = Game.petSlots(profile.level),
 		robots = profile.robots,
@@ -296,7 +334,8 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	PlayerService.recompute(player)
 	local stats = st.stats
 
-	local model, hipHeight = DragonBuilder.build(profile.class, { name = player.Name })
+	local skin = Skins.get(profile.skin)
+	local model, hipHeight = DragonBuilder.build(profile.class, { name = player.Name, colors = skin and skin.colors, fire = skin and skin.fire })
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R15
 	humanoid.HipHeight = hipHeight
@@ -358,27 +397,53 @@ end
 
 ---------------------------------------------------------------- progression
 
+-- Past the level cap, XP fills Paragon levels instead (small bonus each, a skill point every
+-- Game.PARAGON_POINT_EVERY).
+local function gainParagon(player: Player, profile)
+	local gained = 0
+	while profile.xp >= Game.paragonXp(profile.paragon) do
+		profile.xp -= Game.paragonXp(profile.paragon)
+		profile.paragon += 1
+		gained += 1
+	end
+	if gained == 0 then
+		return
+	end
+	local points = math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) - math.floor((profile.paragon - gained) / Game.PARAGON_POINT_EVERY)
+	PlayerService.recompute(player)
+	Remotes.event("Announce"):FireClient(player, {
+		title = "💫 PARAGON " .. profile.paragon .. "!",
+		text = points > 0 and string.format("+%d skill point%s! Spend %s in your skill tree (K).", points, points > 1 and "s" or "", points > 1 and "them" or "it")
+			or string.format("A little stronger. Next skill point at Paragon %d.", (math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) + 1) * Game.PARAGON_POINT_EVERY),
+		color = Color3.fromRGB(190, 150, 255),
+		duration = 4,
+	})
+	if player.Character then
+		Remotes.event("VFX"):FireAllClients({ kind = "levelUp", character = player.Character })
+	end
+	updateNametag(player)
+end
+
 function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 	local profile = PlayerService.getProfile(player)
 	local st = state[player]
 	if not profile or not st or amount <= 0 then
 		return
 	end
-	if profile.level >= Game.LEVEL_CAP then
-		return
-	end
 	if not raw and st.stats then
-		amount = amount * (1 + st.stats.xpPct / 100) * Tuning.global("xp")
+		amount = amount * (1 + st.stats.xpPct / 100) * Tuning.global("xp") * S.StoreService.xpMultiplier(player)
 	end
 	profile.xp += math.floor(amount)
+	if profile.level >= Game.LEVEL_CAP then
+		gainParagon(player, profile)
+		PlayerService.markDirty(player)
+		return
+	end
 
 	local startLevel = profile.level
 	while profile.level < Game.LEVEL_CAP and profile.xp >= Game.xpToNext(profile.level) do
 		profile.xp -= Game.xpToNext(profile.level)
 		profile.level += 1
-	end
-	if profile.level >= Game.LEVEL_CAP then
-		profile.xp = 0
 	end
 
 	if profile.level > startLevel then
@@ -390,7 +455,8 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		local gained = profile.level - startLevel
 		Remotes.event("Announce"):FireClient(player, {
 			title = "LEVEL UP!",
-			text = string.format("You are now level %d  •  +%d skill point%s", profile.level, gained, gained > 1 and "s" or ""),
+			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, gained, gained > 1 and "s" or "",
+				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or ""),
 			color = Color3.fromRGB(255, 215, 80),
 			duration = 4,
 		})
@@ -404,6 +470,9 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 			local a = Abilities.get(class.signature)
 			PlayerService.notify(player, string.format("New ability: %s %s! Use it with key 1.", a.icon, a.name), Color3.fromRGB(255, 215, 80), "✨")
 		end
+		if profile.level >= Game.LEVEL_CAP then
+			gainParagon(player, profile) -- leftover XP
+		end
 	end
 	PlayerService.markDirty(player)
 end
@@ -415,13 +484,19 @@ function PlayerService.addGold(player: Player, amount: number, applyBonus: boole
 		return 0
 	end
 	if applyBonus and st and st.stats then
-		amount = amount * (1 + st.stats.goldPct / 100) * Tuning.global("gold")
+		amount = amount * (1 + st.stats.goldPct / 100) * Tuning.global("gold") * S.StoreService.goldMultiplier(player)
 	end
 	amount = math.floor(amount)
 	profile.gold += amount
 	updateLeaderstats(player)
 	PlayerService.markDirty(player)
 	return amount
+end
+
+-- Gold earned by playing (quests, chests, harvests, PvP): doubled by the 2x Gold pass. Kill gold
+-- goes through addGold(..., true), which also applies gold find.
+function PlayerService.addEarnedGold(player: Player, amount: number): number
+	return PlayerService.addGold(player, amount * S.StoreService.goldMultiplier(player))
 end
 
 function PlayerService.spendGold(player: Player, amount: number): boolean
@@ -505,7 +580,7 @@ function PlayerService.setLevel(player: Player, level: number)
 	end
 	profile.level = math.clamp(math.floor(level), 1, Game.LEVEL_CAP)
 	profile.xp = 0
-	if TalentUtil.available(profile.level, profile.talents) < 0 then
+	if TalentUtil.available(profile.level, profile.talents, profile.paragon) < 0 then
 		profile.talents = {}
 	end
 	PlayerService.recompute(player)
@@ -596,7 +671,7 @@ local function onSpendTalent(player: Player, talentId, count)
 	count = math.clamp(math.floor(tonumber(count) or 1), 1, 5)
 	local learned = 0
 	for _ = 1, count do
-		local ok, reason = TalentUtil.canLearn(profile.class, profile.level, profile.talents, talentId)
+		local ok, reason = TalentUtil.canLearn(profile.class, profile.level, profile.talents, talentId, profile.paragon)
 		if not ok then
 			if learned == 0 then
 				return false, reason
@@ -610,16 +685,32 @@ local function onSpendTalent(player: Player, talentId, count)
 	return true, learned
 end
 
+-- Choose which learned abilities sit on keys 2-5.
+local function onSetLoadout(player: Player, list)
+	local profile = PlayerService.getProfile(player)
+	if not profile or type(list) ~= "table" then
+		return false
+	end
+	local clean = {}
+	for i = 1, TalentUtil.LOADOUT_SLOTS do
+		local id = list[i]
+		clean[i] = (type(id) == "string" and Abilities.get(id)) and id or false
+	end
+	profile.loadout = clean
+	PlayerService.markDirty(player)
+	return true
+end
+
 -- Spend every point you can down one branch.
 local function onAutoSpend(player: Player, branchIndex)
 	local profile = PlayerService.getProfile(player)
 	if not profile or not profile.class or type(branchIndex) ~= "number" then
 		return false, "Invalid"
 	end
-	if TalentUtil.available(profile.level, profile.talents) <= 0 then
+	if TalentUtil.available(profile.level, profile.talents, profile.paragon) <= 0 then
 		return false, "No skill points left. Level up to earn more!"
 	end
-	local learned = TalentUtil.autoFill(profile.class, profile.level, profile.talents, branchIndex)
+	local learned = TalentUtil.autoFill(profile.class, profile.level, profile.talents, branchIndex, profile.paragon)
 	if learned == 0 then
 		return false, "Nothing more to learn in that branch right now."
 	end
@@ -770,6 +861,7 @@ function PlayerService.start()
 	Remotes.func("Transform").OnServerInvoke = onTransform
 	Remotes.func("SpendTalent").OnServerInvoke = onSpendTalent
 	Remotes.func("AutoSpendBranch").OnServerInvoke = onAutoSpend
+	Remotes.func("SetLoadout").OnServerInvoke = onSetLoadout
 	Remotes.func("ResetTalents").OnServerInvoke = onResetTalents
 	Remotes.func("EquipItem").OnServerInvoke = onEquip
 	Remotes.func("UnequipItem").OnServerInvoke = onUnequip

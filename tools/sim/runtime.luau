@@ -119,6 +119,12 @@ typeof = function(v)
 			return "CFrame"
 		elseif rawget(v, "R") ~= nil and rawget(v, "G") ~= nil then
 			return "Color3"
+		elseif rawget(v, "Width") ~= nil then
+			return "UDim2"
+		elseif rawget(v, "Scale") ~= nil then
+			return "UDim"
+		elseif rawget(v, "X") ~= nil and rawget(v, "Y") ~= nil then
+			return "Vector2"
 		end
 	end
 	return realTypeof(v)

@@ -93,7 +93,7 @@ Talents.Stormwing = {
 		},
 	},
 	{
-		id = "Windrider", name = "Windrider", icon = "🪶",
+		id = "Windrider", name = "Windrider", icon = "🍃",
 		desc = "Speed, flight and evasion.",
 		talents = {
 			T("SwiftWings", "Swift Wings", 1, 1, 3, { speedPct = 6 }),
@@ -158,7 +158,7 @@ Talents.Behemoth = {
 		},
 	},
 	{
-		id = "Warlord", name = "Warlord", icon = "🪓",
+		id = "Warlord", name = "Warlord", icon = "⚒️",
 		desc = "Brutal slams and rampages.",
 		talents = {
 			T("BruteForce", "Brute Force", 1, 1, 3, { attackPct = 5 }),
@@ -176,7 +176,7 @@ Talents.Behemoth = {
 
 Talents.Frostwyrm = {
 	{
-		id = "Glacier", name = "Glacier", icon = "🧊",
+		id = "Glacier", name = "Glacier", icon = "🏔️",
 		desc = "Icy armor and crowd control.",
 		talents = {
 			T("FrozenScales", "Frozen Scales", 1, 1, 3, { defensePct = 8 }),
@@ -206,7 +206,7 @@ Talents.Frostwyrm = {
 		},
 	},
 	{
-		id = "Frostfang", name = "Frostfang", icon = "🦷",
+		id = "Frostfang", name = "Frostfang", icon = "🐺",
 		desc = "Shattering single-target strikes.",
 		talents = {
 			T("IceFangs", "Ice Fangs", 1, 1, 3, { critChance = 3 }),

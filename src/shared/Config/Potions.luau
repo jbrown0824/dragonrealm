@@ -39,7 +39,7 @@ Potions.EmberheartTonic = {
 	desc = "Stoke your inner fire: hit harder with everything.",
 }
 Potions.StoneskinDraught = {
-	id = "StoneskinDraught", name = "Stoneskin Draught", icon = "🪨", color = Color3.fromRGB(180, 180, 190),
+	id = "StoneskinDraught", name = "Stoneskin Draught", icon = "🛡️", color = Color3.fromRGB(180, 180, 190),
 	stats = { defensePct = 5 },
 	desc = "Scales like granite: more defense.",
 }

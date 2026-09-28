@@ -14,6 +14,10 @@ local Pets = require(Config.Pets)
 local Animals = require(Config.Animals)
 local Food = require(Config.Food)
 local Civilians = require(Config.Civilians)
+local Collections = require(Config.Collections)
+local Skins = require(Config.Skins)
+local StoreInfo = require(Config.Store)
+local Shops = require(Config.Shops)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local Tuning = require(Shared.Tuning)
@@ -547,6 +551,82 @@ do
 	for name, pos in pairs(W.nodes) do
 		check(town == nil or Zones.areaAt(pos) == town, "walk node is in town: " .. name)
 	end
+end
+
+---------------------------------------------------------------- collections, skins, store, shops
+do
+	local function checkReward(reward, where)
+		for eggId in pairs(reward.eggs or {}) do
+			check(Pets.Eggs[eggId] ~= nil, where .. ": egg " .. eggId .. " exists")
+		end
+		if reward.skin then
+			check(Skins.get(reward.skin) ~= nil, where .. ": skin " .. reward.skin .. " exists")
+		end
+	end
+	for i, m in ipairs(Collections.PetMilestones) do
+		checkReward(m.reward, "milestone " .. i)
+	end
+	for _, a in ipairs(Collections.Achievements) do
+		check(#a.tiers == 3, a.id .. " has three tiers")
+		for t = 2, #a.tiers do
+			check(a.tiers[t].count > a.tiers[t - 1].count, a.id .. " tiers go up")
+		end
+		for t, tier in ipairs(a.tiers) do
+			checkReward(tier.reward, a.id .. " tier " .. t)
+		end
+	end
+	for _, id in ipairs(Skins.Order) do
+		local skin = Skins.get(id)
+		check(skin ~= nil, "skin in order exists: " .. id)
+		if skin and skin.colors then
+			for _, key in ipairs({ "primary", "secondary", "belly", "accent", "eyes", "wing", "horn" }) do
+				check(skin.colors[key] ~= nil, id .. " skin has " .. key)
+			end
+		end
+	end
+	-- every skin except Classic can be earned somewhere (achievements, pet book or the store)
+	local earnable = { Classic = true }
+	for _, m in ipairs(Collections.PetMilestones) do
+		earnable[m.reward.skin or ""] = true
+	end
+	for _, a in ipairs(Collections.Achievements) do
+		for _, tier in ipairs(a.tiers) do
+			earnable[tier.reward.skin or ""] = true
+		end
+	end
+	for _, product in pairs(StoreInfo.Products) do
+		earnable[product.skin or ""] = true
+	end
+	for _, id in ipairs(Skins.Order) do
+		check(earnable[id], "skin " .. id .. " can be unlocked")
+	end
+	for _, key in ipairs(StoreInfo.ProductOrder) do
+		local product = StoreInfo.Products[key]
+		check(product ~= nil and product.robux > 0, "store product " .. key)
+		for eggId in pairs(product and product.eggs or {}) do
+			check(Pets.Eggs[eggId] ~= nil, key .. " egg exists")
+		end
+	end
+	check(#Pets.speciesOfRarity("Secret") == 3, "three Secret pets")
+	check(StoreInfo.goldFor(20, 30) > StoreInfo.goldFor(20, 1) * 5, "gold packs grow with level")
+	for eggId in pairs(Shops.Eggs) do
+		check(Pets.Eggs[eggId] and Pets.Eggs[eggId].price ~= nil, "the hatchery only stocks eggs with a price: " .. eggId)
+	end
+	for rarity in pairs(Shops.Gear.rarityWeights) do
+		check(Shops.Gear.amount[rarity] ~= nil, "gear stock amount for " .. rarity)
+	end
+end
+
+---------------------------------------------------------------- paragon and the ability loadout
+do
+	check(TalentUtil.totalPoints(Game.LEVEL_CAP, Game.PARAGON_POINT_EVERY * 3) == Game.LEVEL_CAP - 1 + 3, "Paragon adds a point every few levels")
+	check(Game.paragonXp(10) > Game.paragonXp(0), "Paragon levels get a bit harder")
+	local abilities = { "Breath", "Fireball", "Sig", "A", "B", "C", "D", "E" }
+	local out = TalentUtil.resolveLoadout(abilities, { "E", false, "Missing", "A" }, "Sig")
+	check(out[1] == "E" and out[4] == "A", "loadout keeps the player's picks")
+	check(out[2] == "B" and out[3] == "C", "empty or stale keys fill with the rest in order")
+	local few = TalentUtil.resolveLoadout({ "Breath", "Fireball", "A" }, nil, "Sig")
+	check(few[1] == "A" and few[2] == nil, "loadout with one ability")
 end
 
 ---------------------------------------------------------------- balance report

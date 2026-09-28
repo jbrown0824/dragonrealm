@@ -22,7 +22,8 @@ local App
 local player = Players.LocalPlayer
 local MIN_X, MIN_Z = Zones.WorldBounds.min.X, Zones.WorldBounds.min.Z
 local MAX_X, MAX_Z = Zones.WorldBounds.max.X, Zones.WorldBounds.max.Z
-local MINI_SIZE = 180
+local MINI_SIZE = 180 -- (phones: 140, at the screen edge; see Map.init)
+local MINI_RIGHT = 86 -- room for the menu column on the right (desktop)
 local MINI_SCALE = 0.55 -- pixels per stud on the minimap
 local BIG_SCALE = 0.365
 
@@ -259,7 +260,7 @@ local function buildMini(root: Instance)
 	local frame = Theme.make("Frame", {
 		Name = "Minimap",
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -86, 0, 10),
+		Position = UDim2.new(1, -MINI_RIGHT, 0, 10),
 		Size = UDim2.fromOffset(MINI_SIZE, MINI_SIZE),
 		BackgroundColor3 = Color3.fromRGB(30, 50, 30),
 		ClipsDescendants = true,
@@ -281,7 +282,7 @@ local function buildMini(root: Instance)
 	end)
 	mini.zoneLabel = Theme.label({
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -86, 0, MINI_SIZE + 12),
+		Position = UDim2.new(1, -MINI_RIGHT, 0, MINI_SIZE + 12),
 		Size = UDim2.fromOffset(MINI_SIZE, 18),
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -291,7 +292,7 @@ local function buildMini(root: Instance)
 	})
 	mini.hint = Theme.label({
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -90, 0, MINI_SIZE + 6),
+		Position = UDim2.new(1, -MINI_RIGHT - 4, 0, MINI_SIZE + 6),
 		Size = UDim2.fromOffset(60, 16),
 		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -300,13 +301,20 @@ local function buildMini(root: Instance)
 		ZIndex = 70,
 		Parent = root,
 	})
+	mini.zoneLabel.Visible = not App.Windows.mobile
+	mini.hint.Visible = not App.Windows.mobile
 	-- hide / show the minimap (N)
-	mini.hide = Theme.button("➖", Color3.fromRGB(40, 35, 55), function()
+	mini.hide = Theme.minimizeButton(function()
 		Map.setMiniVisible(false, true)
-	end, { Position = UDim2.fromOffset(4, 4), Size = UDim2.fromOffset(24, 22), TextSize = 11, ZIndex = 70, Parent = frame })
+	end, { Position = UDim2.fromOffset(4, 4), Size = UDim2.fromOffset(26, 26), ZIndex = 70, Parent = frame })
+	for _, d in ipairs(mini.hide:GetDescendants()) do
+		if d:IsA("Frame") then
+			d.ZIndex = 71
+		end
+	end
 	mini.show = Theme.button("🗺️", C.panel2, function()
 		Map.setMiniVisible(true, true)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -86, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
+	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -MINI_RIGHT, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
 	Theme.stroke(mini.show, C.accentDark, 2, 0.2)
 	mini.visible = true
 end
@@ -315,8 +323,9 @@ end
 function Map.setMiniVisible(visible: boolean, save: boolean?)
 	mini.visible = visible
 	mini.frame.Visible = visible
-	mini.zoneLabel.Visible = visible
-	mini.hint.Visible = visible
+	-- (phones: no zone name or "M = map" under the minimap: that's where the Fly button goes)
+	mini.zoneLabel.Visible = visible and not App.Windows.mobile
+	mini.hint.Visible = visible and not App.Windows.mobile
 	mini.show.Visible = not visible
 	App.HUD.setTrackerTop(visible and 236 or 60)
 	if save then
@@ -500,6 +509,11 @@ end
 
 function Map.init(app)
 	App = app
+	if App.Windows.mobile then
+		-- phones: a smaller minimap right at the edge (the menu lives on the left there)
+		MINI_SIZE = 140
+		MINI_RIGHT = 12
+	end
 	buildMini(App.Windows.guis.HUD)
 	buildBig()
 	App.Waypoint.changed:Connect(function()

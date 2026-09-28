@@ -467,6 +467,7 @@ local function reward(player: Player, e)
 	S.LootService.dropForEnemy(player, e, e.root.Position)
 	S.QuestService.progress(player, "kill", e.typeId, 1)
 	if e.miniBoss then
+		profile.championKills = (profile.championKills or 0) + 1
 		S.QuestService.progress(player, "miniBoss", e.typeId, 1)
 	end
 end

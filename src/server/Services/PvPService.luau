@@ -35,7 +35,7 @@ function PvPService.onKill(killer: Player, victim: Player)
 
 	local glory = 1 + (endedStreak >= 3 and 2 or 0)
 	S.PlayerService.addGlory(killer, glory)
-	local gold = S.PlayerService.addGold(killer, 20 + 5 * victimProfile.level)
+	local gold = S.PlayerService.addEarnedGold(killer, 20 + 5 * victimProfile.level)
 	S.QuestService.progress(killer, "pvpKill", nil, 1)
 
 	S.PlayerService.notify(killer, string.format("You defeated %s! +%d Glory, +%d gold", victim.DisplayName, glory, gold), Color3.fromRGB(255, 120, 100), "⚔️")

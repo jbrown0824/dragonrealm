@@ -16,13 +16,15 @@ tools/checks/run_all.sh     # lint, xref, logic tests, place build
 tools/sim/run.sh            # boots the real server + client in a simulator and plays the game
 ```
 
-`run_all.sh` runs six things:
+`run_all.sh` runs eight things:
 1. Compiles every file and runs `luau-analyze`, filtering out noise about Roblox globals and types it doesn't know.
-2. `xref.py`: every `S.Service.fn` (server) and `App.Module.fn` (client) call, `Remotes.event/func("Name")` name and require path must actually exist. The analyzer can't see these because services are wired together at runtime. Module tables must be named like their file (a UI module `Pets.luau` returns `Pets`; alias a same-named config, e.g. `PetInfo`).
-3. `logic_test.luau`: data-consistency tests for the shared modules (talent trees, abilities, items, quests, zones, potions, pets and pet levels, treats, villagers and their walking graph, animals, food, hunger, live tuning, balance table).
-4. `walk_check.py`: builds the world offline and checks every straight walk a villager can take (`Zones.TownWalk`, each house door, up the ramp and between the indoor spots) against the solid parts. Move a stall, lamp or piece of furniture and this tells you if you blocked a route.
-5. `water_check.luau`: every lake and the river is deep enough, never hangs over the void, and the longships have water under their whole hull.
-6. Builds the place file.
+2. `glyph_check.py`: no characters Roblox can't draw (Unicode 12+ emoji like 🪨, and symbols like ✕ ● ○). They show up as empty boxes in game.
+3. `xref.py`: every `S.Service.fn` (server) and `App.Module.fn` (client) call, `Remotes.event/func("Name")` name and require path must actually exist. The analyzer can't see these because services are wired together at runtime. Module tables must be named like their file (a UI module `Pets.luau` returns `Pets`; alias a same-named config, e.g. `PetInfo`).
+4. `logic_test.luau`: data-consistency tests for the shared modules (talent trees, abilities, items, quests, zones, potions, pets and pet levels, treats, villagers and their walking graph, animals, food, hunger, live tuning, balance table).
+5. `walk_check.py`: builds the world offline and checks every straight walk a villager can take (`Zones.TownWalk`, each house door, up the ramp and between the indoor spots) against the solid parts. Move a stall, lamp or piece of furniture and this tells you if you blocked a route.
+6. `water_check.luau`: every lake and the river is deep enough, never hangs over the void, and the longships have water under their whole hull.
+7. `gui_check.sh`: runs the real client in the simulator at desktop (1280×720) and phone (844×390, touch) size, dumps the main screens (HUD, pets, eggs, store, collection, skill tree, shops, map) and renders them with `tools/preview/gui_render.py`. It fails on client errors, text that overflows its box, or panels off the screen. **Look at the PNGs** in `tools/preview/_gui_desktop` and `_gui_phone` after any UI change.
+8. Builds the place file.
 
 **Simulation** (`tools/sim/`): `boot.luau` runs every server service (in `init.server.luau` ORDER) on a virtual clock against the mock Roblox API in `tools/preview/mock.luau`. `smoke.luau` plays two fake players through classes, admin tools, farming and robots, potions, eggs and pets, hunger, fishing, dummies, hunting, per-player chests, champion helpers, villagers, the alarm, bosses, death and an old-format save. `client_smoke.luau` runs the real `init.client.luau` for a local player with remotes looping back to the server: tutorial, every window, pet nametags / feeding / golden merge, per-player chest view, every ability's effects (`VFX.errorCount` must stay 0), codes → admin panel, fishing UI, hotkeys. Both print every script error with a traceback and must end with `0 script errors, 0 failed checks`. When you add a feature, add it to a scenario. When the mock is missing an API, add it to `mock.luau` the way Roblox behaves (defaults matter: buttons are `Active`, GUI objects are `Visible`).
 
@@ -34,14 +36,17 @@ tools/sim/run.sh            # boots the real server + client in a simulator and 
 src/shared/   -> ReplicatedStorage.Shared
   Config/       all tuning data: Game (pacing, boss timers, hunger, robots, pet slots, camp respawns),
                 Classes, Talents, Abilities, Items, Seeds, Enemies (vikings, champions, bosses), Animals,
-                Food (meat, fish), Potions, Pets (species, eggs, levels, golden merges), Civilians
-                (village dragons), Quests, Zones (map layout, houses, villager walking graph), Sounds
+                Food (meat, fish), Potions, Pets (species incl. Secret, eggs, levels, golden merges),
+                Civilians (village dragons), Shops (limited stock), Store (Robux ids and products),
+                Collections (pet book, achievements), Skins, Quests, Zones (map layout, houses,
+                villager walking graph), Sounds
   DragonBuilder builds a dragon from parts (body plan per class in PLANS; `colors`/`fire`/`lite`
                 options make the nano dragon pets)
   DragonRig     pure pose math for dragon Motor6Ds (used by the client Animator, pets and the previews)
   StatCalc      final stats; BonusUtil adds potions, pets and hunger as buff entries
   Tuning        live admin balance multipliers (server owns, replicated to clients)
-  ItemUtil (incl. isUpgrade / bestPerSlot), TalentUtil (incl. autoFill), QuestUtil, Remotes, Signal,
+  ItemUtil (incl. isUpgrade / bestPerSlot), TalentUtil (incl. autoFill, Paragon points and the
+                keys 2-5 loadout), QuestUtil, Remotes, Signal,
   Util (incl. spline, shared by the river builder and the map)
 src/server/   -> ServerScriptService.Server (init.server.luau boots World, then Services in ORDER)
   Config/       AdminConfig: admin code, allowed user ids, promo codes (server-only)
@@ -51,7 +56,9 @@ src/server/   -> ServerScriptService.Server (init.server.luau boots World, then 
   Services/     Data, Player, Combat, Enemy, Loot, Shop, Farm, Quest, PvP, Boss, Zone, Survival (hunger,
                 food), Wildlife (animals, carcasses), Fishing, Potion, Pet, Training (dummies, DPS,
                 sparring golem), Camp (per-player chests, champions), Civilian (village dragons who
-                walk Zones.TownWalk and visit houses), Admin (codes, admin actions, tuning), Tutorial
+                walk Zones.TownWalk and visit houses), Stock (per-player limited stock), Achievement (pet
+                book, achievements, skins, titles), Store (Robux passes and products), Admin (codes,
+                admin actions, tuning), Tutorial
 src/client/   -> StarterPlayerScripts.Client (init.client.luau builds App)
   Controllers/  State, Combat (input/aim, hotkeys), Movement (flight/dash), VFX (basic effects),
                 SpellFX (ultimate flourishes, heal "+" signs, lasting spells that follow a dragon,
@@ -59,8 +66,10 @@ src/client/   -> StarterPlayerScripts.Client (init.client.luau builds App)
                 view), PetFollow (draws everyone's pets + nametags), Waypoint (the one
                 destination: quest or picked place, pin + guide line), Sfx
   UI/           Theme helpers, Windows manager, HUD and each screen (Shop, Inventory, SkillTree, QuestUI,
-                Potions, Pets, Robots, Codes, Admin, Fishing, Training, Tutorial, Map (minimap + M map)...)
-tools/checks/   lint / xref / logic tests   tools/sim/   server + client simulation   tools/preview/   renders + checks
+                Potions, Pets, Robots, Codes, Admin, Fishing, Training, Tutorial, Map (minimap + M map),
+                Store (Robux), Collection...)
+tools/checks/   lint / glyphs / xref / logic tests / gui   tools/sim/   server + client simulation (+ gui_shots)
+tools/preview/  world renders, terrain map, clipping, walk and water checks, gui_render.py
 ```
 
 ## Conventions
@@ -71,10 +80,13 @@ tools/checks/   lint / xref / logic tests   tools/sim/   server + client simulat
 - **Stats**: anything that changes stats outside gear and talents (potions, pets, hunger) goes through `BonusUtil.entries(profile)` so `PlayerService.recompute` and the tests agree. Balance numbers that the admin panel tunes go through `Tuning` inside `StatCalc`.
 - **Stalls** that open a window (not a gear shop) use a `PanelPrompt` tag with a `Panel` attribute; the server fires `OpenPanel` and `init.client.luau` opens the window.
 - **Profile fields**: add new fields to `defaultProfile` in DataService; `reconcile` fills them into old saves. Migrate changed shapes on load (see `FarmService.migratePlant`) and add the old shape to the sim's save test.
-- **UI** is built in code with `Theme.make/label/button/window`, designed for a 1100×700 screen and scaled with UIScale. The HUD's top-right column is: minimap (y 10-190), zone name, then the quest tracker (y 236+); the menu buttons sit to its right.
+- **UI** is built in code with `Theme.make/label/button/window`, designed for a 1100×700 screen and scaled with UIScale. Windows also get a "Fit" UIScale when they'd be too big for the screen. The desktop HUD's top-right column is: minimap (y 10-190), zone name, then the quest tracker (y 236+); the menu buttons sit to its right. The 💎 🎁 ❓ buttons are in the unscaled `TopBar` gui, in Roblox's top bar row.
+- **Phones** (`Windows.mobile`: touch, no keyboard): `HUD.mobileLayout` moves the ability buttons into the unscaled `Touch` gui (screen points, placed around Roblox's jump button: 70pt at 95 from the right and 90 from the bottom on small screens), puts the bars at the top, the menu in a 2-column grid on the left, a smaller minimap at the edge, and toasts at the top center. Small screens get a larger HUD scale. Check both sizes with `gui_check.sh` when you touch the HUD.
+- **Messages in windows**: use `App.Windows.notify(text, color, icon)`: it shows in the open window's status banner (toasts sit behind windows), or as a toast when no window is open.
 - **Text glyphs**: use emoji or plain ASCII in UI text. Symbol characters like ✕ ▲ ● − ↺ ✔ can render as empty boxes in Roblox fonts (the old close button did). Draw shapes (pips, arrows) with Frames instead.
 - **Map data**: roads, trails, lakes, the river, camps and shops all come from `Config/Zones`, which both the world builder and the map UI read. Add new places there so they show up on the map.
 - **Balance numbers** belong in `src/shared/Config/`, not in service code.
+- **Robux**: products are granted only in `StoreService` (ProcessReceipt records the receipt id on the profile and saves before returning PurchaseGranted). Never grant paid items anywhere else. Ids live in `Config/Store`; with an id of 0, Studio grants items free for testing (`StudioPurchase` refuses outside Studio).
 - Match the existing style: tabs, typed function parameters, and short header comments explaining *why*.
 
 ## Gotchas (learned the hard way)
@@ -91,6 +103,8 @@ tools/checks/   lint / xref / logic tests   tools/sim/   server + client simulat
 - Player dragons are custom Humanoid rigs (R15 rig type, manual `HipHeight`, `CharacterAutoLoads = false`, spawned by `PlayerService.spawn`). The client owns its dragon's physics, so flight and dash run client-side in `Movement` (flight speed × the `FlightSpeedMult` character attribute).
 - Tween completion: connect `tween.Completed` **before** `tween:Play()`.
 - **Pets** are drawn by each client from the character's `Pets` attribute: `species:level:golden` entries, comma-separated (PetService.applyToCharacter). Pet records are `{ uid, species, level?, golden? }`; a missing level means 1.
+- **Limited stock** is per player and saved (`profile.shopStock`); vendors call `S.StockService.left/take`. Gear rows store slot and rarity only; the item is made at the buyer's current level.
+- **Paragon**: past the level cap `profile.xp` fills `profile.paragon`. Anything that counts skill points must pass the paragon (`TalentUtil.available(level, talents, paragon)`).
 - **Part shapes**: `Shape = Ball` forces a part to a sphere. For an ellipsoid use a block with a `SpecialMesh` of type Sphere (`Props.ellipsoid`).
 - `Workspace.StreamingEnabled` is off (the project file sets it), so clients can assume the whole map exists.
 - DataStores are skipped in Studio unless API access is enabled; `DataService` falls back to a fresh profile each session. Saved plot arrays use `false` for empty slots, never `nil` holes. Players whose save predates the tutorial skip it.

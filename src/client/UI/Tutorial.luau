@@ -103,7 +103,7 @@ local STEPS = {
 			return p ~= nil and p.garden ~= nil and #p.garden > 0
 		end },
 	{ title = "Stay fed", text = "The orange bar is your <b>hunger</b>. Hunt animals in <b>Elk Meadows</b> (west) or <b>Whisperwood</b> (east), or fish at the 🎣 spots, then press <b>G</b> to eat. Hungry dragons fly and fight worse!", button = "Got it" },
-	{ title = "Pets & potions", text = "<b>Nestmother's Hatchery</b> sells eggs that hatch into nano dragon pets (<b>P</b>). The <b>Bubbling Cauldron</b> sells permanent potions. Your lair's <b>Bot Dock</b> sells garden robots.", button = "Cool!" },
+	{ title = "Pets & potions", text = "<b>Nestmother's Hatchery</b> sells eggs that hatch right away into nano dragon pets (<b>P</b>). The <b>Bubbling Cauldron</b> sells permanent potions. Your lair's <b>Bot Dock</b> sells garden robots.", button = "Cool!" },
 	{ title = "You're ready!", text = "Cross the bridge south to fight vikings, open camp chests and beat camp champions (💀). Finish the tour for <b>150 gold and a dragon egg</b>!", button = "Finish tour" },
 }
 
