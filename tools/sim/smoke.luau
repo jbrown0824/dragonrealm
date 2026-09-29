@@ -459,6 +459,20 @@ task.spawn(function()
 	check(invoke("StudioPurchase", p1, "product", "StarterPack") and profile.starterPack and profile.skins.Sunrise, "starter pack")
 	check((profile.eggs.StormEgg or 0) == stormBefore + 2, "starter pack eggs")
 	check(not invoke("StudioPurchase", p1, "product", "StarterPack"), "the starter pack is once only")
+	-- Gold Rush: +100% gold for 30 minutes of play, counting down only while you're online
+	local goldMult = S.StoreService.goldMultiplier(p1)
+	check(invoke("StudioPurchase", p1, "product", "GoldRush") and profile.goldRushLeft == 30 * 60, "gold rush bought")
+	check(S.StoreService.goldMultiplier(p1) == goldMult + StoreInfo.GOLD_RUSH_BONUS, "gold rush adds +100% gold")
+	check(S.PlayerService.snapshot(p1).goldRushEnds ~= nil, "the HUD gets the gold rush countdown")
+	local rushLeft = profile.goldRushLeft
+	task.wait(11)
+	check(profile.goldRushLeft < rushLeft and profile.goldRushLeft > rushLeft - 20, "gold rush counts down while playing")
+	invoke("StudioPurchase", p1, "product", "GoldRush")
+	check(profile.goldRushLeft > rushLeft, "buying another adds time")
+	profile.goldRushLeft = 3
+	task.wait(6)
+	check(profile.goldRushLeft == 0 and S.StoreService.goldMultiplier(p1) == goldMult, "gold rush ends")
+	check(S.PlayerService.snapshot(p1).goldRushEnds == nil, "no countdown once it's over")
 	-- a real Roblox receipt: granted once, even if Roblox sends it again
 	StoreInfo.Products.GoldSmall.productId = 12345
 	local mps = game:GetService("MarketplaceService")

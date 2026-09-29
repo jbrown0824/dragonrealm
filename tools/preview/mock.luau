@@ -425,7 +425,10 @@ function Instance.new(className)
 		o._props.Text = ""
 	elseif className == "Frame" or className == "TextLabel" or className == "ScrollingFrame" or className == "ImageLabel" or className == "ViewportFrame" then
 		o._props.Visible = true
-	elseif className == "ScreenGui" or className == "BillboardGui" or className == "SurfaceGui" or className == "Highlight" or className == "Beam" or className == "PointLight" or className == "ParticleEmitter" then
+	elseif className == "ScreenGui" or className == "BillboardGui" or className == "SurfaceGui" then
+		o._props.Enabled = true
+		o._props.ResetOnSpawn = true
+	elseif className == "Highlight" or className == "Beam" or className == "PointLight" or className == "ParticleEmitter" then
 		o._props.Enabled = true
 	elseif className == "Attachment" then
 		o._props.CFrame = CFrame.new()
@@ -517,6 +520,16 @@ InstMT.__newindex = function(o, k, v)
 	end
 	if o._class == "Player" and k == "Character" and v ~= nil then
 		o._props.Character = v
+		-- like Roblox, a new character clears PlayerGui of every gui left at ResetOnSpawn = true
+		-- (quest markers once vanished after a death because of this)
+		local playerGui = o:FindFirstChild("PlayerGui")
+		if playerGui then
+			for _, child in ipairs(playerGui:GetChildren()) do
+				if child._props.ResetOnSpawn == true then
+					child:Destroy()
+				end
+			end
+		end
 		o.CharacterAdded:Fire(v)
 		return
 	end

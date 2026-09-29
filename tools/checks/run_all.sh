@@ -6,8 +6,10 @@ $D/lint.sh
 python3 $D/xref.py
 python3 $D/glyph_check.py
 python3 $D/bundle_tests.py $D/logic_test.luau $D/_tests.luau
-luau $D/_tests.luau | grep -E "FAIL|PASSED|FAILURES"
-rm -f $D/_tests.luau
+luau $D/_tests.luau > $D/_tests.txt
+grep -E "FAIL|PASSED|FAILURES" $D/_tests.txt
+grep -q "ALL TESTS PASSED" $D/_tests.txt || exit 1
+rm -f $D/_tests.luau $D/_tests.txt
 # Village dragons' walking routes must stay clear of solid parts.
 P=$D/../preview
 python3 $P/bundle.py $P/world_dump.luau $P/_world.luau && luau $P/_world.luau > $P/world.jsonl

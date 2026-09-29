@@ -135,6 +135,7 @@ local function addChest(model: Instance)
 	local lid = model:FindFirstChild("Lid")
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "ChestLabel"
+	gui.ResetOnSpawn = false -- lives in PlayerGui: keep it when the dragon respawns
 	gui.Adornee = base
 	gui.Size = UDim2.fromOffset(260, 30)
 	gui.StudsOffset = Vector3.new(0, 6.5, 0)
@@ -283,6 +284,7 @@ local function addMarker(model: Instance)
 	local head = model:FindFirstChild("Head") or model.PrimaryPart
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "QuestMarker"
+	gui.ResetOnSpawn = false -- lives in PlayerGui: without this a respawn wiped every marker
 	gui.Size = UDim2.fromOffset(60, 60)
 	gui.StudsOffset = Vector3.new(0, 11, 0)
 	gui.AlwaysOnTop = true

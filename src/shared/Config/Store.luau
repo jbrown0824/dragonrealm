@@ -11,6 +11,8 @@
 local Store = {}
 
 Store.STARTER_MAX_LEVEL = 10 -- the Starter Pack is offered, and advertised on screen, below this level
+Store.GOLD_RUSH_BONUS = 1 -- +100% gold while a Gold Rush lasts (added to the 2x Gold pass: 3x with both)
+Store.GOLD_RUSH_MAX_MINUTES = 300 -- a Gold Rush can't stack past this much time
 
 Store.PassOrder = { "DoubleXP", "DoubleGold" }
 Store.Passes = {
@@ -20,8 +22,11 @@ Store.Passes = {
 		desc = "Double the gold you earn from vikings, quests, chests, harvests and battles, forever." },
 }
 
-Store.ProductOrder = { "StarterPack", "GoldSmall", "GoldMedium", "GoldLarge", "SecretEgg", "TreatBag", "Restock" }
+Store.ProductOrder = { "StarterPack", "GoldRush", "GoldSmall", "GoldMedium", "GoldLarge", "SecretEgg", "TreatBag", "Restock" }
 Store.Products = {
+	-- the cheap one: a short boost you feel right away (its clock only runs while you play)
+	GoldRush = { productId = 0, name = "Gold Rush", icon = "💸", robux = 9, goldRushMinutes = 30,
+		desc = "+100% gold for 30 minutes of play (the clock only runs while you're in the game). Stacks with 2x Gold. Buy more to add time." },
 	StarterPack = { productId = 0, name = "Starter Pack", icon = "🎁", robux = 49, once = true,
 		desc = "A head start for new dragons: an hour's worth of gold, 2 Storm Eggs, 30 Pet Treats, an Epic piece of gear and the Sunrise skin.",
 		goldMinutes = 60, eggs = { StormEgg = 2 }, treats = 30, epicGear = true, skin = "Sunrise" },

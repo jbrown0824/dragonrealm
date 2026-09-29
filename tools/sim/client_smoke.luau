@@ -145,11 +145,58 @@ task.spawn(function()
 	mod("UI/Pets").open("Eggs")
 	task.wait(0.2)
 	local pets = Windows.registry.Pets.frame
+	-- eggs waiting: a red count on the Pets menu button and on the Eggs tab
+	local waiting = mod("UI/HUD").eggsWaiting(State.profile)
+	check(waiting > 0, "the tutorial egg is waiting")
+	local function badgeOn(root: Instance, buttonText: string): string?
+		local button = findButton(root, buttonText)
+		local badge = button and button:FindFirstChild("Badge")
+		return badge and badge.Visible and badge.Text or nil
+	end
+	check(badgeOn(Windows.guis.HUD, "🐲") == tostring(waiting), "a red egg count on the Pets menu button")
+	check(badgeOn(pets, "Eggs") == tostring(waiting), "... and on the Eggs tab")
+	-- the odds fit on one line; the full list of pets opens on request
+	check(findButton(pets, "Hide pets") == nil, "egg cards start folded")
+	click(pets, "See every pet")
+	task.wait(0.1)
+	check(findButton(pets, "Hide pets") ~= nil, "See every pet unfolds an egg")
+	click(pets, "Hide pets")
 	click(pets, "Hatch yours") -- the tutorial egg
+	local overlay = Windows.guis.Top:FindFirstChild("HatchOverlay")
+	task.wait(0.3)
+	overlay.Activated:Fire()
+	check(overlay.Visible, "a click before the reveal doesn't skip it")
 	task.wait(2.5)
-	click(Windows.guis.Top, "Awesome") -- close the reveal
+	overlay.Activated:Fire() -- a click outside the card closes the reveal
+	check(not overlay.Visible, "clicking the underlay closes the reveal")
 	task.wait(3)
-	click(pets, "My Pets")
+	check(mod("UI/HUD").eggsWaiting(State.profile) == waiting - 1, "the egg hatched")
+	-- can't afford an egg: the message offers gold packs (never a pop-up of its own)
+	local goldBefore = S.PlayerService.getProfile(me).gold
+	S.PlayerService.getProfile(me).gold = 0
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Pets").open("Eggs")
+	task.wait(0.1)
+	click(pets, "Buy & Hatch")
+	local banner = pets:FindFirstChild("StatusBanner")
+	check(banner.Visible and banner.Action.Visible, "a click on an egg you can't afford offers gold")
+	check(banner.Position.Y.Scale == 1 or banner.Position.Y.Offset <= 8, "the message sits below the window or on its title bar, not over the eggs")
+	click(banner, "Get gold")
+	check(Windows.isOpen("Store"), "Get gold opens the Store")
+	S.PlayerService.getProfile(me).gold = goldBefore
+	S.PlayerService.markDirty(me)
+	-- on a big screen there's room for the message just below the window
+	local camera = workspace.CurrentCamera
+	local viewport = camera.ViewportSize
+	camera.ViewportSize = Vector2.new(1920, 1080)
+	task.wait(0.1)
+	Windows.notify("Testing the banner", nil, "🧪")
+	local storeBanner = Windows.registry.Store.frame:FindFirstChild("StatusBanner")
+	check(storeBanner.Visible and storeBanner.Position.Y.Scale == 1, "window messages show just below the window when there's room")
+	camera.ViewportSize = viewport
+	task.wait(0.1)
+	mod("UI/Pets").open("Pets")
 	task.wait(0.2)
 
 	-- pets follow their owner, even across a long teleport (boss arena) and back
@@ -287,9 +334,22 @@ task.spawn(function()
 		check(VFX.errorCount == 0, "every spell effect played cleanly (" .. VFX.errorCount .. " errors)")
 	end
 
+	local function questMarkers(): number
+		local count = 0
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			if child.Name == "QuestMarker" then
+				count += 1
+			end
+		end
+		return count
+	end
+	local markersBefore = questMarkers()
+	check(markersBefore > 0, "quest markers over the givers")
 	local _, hum = S.PlayerService.getCharacter(me)
 	hum.Health = 0
 	task.wait(Game.RESPAWN_TIME + 2)
+	check(questMarkers() == markersBefore, "quest markers survive a respawn (" .. questMarkers() .. "/" .. markersBefore .. ")")
+	check(me.PlayerGui:FindFirstChild("WaypointMarker") ~= nil, "the waypoint pin survives a respawn")
 	local d1 = petDistances()
 	check(#d1 >= 1, "pets after respawn (" .. #d1 .. ")")
 	for _, d in ipairs(d1) do
@@ -336,6 +396,33 @@ task.spawn(function()
 	tile.Activated:Fire()
 	task.wait(0.3)
 	check(spent() == before, "first click only selects")
+	-- the Learn / Max bubble never covers another skill (you can click between the two in a row)
+	local bubble, neighbour = nil, nil
+	for _, child in ipairs(tile.Parent:GetChildren()) do
+		if child.ClassName == "Frame" and child.ZIndex == 20 and child.Visible then
+			bubble = child
+		elseif child ~= tile and child.ClassName == "TextButton" and child.Size.X.Offset == 50 and child.Position.Y.Offset == tile.Position.Y.Offset then
+			neighbour = child
+		end
+	end
+	check(bubble ~= nil, "the Learn / Max bubble shows")
+	if bubble then
+		local bx, by, bw, bh = bubble.Position.X.Offset, bubble.Position.Y.Offset, bubble.Size.X.Offset, bubble.Size.Y.Offset
+		for _, child in ipairs(tile.Parent:GetChildren()) do
+			if child.ClassName == "TextButton" and child.Size.X.Offset == 50 then
+				local x, y = child.Position.X.Offset, child.Position.Y.Offset
+				check(bx + bw <= x or bx >= x + 50 or by + bh <= y or by >= y + 50, "the bubble doesn't cover a skill")
+			end
+		end
+	end
+	check(neighbour ~= nil, "the tile has a neighbour in its row")
+	if neighbour then
+		neighbour.Activated:Fire()
+		task.wait(0.2)
+		tile.Activated:Fire()
+		task.wait(0.2)
+		check(spent() == before, "clicking between two skills only selects them")
+	end
 	tile.Activated:Fire()
 	task.wait(0.5)
 	check(spent() == before + 1, "second click learns a rank")

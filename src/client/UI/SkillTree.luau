@@ -42,7 +42,10 @@ local STAT_ICONS = {
 	thorns = "🌵", goldPct = "💰", xpPct = "📘", lootPct = "🍀", cheatDeath = "💀",
 }
 
-local COL_X = { [1] = 70, [1.5] = 125, [2] = 180 }
+-- two skills per row, with a gap between them wide enough for the Learn / Max bubble (so it
+-- never covers the other skill in the row)
+local COL_X = { [1] = 62, [1.5] = 125, [2] = 188 }
+local POPUP_W = 60
 local ROW_Y0, ROW_H = 58, 60
 local TILE = 50
 local GOLD = Color3.fromRGB(255, 205, 70)
@@ -151,7 +154,8 @@ local function showDetails()
 	Theme.setButtonEnabled(details.max, canCount >= remaining and remaining > 1)
 end
 
--- The little Learn / Max bubble next to the selected skill.
+-- The little Learn / Max bubble next to the selected skill: in the gap between the row's two
+-- skills (both stay clickable), or beside the lone capstone.
 local function showPopup(p)
 	local talent = selectedId and Talents.byId[selectedId]
 	local col = talent and columns[talent.branch]
@@ -164,13 +168,14 @@ local function showPopup(p)
 	local remaining = talent.maxRank - rank
 	local x = COL_X[talent.col] or COL_X[1]
 	local y = ROW_Y0 + (talent.tier - 1) * ROW_H
+	local gapX = (COL_X[1] + COL_X[2]) / 2
 	popup.frame.Parent = col.frame
-	popup.frame.Position = talent.col == 2 and UDim2.fromOffset(x - TILE / 2 - 122, y - 4) or UDim2.fromOffset(x + TILE / 2 + 6, y - 4)
-	popup.learn.Text = string.format("Learn %d/%d", rank + 1, talent.maxRank)
+	popup.frame.Position = talent.col == 1.5 and UDim2.fromOffset(x + TILE / 2 + 6, y + 2) or UDim2.fromOffset(gapX - POPUP_W / 2, y + 12)
+	popup.learn.Text = "Learn"
 	popup.max.Visible = remaining > 1
-	popup.max.Text = string.format("Max (+%d)", remaining)
+	popup.max.Text = string.format("Max +%d", remaining)
 	Theme.setButtonEnabled(popup.max, canCount >= remaining)
-	popup.frame.Size = UDim2.fromOffset(116, remaining > 1 and 60 or 32)
+	popup.frame.Size = UDim2.fromOffset(POPUP_W, remaining > 1 and 46 or 24)
 	popup.frame.Visible = true
 end
 
@@ -539,7 +544,7 @@ function SkillTree.init(app)
 
 	-- Learn / Max bubble that appears right beside the selected skill
 	popup.frame = Theme.make("Frame", {
-		Size = UDim2.fromOffset(116, 60),
+		Size = UDim2.fromOffset(POPUP_W, 46),
 		BackgroundColor3 = C.panel,
 		Visible = false,
 		ZIndex = 20,
@@ -551,14 +556,14 @@ function SkillTree.init(app)
 		if selectedId then
 			learn(selectedId, 1)
 		end
-	end, { Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, 24), TextSize = 14, ZIndex = 21, Parent = popup.frame })
+	end, { Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 0, 20), TextSize = 12, ZIndex = 21, Parent = popup.frame })
 	popup.max = Theme.button("Max", Color3.fromRGB(150, 110, 40), function()
 		local talent = selectedId and Talents.byId[selectedId]
 		local p = App.State.profile
 		if talent and p then
 			learn(talent.id, talent.maxRank - (p.talents[talent.id] or 0))
 		end
-	end, { Position = UDim2.fromOffset(4, 32), Size = UDim2.new(1, -8, 0, 24), TextSize = 13, ZIndex = 21, Parent = popup.frame })
+	end, { Position = UDim2.fromOffset(2, 24), Size = UDim2.new(1, -4, 0, 20), TextSize = 12, ZIndex = 21, Parent = popup.frame })
 
 	App.Windows.register("SkillTree", window, refresh)
 	App.State.changed:Connect(function()

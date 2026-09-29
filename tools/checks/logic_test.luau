@@ -740,6 +740,24 @@ do
 			check(p.Y > 0, pattern .. " stays above the ground")
 		end
 	end
+	-- sliders and sprinters never move faster than their level's speed, and sprinters rest at each side
+	for _, pattern in ipairs({ "slide", "sprint" }) do
+		local t = { pattern = pattern, x = 0, y = 8, z = 0, speed = 13, amp = R.laneHalf, phase = 2, born = 0 }
+		local fastest, still = 0, 0
+		local dt = 0.02
+		for k = 0, 1000 do
+			local a, b = RangeUtil.position(t, k * dt), RangeUtil.position(t, (k + 1) * dt)
+			local v = math.abs(b.Z - a.Z) / dt
+			fastest = math.max(fastest, v)
+			if v < 0.01 then
+				still += dt
+			end
+		end
+		check(fastest <= t.speed * 1.02, pattern .. " moves at most `speed` studs a second (" .. math.floor(fastest) .. ")")
+		if pattern == "sprint" then
+			check(still > 2, "sprinters rest between dashes")
+		end
+	end
 	check(RangeUtil.expired({ born = 0, life = 2 }, 2.5) and not RangeUtil.expired({ born = 0 }, 99), "popups vanish, others don't")
 end
 

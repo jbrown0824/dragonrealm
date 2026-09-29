@@ -210,6 +210,7 @@ function Waypoint.init(app)
 	anchor.Parent = workspace.Terrain
 	marker = Instance.new("BillboardGui")
 	marker.Name = "WaypointMarker"
+	marker.ResetOnSpawn = false -- lives in PlayerGui: keep it when the dragon respawns
 	marker.Adornee = anchor
 	marker.Size = UDim2.fromOffset(180, 64)
 	marker.StudsOffset = Vector3.new(0, 14, 0)

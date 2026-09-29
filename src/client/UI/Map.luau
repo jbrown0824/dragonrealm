@@ -333,10 +333,37 @@ local function buildMini(root: Instance)
 			d.ZIndex = 71
 		end
 	end
+	-- the hotkey, next to the button (nothing said N hid the minimap)
+	mini.hideKey = Theme.label({
+		Position = UDim2.fromOffset(33, 8),
+		Size = UDim2.fromOffset(52, 18),
+		BackgroundTransparency = 0.35,
+		BackgroundColor3 = Color3.fromRGB(20, 20, 35),
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "N = hide",
+		Visible = not App.Windows.mobile,
+		ZIndex = 70,
+		Parent = frame,
+	})
+	Theme.corner(mini.hideKey, 6)
+	-- the minimap's own button while it's hidden (the menu has no Map button: click the minimap
+	-- or press M for the big map)
 	mini.show = Theme.button("🗺️", C.panel2, function()
 		Map.setMiniVisible(true, true)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -MINI_RIGHT, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
+	end, { Name = "ShowMinimap", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -MINI_RIGHT, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
 	Theme.stroke(mini.show, C.accentDark, 2, 0.2)
+	Theme.label({
+		Position = UDim2.fromOffset(3, 1),
+		Size = UDim2.fromOffset(14, 14),
+		TextSize = 11,
+		TextColor3 = C.accent,
+		TextStrokeTransparency = 0.3,
+		Text = "N",
+		Visible = not App.Windows.mobile,
+		ZIndex = 3,
+		Parent = mini.show,
+	})
 	mini.visible = true
 end
 

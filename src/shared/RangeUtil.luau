@@ -7,10 +7,22 @@
 
 local RangeUtil = {}
 
--- A triangle wave between -1 and 1 (for sprinting straight back and forth).
-local function triangle(u: number): number
-	local k = u % 4
-	return k < 2 and (k - 1) or (3 - k)
+local SPRINT_REST = 0.7 -- a sprinter catches its breath this long at each side of the lane
+
+-- A sprinter's place across its lane (-1..1): it rests at one side, dashes across at `speed`
+-- studs a second, rests, and dashes back. The rests give younger players a beat to line up.
+local function sprint(age: number, speed: number, amp: number, phase: number): number
+	local dash = 2 * amp / math.max(1, speed)
+	local leg = dash + SPRINT_REST
+	local u = (age + phase / (math.pi * 2) * 2 * leg) % (2 * leg)
+	if u < SPRINT_REST then
+		return -1
+	elseif u < leg then
+		return -1 + 2 * (u - SPRINT_REST) / dash
+	elseif u < leg + SPRINT_REST then
+		return 1
+	end
+	return 1 - 2 * (u - leg - SPRINT_REST) / dash
 end
 
 function RangeUtil.position(t, now: number): Vector3
@@ -28,7 +40,7 @@ function RangeUtil.position(t, now: number): Vector3
 		z += amp * math.sin(age * w + t.phase)
 		x += amp * 0.5 * math.sin(age * w * 1.7 + t.phase * 2)
 	elseif pattern == "sprint" then
-		z += amp * triangle(age * (t.speed or 0) / amp * 2 + t.phase)
+		z += amp * sprint(age, t.speed or 0, amp, t.phase)
 	elseif pattern == "float" then
 		z += amp * math.cos(age * w + t.phase)
 		y += amp * 0.4 * math.sin(age * w + t.phase)

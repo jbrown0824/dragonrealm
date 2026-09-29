@@ -31,7 +31,7 @@ local bars = {}
 local slots = {}
 local tooltip
 local tracker
-local skillBadge
+local skillBadge, petBadge
 local mobile = {}
 local starterAd
 
@@ -56,6 +56,16 @@ local function abilityForSlot(i: number): string?
 	return TalentUtil.resolveLoadout(list, p.loadout, signature)[i - 3]
 end
 HUD.abilityForSlot = abilityForSlot
+
+-- Eggs you found (or bought in the Store) that are waiting to hatch: the Pets menu badge and the
+-- Eggs tab both show this.
+function HUD.eggsWaiting(p): number
+	local count = 0
+	for _, n in pairs(p and p.eggs or {}) do
+		count += n
+	end
+	return count
+end
 
 local function buildCard()
 	local frame = Theme.make("Frame", {
@@ -118,6 +128,66 @@ local function buildCard()
 		Text = "⚡ 0",
 		Parent = frame,
 	})
+	card.gold.Size = UDim2.fromOffset(108, 22) -- (it overlapped Glory, which confused the hover tips)
+	-- a Gold Rush (💎 Store) counting down, in the gap under the class line
+	card.rush = Theme.label({
+		Position = UDim2.fromOffset(66, 49),
+		Size = UDim2.fromOffset(196, 14),
+		TextSize = 11,
+		TextColor3 = C.gold,
+		TextWrapped = false,
+		Text = "",
+		Visible = false,
+		Parent = frame,
+	})
+
+	-- What the three numbers mean: hover them (tap on phones) for a tip under the card.
+	local tip = Theme.make("Frame", {
+		Name = "CardTip",
+		Position = UDim2.fromOffset(12, 106),
+		Size = UDim2.fromOffset(270, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = C.panel,
+		Visible = false,
+		ZIndex = 12,
+		Parent = root,
+	})
+	Theme.corner(tip, 10)
+	Theme.stroke(tip, C.accentDark, 1.5)
+	Theme.pad(tip, 8)
+	Theme.label({ Name = "Title", Size = UDim2.new(1, 0, 0, 20), TextSize = 16, TextColor3 = C.accent, ZIndex = 13, Parent = tip })
+	Theme.label({ Name = "Body", Position = UDim2.fromOffset(0, 22), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 13, Font = Theme.Fonts.body, TextColor3 = C.subtext, ZIndex = 13, Parent = tip })
+	card.tip = tip
+	local showing = nil
+	local function hint(target: GuiObject, title: string, body: string)
+		local function show()
+			showing = target
+			tip.Title.Text = title
+			tip.Body.Text = body
+			tip.Visible = true
+		end
+		target.MouseEnter:Connect(show)
+		target.MouseLeave:Connect(function()
+			if showing == target then
+				showing = nil
+				tip.Visible = false
+			end
+		end)
+		target.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch then
+				show()
+				task.delay(4, function()
+					if showing == target then
+						showing = nil
+						tip.Visible = false
+					end
+				end)
+			end
+		end)
+	end
+	hint(card.gold, "💰 Gold", "Earned from fights, quests, chests and crops. Spend it at the town shops and the Hatchery.")
+	hint(card.glory, "⚔️ Glory", "Your PvP score. Win a fight against another player's dragon in the Battle Zone (north end of town) for +1, or +3 for ending a streak of 3+. Only PvP wins count, so it stays at 0 until then.")
+	hint(card.power, "⚡ Power", "Your dragon's overall strength: attack, crits, health and defense from gear, skills, pets and potions, in one number. Higher is stronger.")
 end
 
 local function buildBars()
@@ -308,7 +378,6 @@ local function buildMenu()
 		{ id = "pets", icon = "🐲", label = "Pets [P]", action = function() App.Windows.toggle("Pets") end },
 		{ id = "quests", icon = "📜", label = "Quests [J]", action = function() App.Windows.toggle("QuestLog") end },
 		{ id = "collection", icon = "📖", label = "Collection [L]", action = function() App.Windows.toggle("Collection") end },
-		{ id = "map", icon = "🗺️", label = "Map [M]", action = function() App.Windows.toggle("Map") end },
 		{ id = "home", icon = "🏠", label = "Home [H]", action = function() HUD.goHome() end },
 		{ id = "admin", icon = "🛠️", label = "Admin", action = function() App.Windows.toggle("Admin") end },
 	}
@@ -334,21 +403,10 @@ local function buildMenu()
 			Text = e.label,
 			Parent = b,
 		})
-		if i == 1 then
-			skillBadge = Theme.label({
-				AnchorPoint = Vector2.new(1, 0),
-				Position = UDim2.new(1, 4, 0, -4),
-				Size = UDim2.fromOffset(24, 24),
-				BackgroundTransparency = 0,
-				BackgroundColor3 = C.bad,
-				TextSize = 14,
-				TextXAlignment = Enum.TextXAlignment.Center,
-				Text = "0",
-				Visible = false,
-				ZIndex = 3,
-				Parent = b,
-			})
-			Theme.corner(skillBadge, 12)
+		if e.id == "skills" then
+			skillBadge = Theme.badge(b) -- unspent skill points
+		elseif e.id == "pets" then
+			petBadge = Theme.badge(b) -- eggs waiting to hatch
 		end
 	end
 end
@@ -396,19 +454,36 @@ local function buildTopBar()
 end
 
 -- A "Starter Pack" button under the player card until you buy it or reach Store.STARTER_MAX_LEVEL.
+-- Its green price tag says up front that it costs Robux.
 local function buildStarterAd()
-	starterAd = Theme.button("🎁 Starter Pack!", Color3.fromRGB(200, 90, 40), function()
+	starterAd = Theme.button("🎁 Starter Pack", Color3.fromRGB(200, 90, 40), function()
 		App.Store.open("StarterPack")
 	end, {
 		Name = "StarterAd",
 		Position = UDim2.fromOffset(12, 132),
-		Size = UDim2.fromOffset(190, 40),
+		Size = UDim2.fromOffset(230, 40),
 		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		Font = Theme.Fonts.title,
 		Visible = false,
 		Parent = root,
 	})
+	Theme.make("UIPadding", { PaddingLeft = UDim.new(0, 12), Parent = starterAd })
 	Theme.stroke(starterAd, Color3.fromRGB(255, 230, 120), 2.5, 0)
+	local tag = Theme.label({
+		Name = "Price",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 0),
+		Size = UDim2.fromOffset(64, 28),
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Color3.fromRGB(40, 150, 70),
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "R$ " .. StoreInfo.Products.StarterPack.robux,
+		ZIndex = 2,
+		Parent = starterAd,
+	})
+	Theme.corner(tag, 8)
 	-- a gentle pulse so it gets noticed
 	task.spawn(function()
 		local t = 0
@@ -485,7 +560,7 @@ local function mobileLayout()
 		if b.Parent == menu then
 			b.TextSize = 24
 			for _, child in ipairs(b:GetChildren()) do
-				if child:IsA("TextLabel") and child ~= skillBadge then
+				if child:IsA("TextLabel") and child.Name ~= "Badge" then
 					child.Visible = false
 				end
 			end
@@ -643,6 +718,16 @@ local function refreshTracker(p)
 	end
 end
 
+-- The Gold Rush countdown in the card (every second while one is running).
+function HUD.updateRush()
+	local p = App.State.profile
+	local left = p and p.goldRushEnds and p.goldRushEnds - workspace:GetServerTimeNow() or 0
+	card.rush.Visible = left > 0
+	if left > 0 then
+		card.rush.Text = "💸 Gold Rush: +100% gold  •  " .. Util.formatTime(left)
+	end
+end
+
 local function refresh()
 	local p = App.State.profile
 	if not p then
@@ -655,6 +740,7 @@ local function refresh()
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)
 	card.glory.Text = "⚔️ " .. Util.formatNumber(p.glory)
 	card.power.Text = "⚡ " .. Util.formatNumber(p.power or 0)
+	HUD.updateRush()
 
 	if p.level >= Game.LEVEL_CAP then
 		-- Paragon levels past the cap
@@ -666,8 +752,8 @@ local function refresh()
 		bars.xpText.Text = string.format("Level %d  —  %s / %s XP", p.level, Util.formatNumber(p.xp), Util.formatNumber(p.xpToNext))
 	end
 
-	skillBadge.Visible = p.talentPoints > 0
-	skillBadge.Text = tostring(p.talentPoints)
+	Theme.setBadge(skillBadge, p.talentPoints)
+	Theme.setBadge(petBadge, HUD.eggsWaiting(p))
 	HUD.setAdmin(p.isAdmin == true)
 
 	-- Remind gardeners about thirsty plants.
@@ -754,6 +840,14 @@ function HUD.init(app)
 		end
 	end)
 	refresh()
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if card.rush.Visible then
+				HUD.updateRush()
+			end
+		end
+	end)
 
 	RunService.RenderStepped:Connect(function()
 		local character = Players.LocalPlayer.Character

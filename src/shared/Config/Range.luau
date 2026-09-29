@@ -9,7 +9,8 @@
 -- Starting a session swings the camera round behind you, looking down the lane, CAMERA_ZOOM back.
 --
 -- Target patterns (shared/RangeUtil): still, slide (side to side), bob (slide + up and down),
--- zigzag (side to side and back and forth), sprint (dashes across the lane), float (loops in the
+-- zigzag (side to side and back and forth), sprint (dashes across the lane at `speed`, resting a
+-- moment at each side), float (loops in the
 -- air), popup (stands still, but vanishes after `life` seconds).
 
 local Range = {}
@@ -31,10 +32,10 @@ Range.Levels = {
 	{ name = "Bobbers", time = 40, needed = 12, count = 3, patterns = { "slide", "bob" }, speed = 11, size = 4, xp = 0.2 },
 	{ name = "Zigzag", time = 45, needed = 14, count = 3, patterns = { "zigzag", "bob" }, speed = 13, size = 3.7, xp = 0.24 },
 	{ name = "Pop-ups", time = 40, needed = 14, count = 3, patterns = { "popup" }, speed = 0, size = 3.5, life = 2, xp = 0.28 },
-	{ name = "Sprinters", time = 45, needed = 15, count = 3, patterns = { "sprint", "zigzag" }, speed = 18, size = 3.3, xp = 0.32 },
+	{ name = "Sprinters", time = 45, needed = 14, count = 3, patterns = { "sprint", "slide" }, speed = 13, size = 3.5, xp = 0.32 },
 	{ name = "High Flyers", time = 45, needed = 15, count = 3, patterns = { "float", "bob" }, speed = 16, size = 3.2, high = true, xp = 0.36 },
-	{ name = "Chaos", time = 50, needed = 18, count = 4, patterns = { "sprint", "zigzag", "float", "popup" }, speed = 20, size = 3, life = 1.7, xp = 0.42 },
-	{ name = "Dead Eye", time = 50, needed = 20, count = 4, patterns = { "sprint", "zigzag", "float", "popup" }, speed = 24, size = 2.6, life = 1.4, xp = 0.5 },
+	{ name = "Chaos", time = 50, needed = 18, count = 4, patterns = { "sprint", "zigzag", "float", "popup" }, speed = 17, size = 3.1, life = 1.7, xp = 0.42 },
+	{ name = "Dead Eye", time = 50, needed = 20, count = 4, patterns = { "sprint", "zigzag", "float", "popup" }, speed = 21, size = 2.7, life = 1.4, xp = 0.5 },
 }
 
 -- AFK practice: fires by itself every `fireEvery` seconds at slow targets, and every target it

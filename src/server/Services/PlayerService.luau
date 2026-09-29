@@ -279,6 +279,7 @@ function PlayerService.snapshot(player: Player)
 		title = profile.title,
 		passes = S.StoreService.ownedPasses(player),
 		starterPack = profile.starterPack,
+		goldRushEnds = S.StoreService.goldRushEnds(player),
 		goldPackAmounts = S.StoreService.goldPackAmounts(player),
 		inventory = profile.inventory,
 		equipped = profile.equipped,

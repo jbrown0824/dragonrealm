@@ -93,6 +93,7 @@ local function row(order: number, item, rightText: string, buttonText: string, b
 		Parent = frame,
 	})
 	Theme.setButtonEnabled(button, enabled)
+	return button
 end
 
 local function act(remoteName: string, arg, successText: string?)
@@ -140,9 +141,14 @@ function Shop.refresh()
 			local worn = p.equipped[item.slot] and App.State.findItem(p.equipped[item.slot])
 			local badge = not soldOut and ItemUtil.isUpgrade(item, worn) and { text = "⬆️ Better than yours", color = Color3.fromRGB(110, 230, 110) } or nil
 			local stockText = soldOut and "<font color=\"#F05A5A\">SOLD OUT</font>" or string.format("%d left  •  ", entry.left)
-			row(i, item, soldOut and stockText or (stockText .. Util.formatNumber(price) .. " 💰"), soldOut and "Sold out" or "Buy", Color3.fromRGB(60, 140, 70), not soldOut and p.gold >= price, function()
+			local button = row(i, item, soldOut and stockText or (stockText .. Util.formatNumber(price) .. " 💰"), soldOut and "Sold out" or "Buy", Color3.fromRGB(60, 140, 70), not soldOut and p.gold >= price, function()
 				act("BuyItem", i, "Bought " .. ItemUtil.displayName(item) .. "! Equip it from your Bag.")
 			end, nil, badge)
+			if not soldOut then
+				Theme.onDisabledClick(button, function()
+					App.Store.needGold(price)
+				end)
+			end
 		end
 	elseif tab == "Sell" then
 		local n = 0
@@ -205,9 +211,14 @@ function Shop.refresh()
 			local after = ItemUtil.describeStats(ItemUtil.getStats(nextItem))
 			local extra = maxed and "Fully upgraded!" or (table.concat(now, ", ") .. "  →  <font color=\"#6EDC6E\">" .. table.concat(after, ", ") .. "</font>")
 			local badge = p.equipped[item.slot] == item.id and { text = "✅ EQUIPPED", color = Color3.fromRGB(110, 230, 110) } or nil
-			row(i, item, maxed and "MAX" or (Util.formatNumber(cost) .. " 💰"), maxed and "Maxed" or ("Upgrade to +" .. nextItem.up), Color3.fromRGB(70, 100, 180), not maxed and p.gold >= cost, function()
+			local button = row(i, item, maxed and "MAX" or (Util.formatNumber(cost) .. " 💰"), maxed and "Maxed" or ("Upgrade to +" .. nextItem.up), Color3.fromRGB(70, 100, 180), not maxed and p.gold >= cost, function()
 				act("UpgradeItem", item.id, "Upgraded to " .. ItemUtil.displayName(nextItem) .. "!")
 			end, extra, badge)
+			if not maxed then
+				Theme.onDisabledClick(button, function()
+					App.Store.needGold(cost)
+				end)
+			end
 		end
 		if #items == 0 then
 			Theme.label({ Size = UDim2.new(1, 0, 0, 40), TextSize = 15, TextColor3 = C.subtext, Text = "You have no gear to upgrade yet.", Parent = list })
