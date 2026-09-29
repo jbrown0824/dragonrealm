@@ -21,12 +21,12 @@ tools/sim/run.sh            # boots the real server + client in a simulator and 
 2. `glyph_check.py`: no characters Roblox can't draw (Unicode 12+ emoji like 🪨, and symbols like ✕ ● ○). They show up as empty boxes in game.
 3. `xref.py`: every `S.Service.fn` (server) and `App.Module.fn` (client) call, `Remotes.event/func("Name")` name and require path must actually exist. The analyzer can't see these because services are wired together at runtime. Module tables must be named like their file (a UI module `Pets.luau` returns `Pets`; alias a same-named config, e.g. `PetInfo`).
 4. `logic_test.luau`: data-consistency tests for the shared modules (talent trees, abilities, items, quests, zones, potions, pets and pet levels, treats, villagers and their walking graph, animals, food, hunger, live tuning, balance table).
-5. `walk_check.py`: builds the world offline and checks every straight walk a villager can take (`Zones.TownWalk`, each house door, up the ramp and between the indoor spots) against the solid parts. Move a stall, lamp or piece of furniture and this tells you if you blocked a route.
-6. `water_check.luau`: every lake and the river is deep enough, never hangs over the void, and the longships have water under their whole hull.
-7. `gui_check.sh`: runs the real client in the simulator at desktop (1280×720) and phone (844×390, touch) size, dumps the main screens (HUD, pets, eggs, store, collection, skill tree, shops, map) and renders them with `tools/preview/gui_render.py`. It fails on client errors, text that overflows its box, or panels off the screen. **Look at the PNGs** in `tools/preview/_gui_desktop` and `_gui_phone` after any UI change.
+5. `walk_check.py`: builds the world offline and checks every straight walk a villager can take (`Zones.TownWalk`, each house door, up the ramp and between the indoor spots) and the raiders' walk from the beach (`Raids.Landings`) against the solid parts. Move a stall, lamp or piece of furniture and this tells you if you blocked a route.
+6. `water_check.luau`: every lake, the river and the channels (`Zones.Streams`) are deep enough, never hang over the void, and the longships have water under their whole hull.
+7. `gui_check.sh`: runs the real client in the simulator at desktop (1280×720) and phone (844×390, touch) size, dumps the main screens (HUD, pets, eggs, store, collection, skill tree, shops, map, raid bar, shops closed, range window and session panel) and renders them with `tools/preview/gui_render.py`. It fails on client errors, text that overflows its box, or panels off the screen. **Look at the PNGs** in `tools/preview/_gui_desktop` and `_gui_phone` after any UI change.
 8. Builds the place file.
 
-**Simulation** (`tools/sim/`): `boot.luau` runs every server service (in `init.server.luau` ORDER) on a virtual clock against the mock Roblox API in `tools/preview/mock.luau`. `smoke.luau` plays two fake players through classes, admin tools, farming and robots, potions, eggs and pets, hunger, fishing, dummies, hunting, per-player chests, champion helpers, villagers, the alarm, bosses, death and an old-format save. `client_smoke.luau` runs the real `init.client.luau` for a local player with remotes looping back to the server: tutorial, every window, pet nametags / feeding / golden merge, per-player chest view, every ability's effects (`VFX.errorCount` must stay 0), codes → admin panel, fishing UI, hotkeys. Both print every script error with a traceback and must end with `0 script errors, 0 failed checks`. When you add a feature, add it to a scenario. When the mock is missing an API, add it to `mock.luau` the way Roblox behaves (defaults matter: buttons are `Active`, GUI objects are `Visible`).
+**Simulation** (`tools/sim/`): `boot.luau` runs every server service (in `init.server.luau` ORDER) on a virtual clock against the mock Roblox API in `tools/preview/mock.luau`. `smoke.luau` plays two fake players through classes, admin tools, farming and robots, potions, eggs and pets, hunger, fishing, dummies, hunting, per-player chests, champion helpers, villagers, the alarm, bosses, death, an old-format save, day and night (the raid pity rule), a repelled and a lost night raid (torches, dousing, rewards, closed shops, rebuilding) and target practice (levels, AFK, lanes). `client_smoke.luau` runs the real `init.client.luau` for a local player with remotes looping back to the server: tutorial, every window, pet nametags / feeding / golden merge, per-player chest view, every ability's effects (`VFX.errorCount` must stay 0), codes → admin panel, fishing UI, the night sky, the raid bar, the range window with AFK auto-fire and left-click Fireball, hotkeys. Both keep raids from starting by chance (`Raids.CHANCE = 0`) and the smoke test starts at dawn, so a random nightfall never lands in the middle of another scenario. Both print every script error with a traceback and must end with `0 script errors, 0 failed checks`. When you add a feature, add it to a scenario. When the mock is missing an API, add it to `mock.luau` the way Roblox behaves (defaults matter: buttons are `Active`, GUI objects are `Visible`).
 
 **Offline visuals** (`tools/preview/`, see its README): renders parts to PNGs, draws a top-down **terrain map** (lakes, river, hills), checks **sign clearance** above the terrain, and finds **clipping** (signs, or whole buildings against each other). Use them for any change to map layout, props, signs, terrain, or dragon models and poses, and look at the images before handing off.
 
@@ -34,7 +34,8 @@ tools/sim/run.sh            # boots the real server + client in a simulator and 
 
 ```
 src/shared/   -> ReplicatedStorage.Shared
-  Config/       all tuning data: Game (pacing, boss timers, hunger, robots, pet slots, camp respawns),
+  Config/       all tuning data: Game (pacing, day/night length, player dragon size and camera, boss
+                timers, hunger, robots, pet slots, camp respawns), Raids (night raids), Range (target practice),
                 Classes, Talents, Abilities, Items, Seeds, Enemies (vikings, champions, bosses), Animals,
                 Food (meat, fish), Potions, Pets (species incl. Secret, eggs, levels, golden merges),
                 Civilians (village dragons), Shops (limited stock), Store (Robux ids and products),
@@ -47,16 +48,19 @@ src/shared/   -> ReplicatedStorage.Shared
   Tuning        live admin balance multipliers (server owns, replicated to clients)
   ItemUtil (incl. isUpgrade / bestPerSlot), TalentUtil (incl. autoFill, Paragon points and the
                 keys 2-5 loadout), QuestUtil, Remotes, Signal,
-  Util (incl. spline, shared by the river builder and the map)
+  Util (incl. spline, shared by the river builder and the map), DayNight (the shared clock: server time +
+                the workspace "DayOffset"), RangeUtil (where a practice target is at a given time)
 src/server/   -> ServerScriptService.Server (init.server.luau boots World, then Services in ORDER)
   Config/       AdminConfig: admin code, allowed user ids, promo codes (server-only)
   World/        WorldBuilder (terrain, town, bases, Battle Zone, arena), Wilds (river, lakes, hunting
                 grounds, fishing spots), Camps (viking camps + chests), Props, WorldUtil, VikingBuilder,
                 AnimalBuilder
-  Services/     Data, Player, Combat, Enemy, Loot, Shop, Farm, Quest, PvP, Boss, Zone, Survival (hunger,
+  Services/     Data, DayNight (the clock, nightfall/daybreak signals), Player, Combat, Enemy, Loot, Shop
+                (incl. closing after a lost raid), Farm, Quest, PvP, Boss, Zone, Survival (hunger,
                 food), Wildlife (animals, carcasses), Fishing, Potion, Pet, Training (dummies, DPS,
-                sparring golem), Camp (per-player chests, champions), Civilian (village dragons who
-                walk Zones.TownWalk and visit houses), Stock (per-player limited stock), Achievement (pet
+                sparring golem), Range (target practice sessions), Camp (per-player chests, champions),
+                Civilian (village dragons who walk Zones.TownWalk and visit houses, and fight raiders), Raid
+                (night raids, burning houses, longships), Stock (per-player limited stock), Achievement (pet
                 book, achievements, skins, titles), Store (Robux passes and products), Admin (codes,
                 admin actions, tuning), Tutorial
 src/client/   -> StarterPlayerScripts.Client (init.client.luau builds App)
@@ -64,10 +68,12 @@ src/client/   -> StarterPlayerScripts.Client (init.client.luau builds App)
                 SpellFX (ultimate flourishes, heal "+" signs, lasting spells that follow a dragon,
                 Eclipse sky), Animator, WorldView (prompt filtering, plot focus, per-player chest
                 view), PetFollow (draws everyone's pets + nametags), Waypoint (the one
-                destination: quest or picked place, pin + guide line), Sfx
+                destination: quest or picked place, pin + guide line), Sky (day/night lighting and
+                street lamps), Sfx
   UI/           Theme helpers, Windows manager, HUD and each screen (Shop, Inventory, SkillTree, QuestUI,
                 Potions, Pets, Robots, Codes, Admin, Fishing, Training, Tutorial, Map (minimap + M map),
-                Store (Robux), Collection...)
+                Store (Robux), Collection, RaidUI (raid / shops-closed bar), Range (target practice
+                window, session panel, moves the targets, AFK auto-fire)...)
 tools/checks/   lint / glyphs / xref / logic tests / gui   tools/sim/   server + client simulation (+ gui_shots)
 tools/preview/  world renders, terrain map, clipping, walk and water checks, gui_render.py
 ```
@@ -97,7 +103,7 @@ tools/preview/  world renders, terrain map, clipping, walk and water checks, gui
 - **Water**: lakes and the river are carved as round air "basins" and then `ReplaceMaterial(Air → Water)` below `Zones.WATER_LEVEL` (-4). Keep water regions inside the ground block (x ±660) or the fill spills into the void. The ground block is only 16 studs thick, so `Wilds.lakeBed` fills mud down to -44 under every lake and the river first; without it, deep bowls punched through and left water hanging over the void. `water_check.luau` guards all of this.
 - **Per-player state on shared objects** (camp chests): the server keeps a player attribute (`ChestReady_<campId>`, server time) and each client draws the lid, treasure and prompt from its own attribute in WorldView. Local changes to replicated instances only affect that client.
 - **Villagers** live in `workspace.Civilians` (outside Map, so attacks and service raycasts ignore them), use the `Dragons` collision group (they never block players), and hop to the next node if a walk takes too long. Their routes are data in `Zones.TownWalk`; keep them clear (`walk_check.py`).
-- **Services find world objects by tag, name and attribute**, so keep these if you rework the map: tags `PlayerBase`, `ShopPrompt`, `PanelPrompt`, `QuestPrompt`, `QuestGiver`, `Dragon`, `Civilian`, `Viking`, `Animal`, `CampChest`, `TrainingDummy`, `FishingSpot`; names `Plots/Plot1..12`, `HomeSpawn`, `BotDock`, `Sign` (with a SurfaceGui `Title`), `WarHornPrompt`, chest parts `Base`, `Lid` (a model), `Treasure` (a model), `Glow`; attributes `BaseIndex`, `OwnerUserId`, `ShopTab`, `Panel`, `GiverId`, `CampId`, `SpotId`, `Kind` (Dummy/Golem), `PlotIndex`.
+- **Services find world objects by tag, name and attribute**, so keep these if you rework the map: tags `PlayerBase`, `ShopPrompt`, `PanelPrompt`, `QuestPrompt`, `QuestGiver`, `Dragon`, `Civilian`, `Viking`, `Animal`, `CampChest`, `TrainingDummy`, `FishingSpot`, `Lamp` (street lamp glass, lit at night), `PracticeTarget`; names `Plots/Plot1..12`, `HomeSpawn`, `BotDock`, `Sign` (with a SurfaceGui `Title`), `WarHornPrompt`, `Town/House1..10` (RaidService burns them), `Town/<shop id>` (stalls), chest parts `Base`, `Lid` (a model), `Treasure` (a model), `Glow`; attributes `BaseIndex`, `OwnerUserId`, `ShopTab`, `Panel` (incl. `Range` on the firing mats, with `Lane`), `GiverId`, `CampId`, `SpotId`, `Kind` (Dummy/Golem), `PlotIndex`, `Fire` / `BurnsAt` on houses.
 - **Prompt filtering is client-side** (WorldView): a prompt with an `OwnerUserId` only shows for that player; farm prompts also carry an `On` attribute (the server's wish) and only show on the plot you're facing. Set both when you add owner-only prompts.
 - **Dragon rig**: the Motor6D names (`BodyJoint`, `Neck1..n`, `Head`, `Jaw`, `LidL/R`, `WingL/R`, `WingL2/R2`, `LegXX`/`KneeXX`, `Tail1..n`, `Frill`) and the model attributes `RigNeck/RigTail/RigLegs/RigCurl/RigFrill/DragonScale` are the contract between DragonBuilder, DragonRig, the Animator and PetFollow. Models are built facing -Z, spread for gliding; all joint frames are world-aligned. Animal rigs use `LegFL/FR/BL/BR`, `Head`, `Tail`.
 - Player dragons are custom Humanoid rigs (R15 rig type, manual `HipHeight`, `CharacterAutoLoads = false`, spawned by `PlayerService.spawn`). The client owns its dragon's physics, so flight and dash run client-side in `Movement` (flight speed × the `FlightSpeedMult` character attribute).
@@ -109,4 +115,7 @@ tools/preview/  world renders, terrain map, clipping, walk and water checks, gui
 - `Workspace.StreamingEnabled` is off (the project file sets it), so clients can assume the whole map exists.
 - DataStores are skipped in Studio unless API access is enabled; `DataService` falls back to a fresh profile each session. Saved plot arrays use `false` for empty slots, never `nil` holes. Players whose save predates the tutorial skip it.
 - **Admin code** lives in `src/server/Config/AdminConfig.luau` (default `DRAGONLORD`). Remind the user to change it or set `ALLOWED_USER_IDS` before publishing.
+- **Day/night** is computed, not streamed: `shared/DayNight` turns server time plus the workspace attribute `DayOffset` into the clock, and each client's `Sky` sets `Lighting.ClockTime` every frame. Never set `ClockTime` from the server. Services that care listen to `DayNightService.nightfall` / `daybreak`.
+- **Raiders** are ordinary EnemyService vikings with `raid = true` (they may fight and hurt dragons inside the safe town: `targetRoot` skips the safe check and their hits pass `ignoreSafe`) and an `objective(e, t)` that runs whenever no dragon is in reach. They route along `Zones.TownWalk` through `CivilianService.route`, so keep raider routes in `walk_check`. Raid state reaches clients as workspace attributes (`RaidPhase`, `RaidLeft`, `HousesBurned`, `ShopsClosedUntil`...), and every town vendor checks `ShopService.closedMessage()`.
+- **Practice targets** belong to one player (`OwnerUserId`) and live in `workspace.PracticeTargets`. Nothing streams their motion: every client moves them with `RangeUtil.position`, and `CombatService.collectTargets(attacker)` adds the attacker's own targets (entries with `practice` set and a plain `{ Position }` root) from the same function. While the player attribute `RangeMode` is set, only Fireball works (server and client), on `Range.FIREBALL_COOLDOWN`.
 - The user wants **distinctive dragons**, not a generic "AI dragon" look. Keep each class's silhouette unique, and keep the shared signature: the ember core, rune marks, scalloped two-part wings and the hinged jaw.

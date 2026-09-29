@@ -1,6 +1,8 @@
 -- Small builders for scenery: trees, rocks, houses, longhouses, tents, fences, signs...
 -- Every part is anchored. Rotation helpers: `cf` arguments are full CFrames, `pos` are Vector3s.
 
+local CollectionService = game:GetService("CollectionService")
+
 local Props = {}
 
 local WOOD = Color3.fromRGB(120, 82, 50)
@@ -224,6 +226,7 @@ function Props.lamp(parent: Instance, pos: Vector3)
 	Props.column(parent, pos, 9, 0.6, Color3.fromRGB(50, 45, 55), Enum.Material.Metal)
 	local glass = Props.part(parent, Vector3.new(1.6, 2, 1.6), CFrame.new(pos + Vector3.new(0, 9.8, 0)), Color3.fromRGB(255, 210, 130), Enum.Material.Neon)
 	glass.CastShadow = false
+	CollectionService:AddTag(glass, "Lamp") -- clients light it at night (Controllers/Sky)
 	Props.part(parent, Vector3.new(2.2, 0.4, 2.2), CFrame.new(pos + Vector3.new(0, 11, 0)), Color3.fromRGB(50, 45, 55), Enum.Material.Metal)
 	Props.light(glass, Color3.fromRGB(255, 210, 150), 24, 1.2)
 end

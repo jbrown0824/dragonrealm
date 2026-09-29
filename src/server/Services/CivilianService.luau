@@ -5,12 +5,16 @@
 -- them like any dragon). They live in workspace.Civilians, outside Map, so attacks, aim and the
 -- services' raycasts never see them, and they're in the "Dragons" collision group so they don't
 -- bump into players.
+--
+-- During a night raid (RaidService) they drop what they're doing, come out of their houses and
+-- puff little bursts of fire at the nearest raider. They're brave but weak, and can't be hurt.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Civilians = require(Shared.Config.Civilians)
+local Raids = require(Shared.Config.Raids)
 local Zones = require(Shared.Config.Zones)
 local DragonBuilder = require(Shared.DragonBuilder)
 
@@ -21,7 +25,8 @@ local folder: Folder
 local graph = {} -- [node] = { neighbor nodes }
 local positions = {} -- [node] = Vector3 (ground level)
 local streetNodes = {} -- nodes a villager may stroll to
-local villagers = {} -- list of { def, model, humanoid, root, node, pauseUntil, height }
+local villagers = {} -- list of { def, model, humanoid, root, node, pauseUntil, height, inside?, defending? }
+local raiding = false
 
 
 ---------------------------------------------------------------- the walking graph
@@ -76,10 +81,33 @@ function CivilianService.route(from: string, to: string): { string }
 	return path
 end
 
+function CivilianService.nodePos(name: string): Vector3?
+	return positions[name]
+end
+
+-- The walking-graph node nearest a point (doors included unless streetsOnly).
+function CivilianService.nearestNode(pos: Vector3, streetsOnly: boolean?): string
+	local best, bestDist = streetNodes[1], math.huge
+	for name, p in pairs(positions) do
+		if not (streetsOnly and name:sub(1, 4) == "Door") then
+			local d = Vector3.new(p.X - pos.X, 0, p.Z - pos.Z).Magnitude
+			if d < bestDist then
+				best, bestDist = name, d
+			end
+		end
+	end
+	return best
+end
+
 ---------------------------------------------------------------- walking
 
 local function flatDistance(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+end
+
+-- A raid just started and this villager hasn't noticed yet: drop the errand.
+local function called(v): boolean
+	return raiding and not v.defending
 end
 
 local function waitWhileChatting(v)
@@ -95,6 +123,9 @@ local function walkTo(v, pos: Vector3)
 	local deadline = os.clock() + flatDistance(v.root.Position, pos) / Civilians.WALK_SPEED + 5
 	local lastPush = 0
 	while v.model.Parent do
+		if called(v) then
+			return
+		end
 		if os.clock() < v.pauseUntil then
 			waitWhileChatting(v)
 			deadline += Civilians.CHAT_PAUSE
@@ -119,6 +150,9 @@ end
 local function goToNode(v, node: string)
 	for _, step in ipairs(CivilianService.route(v.node, node)) do
 		walkTo(v, positions[step])
+		if called(v) then
+			return
+		end
 		v.node = step
 	end
 end
@@ -126,7 +160,7 @@ end
 local function rest(v, range)
 	local untilTime = os.clock() + range[1] + math.random() * (range[2] - range[1])
 	v.humanoid:MoveTo(v.root.Position)
-	while os.clock() < untilTime and v.model.Parent do
+	while os.clock() < untilTime and v.model.Parent and not called(v) do
 		task.wait(0.5)
 	end
 end
@@ -137,21 +171,122 @@ local function visitHouse(v, index: number)
 	goToNode(v, "Door" .. index)
 	local floor = Vector3.new(0, Zones.HOUSE_FLOOR, 0)
 	local entry = Zones.housePoint(house, Zones.HouseEntry.X, Zones.HouseEntry.Z) + floor
+	if called(v) then
+		return
+	end
+	v.inside = index
 	walkTo(v, entry)
 	for _ = 1, math.random(1, 2) do
 		local spot = Zones.HouseSpots[math.random(1, #Zones.HouseSpots)]
 		walkTo(v, Zones.housePoint(house, spot.X, spot.Z) + floor)
 		rest(v, { Civilians.INDOORS[1] / 2, Civilians.INDOORS[2] / 2 })
 	end
+	if called(v) then
+		return -- defend() walks them out
+	end
 	walkTo(v, entry)
 	walkTo(v, positions["Door" .. index])
+	v.inside = nil
+end
+
+---------------------------------------------------------------- raids
+
+local function face(v, pos: Vector3)
+	local here = v.root.Position
+	if flatDistance(here, pos) > 0.5 then
+		v.root.CFrame = CFrame.lookAt(here, Vector3.new(pos.X, here.Y, pos.Z))
+	end
+end
+
+-- Out of the house, then after the nearest raider: along the streets while it's far away, straight
+-- at it once close, and a puff of fire whenever it's in range.
+local function defend(v)
+	v.defending = true
+	if v.inside then
+		local house = Zones.Houses[v.inside]
+		walkTo(v, Zones.housePoint(house, Zones.HouseEntry.X, Zones.HouseEntry.Z) + Vector3.new(0, Zones.HOUSE_FLOOR, 0))
+		walkTo(v, positions["Door" .. v.inside])
+		v.node = "Door" .. v.inside
+		v.inside = nil
+	end
+	local shouted = false
+	while raiding and v.model.Parent do
+		local e = S.RaidService.nearestRaider(v.root.Position)
+		if not e then
+			goToNode(v, "PN")
+			rest(v, { 1, 2 })
+		else
+			local dist = flatDistance(v.root.Position, e.root.Position)
+			if dist > 40 then
+				-- one street node closer
+				local path = CivilianService.route(v.node, CivilianService.nearestNode(e.root.Position))
+				if path[1] then
+					walkTo(v, positions[path[1]])
+					v.node = path[1]
+				else
+					v.humanoid:MoveTo(e.root.Position)
+					task.wait(0.5)
+				end
+			elseif dist > Raids.VILLAGER_RANGE then
+				v.humanoid:MoveTo(e.root.Position)
+				task.wait(0.4)
+			else
+				v.humanoid:MoveTo(v.root.Position)
+				face(v, e.root.Position)
+				if os.clock() >= (v.nextPuff or 0) then
+					v.nextPuff = os.clock() + Raids.VILLAGER_INTERVAL * (0.8 + math.random() * 0.4)
+					S.RaidService.villagerPuff(v, e)
+					if not shouted and math.random() < 0.5 then
+						shouted = true
+						CivilianService.say(v, Raids.VILLAGER_LINES[math.random(1, #Raids.VILLAGER_LINES)])
+					end
+				end
+				task.wait(0.3)
+			end
+		end
+	end
+	v.defending = false
+	v.node = CivilianService.nearestNode(v.root.Position, true)
+end
+
+function CivilianService.setRaid(on: boolean)
+	raiding = on
+end
+
+-- A speech bubble over a villager for a few seconds, for everyone nearby.
+function CivilianService.say(v, text: string)
+	local old = v.root:FindFirstChild("Speech")
+	if old then
+		old:Destroy()
+	end
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "Speech"
+	gui.Size = UDim2.fromOffset(190, 34)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 7 * v.def.scale + 5.5, 0)
+	gui.MaxDistance = 90
+	gui.LightInfluence = 0
+	local bubble = Instance.new("TextLabel")
+	bubble.Size = UDim2.fromScale(1, 1)
+	bubble.BackgroundColor3 = Color3.fromRGB(255, 250, 235)
+	bubble.TextColor3 = Color3.fromRGB(60, 40, 30)
+	bubble.Font = Enum.Font.GothamBold
+	bubble.TextScaled = true
+	bubble.Text = text
+	bubble.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = bubble
+	gui.Parent = v.root
+	game:GetService("Debris"):AddItem(gui, 3)
 end
 
 local function live(v)
 	task.wait(math.random() * 4)
 	while v.model.Parent do
 		local ok, err = pcall(function()
-			if math.random() < Civilians.HOME_CHANCE then
+			if raiding then
+				defend(v)
+			elseif math.random() < Civilians.HOME_CHANCE then
 				local index = math.random() < 0.7 and v.def.home or math.random(1, #Zones.Houses)
 				visitHouse(v, index)
 			else

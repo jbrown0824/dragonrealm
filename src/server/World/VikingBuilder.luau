@@ -225,6 +225,24 @@ function VikingBuilder.build(look, scale: number, name: string)
 					limb(a, b, 0.32 * s, IVORY)
 					limb(b, c, 0.5 * s, IVORY)
 					ellipsoid(V(0.9, 0.9, 0.3), c + V(0.1, 0.3, -0.1), GOLD, Enum.Material.Metal)
+				elseif weapon == "torch" then
+					-- a burning torch held high (raid Torchbearers set houses alight with it)
+					local hand = V(1.42, -1.1, 0)
+					local top = hand + V(0, 2.3, -0.6)
+					cylinder(hand + V(0, -0.5, 0.2), top, 0.26 * s, WOOD)
+					cylinder(top - V(0, 0.35, 0), top + V(0, 0.15, 0), 0.42 * s, LEATHER)
+					local flame = ellipsoid(V(0.7, 1.1, 0.7), top + V(0, 0.55, 0), Color3.fromRGB(255, 150, 50), Enum.Material.Neon)
+					local fire = Instance.new("Fire")
+					fire.Size = 2.5 * s
+					fire.Heat = 7
+					fire.Color = Color3.fromRGB(255, 140, 40)
+					fire.SecondaryColor = Color3.fromRGB(255, 220, 90)
+					fire.Parent = flame
+					local light = Instance.new("PointLight")
+					light.Color = Color3.fromRGB(255, 160, 70)
+					light.Range = 16
+					light.Brightness = 1.6
+					light.Parent = flame
 				elseif weapon == "staff" then
 					local hand = V(1.42, -1.1, 0)
 					local top = hand + V(0, 3.4, -0.4)

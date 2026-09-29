@@ -24,6 +24,7 @@ App.WorldView = require(Controllers.WorldView)
 App.PetFollow = require(Controllers.PetFollow)
 App.SpellFX = require(Controllers.SpellFX)
 App.Waypoint = require(Controllers.Waypoint)
+App.Sky = require(Controllers.Sky)
 App.Windows = require(UI.Windows)
 App.Notifications = require(UI.Notifications)
 App.HUD = require(UI.HUD)
@@ -46,9 +47,12 @@ App.Tutorial = require(UI.Tutorial)
 App.Map = require(UI.Map)
 App.Store = require(UI.Store)
 App.Collection = require(UI.Collection)
+App.RaidUI = require(UI.RaidUI)
+App.Range = require(UI.Range)
 
 App.Windows.init()
 App.Sfx.init()
+App.Sky.init()
 App.Notifications.init(App)
 App.VFX.init(App)
 App.SpellFX.init(App)
@@ -77,13 +81,15 @@ App.Waypoint.init(App)
 App.Map.init(App)
 App.Store.init(App)
 App.Collection.init(App)
+App.RaidUI.init(App)
+App.Range.init(App)
 task.spawn(App.WorldView.init, App)
 
 -- Stalls and the Bot Dock ask to open a window.
 Remotes.event("OpenPanel").OnClientEvent:Connect(function(name)
 	if name == "Hatchery" then
 		App.Pets.open("Eggs")
-	elseif name == "Potions" or name == "Robots" then
+	elseif name == "Potions" or name == "Robots" or name == "Range" then
 		App.Windows.open(name)
 	end
 end)

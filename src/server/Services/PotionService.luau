@@ -20,6 +20,10 @@ local function onBuy(player: Player, potionId)
 	if not S.ShopService.isNear(player, { "Alchemist" }) then
 		return false, "Visit the Bubbling Cauldron in town to buy potions."
 	end
+	local closed = S.ShopService.closedMessage()
+	if closed then
+		return false, closed
+	end
 	local rank = profile.potions[potionId] or 0
 	local cost = Potions.cost(potionId, rank)
 	if not cost then

@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
+local DayNight = require(Shared.DayNight)
 local Remotes = require(Shared.Remotes)
 
 local Theme = require(script.Parent.Theme)
@@ -141,6 +142,11 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	for _, p in ipairs(Util.spline(Zones.River.points, 16)) do
 		draw.circle(p.X, p.Z, Zones.River.width / 2, Color3.fromRGB(70, 130, 210), 0, 3)
 	end
+	for _, stream in ipairs(Zones.Streams) do
+		for _, p in ipairs(Util.spline(stream.points, 12)) do
+			draw.circle(p.X, p.Z, stream.width / 2, Color3.fromRGB(70, 130, 210), 0, 3)
+		end
+	end
 	for _, lake in ipairs(Zones.Lakes) do
 		for _, lobe in ipairs(lake.lobes) do
 			draw.circle(lake.center.X + lobe[1], lake.center.Z + lobe[2], lobe[3], lake.frozen and Color3.fromRGB(195, 228, 248) or Color3.fromRGB(70, 130, 210), 0, 3)
@@ -164,6 +170,7 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	end
 	draw.text(Zones.WarHorn.X, Zones.WarHorn.Z, "📯", 13, nil, 5)
 	draw.text(Zones.Training.dummies[2].X, Zones.Training.dummies[2].Z + 30, "🎯", 13, nil, 5)
+	draw.text((Zones.Range.matX + Zones.Range.far) / 2, Zones.Range.lanes[2], "🏹", 13, nil, 5)
 	for _, spot in ipairs(Zones.FishingSpots) do
 		draw.text(spot.pos.X, spot.pos.Z, "🎣", 11, nil, 5)
 	end
@@ -276,6 +283,20 @@ local function buildMini(root: Instance)
 	Theme.make("UICorner", { CornerRadius = UDim.new(1, 0), Parent = mini.edgePin })
 	Theme.stroke(mini.edgePin, Color3.new(1, 1, 1), 2)
 	mini.arenaLabel = Theme.label({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.3, BackgroundColor3 = Color3.fromRGB(60, 20, 20), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, Text = "⚔️ Boss Arena", Visible = false, ZIndex = 50, Parent = frame })
+	-- time of day (shared/DayNight), bottom-left corner
+	mini.clock = Theme.label({
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 4, 1, -4),
+		Size = UDim2.fromOffset(84, 18),
+		BackgroundTransparency = 0.35,
+		BackgroundColor3 = Color3.fromRGB(20, 20, 35),
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "",
+		ZIndex = 55,
+		Parent = frame,
+	})
+	Theme.corner(mini.clock, 6)
 	local open = Theme.make("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 60, Parent = frame })
 	open.Activated:Connect(function()
 		App.Windows.toggle("Map")
@@ -355,6 +376,8 @@ local function updateMini()
 	mini.arrow.Rotation = heading(root)
 	local area = Zones.areaAt(pos)
 	mini.zoneLabel.Text = area and area.name or "The Wilds"
+	local t, clock = DayNight.now()
+	mini.clock.Text = (DayNight.isNight(t) and "🌙 " or "☀️ ") .. DayNight.format(clock)
 	-- edge pin when the waypoint is off the minimap
 	local wp = App.Waypoint.get()
 	if wp then
@@ -378,6 +401,7 @@ local function placesList()
 		{ "🏠 Your lair", nil, "home" },
 		{ "🐉 Town square", Vector3.new(0, 0, 0) },
 		{ "🎯 Training grounds", Zones.Training.dummies[2] },
+		{ "🏹 Target practice", Vector3.new(Zones.Range.matX, 0, Zones.Range.lanes[2]) },
 		{ "📯 War Horn (bosses)", Zones.WarHorn },
 	}
 	for _, shop in ipairs(Zones.Shops) do

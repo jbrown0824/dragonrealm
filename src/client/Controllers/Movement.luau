@@ -98,6 +98,26 @@ function Movement.toggleFlight()
 	end
 end
 
+-- Dragons are far bigger than Roblox avatars, so the default camera starts inside the tail.
+-- Push the camera about a body length back for the first dragon of the session (raising the
+-- minimum zoom pushes the camera out to it; then the player may zoom back in). Respawns and
+-- new dragon types keep whatever zoom the player picked.
+local framed = false
+function Movement.frameDragon(newCharacter: Model)
+	player.CameraMaxZoomDistance = Game.CAMERA_MAX_ZOOM
+	if framed then
+		player.CameraMinZoomDistance = Game.CAMERA_MIN_ZOOM
+		return
+	end
+	framed = true
+	local _, size = newCharacter:GetBoundingBox() -- built facing -Z, so Z is nose to tail
+	local start = math.clamp(size.Z * Game.CAMERA_START_ZOOM + 6, Game.CAMERA_MIN_ZOOM, Game.CAMERA_MAX_ZOOM)
+	player.CameraMinZoomDistance = start
+	task.delay(0.5, function()
+		player.CameraMinZoomDistance = Game.CAMERA_MIN_ZOOM
+	end)
+end
+
 local function setupCharacter(newCharacter: Model)
 	flying = false
 	character = newCharacter
@@ -141,6 +161,7 @@ local function setupCharacter(newCharacter: Model)
 	-- Make sure the camera follows the new dragon.
 	workspace.CurrentCamera.CameraSubject = humanoid
 	workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+	Movement.frameDragon(newCharacter)
 end
 
 local function flatLook(v: Vector3, fallback: Vector3): Vector3

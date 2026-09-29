@@ -70,6 +70,9 @@ local function defaultProfile()
 		animalsHunted = 0,
 		fishCaught = 0,
 		chestsOpened = 0,
+		-- added in the day/night update
+		raidsRepelled = 0, -- night raids on Dragon Town beaten (RaidService)
+		rangeLevel = 0, -- highest target practice level cleared (RangeService)
 		settings = { minimap = true },
 	}
 end

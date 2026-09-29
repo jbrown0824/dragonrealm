@@ -266,6 +266,8 @@ function PlayerService.snapshot(player: Player)
 		fishCaught = profile.fishCaught,
 		animalsHunted = profile.animalsHunted,
 		chestsOpened = profile.chestsOpened,
+		raidsRepelled = profile.raidsRepelled,
+		rangeLevel = profile.rangeLevel,
 		petBook = profile.petBook,
 		achievements = profile.achievements,
 		milestones = profile.milestones,
@@ -335,7 +337,7 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	local stats = st.stats
 
 	local skin = Skins.get(profile.skin)
-	local model, hipHeight = DragonBuilder.build(profile.class, { name = player.Name, colors = skin and skin.colors, fire = skin and skin.fire })
+	local model, hipHeight = DragonBuilder.build(profile.class, { scale = Game.PLAYER_DRAGON_SCALE, name = player.Name, colors = skin and skin.colors, fire = skin and skin.fire })
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R15
 	humanoid.HipHeight = hipHeight

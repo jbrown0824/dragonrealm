@@ -22,6 +22,7 @@ local function click(root: Instance, text: string)
 	return b
 end
 
+local UIS
 task.spawn(function()
 	task.wait(2)
 	local me = Instance.new("Player")
@@ -46,6 +47,7 @@ task.spawn(function()
 	end)
 	Players.PlayerAdded:Fire(me)
 	task.wait(2)
+	require(__proxy("Shared/Config/Raids")).CHANCE = 0 -- raids only when this test starts them
 	Windows = mod("UI/Windows")
 	local State = mod("Controllers/State")
 	check(State.profile ~= nil, "client got its profile")
@@ -447,8 +449,82 @@ task.spawn(function()
 	click(fishing, "REEL!")
 	task.wait(1)
 
+	-- the sky follows the server's day/night clock
+	local Lighting = game:GetService("Lighting")
+	local dayBrightness = Lighting.Brightness
+	Remotes.func("AdminAction"):InvokeServer("setHour", { hour = 23 })
+	task.wait(0.5)
+	check(math.abs(Lighting.ClockTime - 23) < 0.3, "the sky clock follows the server (" .. Lighting.ClockTime .. ")")
+	check(Lighting.Brightness < dayBrightness, "nights are darker")
+	local lamp = CollectionService:GetTagged("Lamp")[1]
+	check(lamp and lamp:FindFirstChildOfClass("PointLight").Enabled, "street lamps light up at night")
+	local clockText = nil
+	for _, d in ipairs(Windows.guis.HUD.Minimap:GetDescendants()) do
+		if d.ClassName == "TextLabel" and tostring(d.Text):find("PM", 1, true) then
+			clockText = d.Text
+		end
+	end
+	check(clockText ~= nil and clockText:find("11:") ~= nil, "the minimap clock shows the night (" .. tostring(clockText) .. ")")
+
+	-- a night raid: the bar, the longships, then a lost raid closes the shops
+	local Raids = require(__proxy("Shared/Config/Raids"))
+	Remotes.func("AdminAction"):InvokeServer("raidNow")
+	task.wait(1)
+	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
+	check(raidBar and raidBar.Visible, "the raid bar shows")
+	task.wait(Raids.WARNING + 1)
+	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders landed")
+	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
+	task.wait(0.5)
+	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
+	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
+	Remotes.func("AdminAction"):InvokeServer("rebuildHouses")
+	Remotes.func("AdminAction"):InvokeServer("setHour", { hour = 10 })
+	task.wait(0.5)
+	check(not raidBar.Visible, "the bar hides once the shops reopen")
+
+	-- target practice: the window, AFK auto-fire, and left click firing Fireball on the range
+	local casts = {}
+	Remotes.event("CastAbility").OnServerEvent:Connect(function(_, abilityId)
+		casts[abilityId] = (casts[abilityId] or 0) + 1
+	end)
+	tp(me, Vector3.new(Zones.Range.matX, 6, Zones.Range.lanes[2]))
+	task.wait(0.3)
+	Remotes.event("OpenPanel"):FireClient(me, "Range")
+	task.wait(0.2)
+	check(Windows.isOpen("Range"), "OpenPanel Range")
+	click(Windows.registry.Range.frame, "Start AFK")
+	task.wait(0.5)
+	check(me:GetAttribute("RangeMode") == "afk" and not Windows.isOpen("Range"), "AFK practice starts from the window")
+	local rangePanel = Windows.guis.HUD:FindFirstChild("RangePanel")
+	check(rangePanel and rangePanel.Visible, "the practice panel shows")
+	task.wait(6)
+	check((casts.Fireball or 0) >= 1, "AFK practice fires by itself (" .. tostring(casts.Fireball) .. ")")
+	local target = CollectionService:GetTagged("PracticeTarget")[1]
+	if target then
+		local RangeUtil = require(__proxy("Shared/RangeUtil"))
+		local want = RangeUtil.position(RangeUtil.fromModel(target), workspace:GetServerTimeNow())
+		check((target:GetPivot().Position - want).Magnitude < 1, "the client moves the targets")
+	end
+	click(rangePanel, "Stop")
+	task.wait(0.5)
+	check(me:GetAttribute("RangeMode") == nil and not rangePanel.Visible, "practice stops")
+	check(Remotes.func("RangeAction"):InvokeServer("start", 1), "start level 1 from the client")
+	task.wait(0.3)
+	casts = {}
+	UIS = game:GetService("UserInputService")
+	UIS.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown }, false)
+	task.wait(1.6)
+	UIS.InputEnded:Fire({ UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown })
+	check((casts.Fireball or 0) >= 2 and not casts.Breath, "holding left click fires Fireball on the range")
+	mod("Controllers/Combat").cast("Breath")
+	UIS.InputBegan:Fire({ KeyCode = Enum.KeyCode.Two, UserInputType = Enum.UserInputType.Keyboard }, false)
+	task.wait(0.3)
+	Remotes.func("RangeAction"):InvokeServer("stop")
+	task.wait(0.3)
+
 	-- eat with G, go home with H, pets with P
-	local UIS = game:GetService("UserInputService")
+	UIS = game:GetService("UserInputService")
 	for _, key in ipairs({ Enum.KeyCode.G, Enum.KeyCode.P, Enum.KeyCode.K, Enum.KeyCode.B, Enum.KeyCode.J, Enum.KeyCode.H, Enum.KeyCode.Q, Enum.KeyCode.T, Enum.KeyCode.F }) do
 		UIS.InputBegan:Fire({ KeyCode = key, UserInputType = Enum.UserInputType.Keyboard }, false)
 		task.wait(0.2)

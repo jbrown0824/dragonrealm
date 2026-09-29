@@ -22,6 +22,7 @@ local EVENTS = {
 	"Fishing", -- fishing session updates
 	"TuningChanged", -- admin balance overrides for every client
 	"AdminState", -- tells a player they're an admin
+	"RangeState", -- your target practice session (level, hits, time, result)
 	-- client -> server
 	"CastAbility",
 	"SetFlying",
@@ -69,6 +70,7 @@ local FUNCTIONS = {
 	"RedeemCode",
 	"AdminAction",
 	"GetTuning",
+	"RangeAction",
 }
 
 local Remotes = {}

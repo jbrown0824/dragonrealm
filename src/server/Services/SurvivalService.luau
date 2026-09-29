@@ -143,6 +143,10 @@ local function onSellFood(player: Player, foodId, count)
 	if not S.ShopService.isNear(player, { "Exchange" }) then
 		return false, "Sell food at the Hoard Exchange in town."
 	end
+	local closed = S.ShopService.closedMessage()
+	if closed then
+		return false, closed
+	end
 	local have = profile.food[foodId] or 0
 	count = math.clamp(math.floor(tonumber(count) or 1), 1, have)
 	if have <= 0 then

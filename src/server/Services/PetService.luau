@@ -122,6 +122,10 @@ local function onBuyEgg(player: Player, eggId)
 	if not S.ShopService.isNear(player, { "Hatchery" }) then
 		return false, "Visit Nestmother's Hatchery in town to buy eggs."
 	end
+	local closed = S.ShopService.closedMessage()
+	if closed then
+		return false, closed
+	end
 	local full = nestFull(profile)
 	if full then
 		return false, full

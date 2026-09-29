@@ -1,5 +1,7 @@
 -- Player input for combat: aiming, casting abilities, local cooldowns, and instant local
 -- effects (the server decides what actually gets hit).
+-- On the practice range (player attribute "RangeMode", RangeService) only Fireball works, on
+-- Range.FIREBALL_COOLDOWN, and holding the left mouse button (or the breath button) fires it.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -9,6 +11,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local StatCalc = require(Shared.StatCalc)
+local Range = require(Shared.Config.Range)
 local Remotes = require(Shared.Remotes)
 
 local Combat = {}
@@ -21,6 +24,7 @@ local breathHeld = false
 local breathInput = nil -- the touch/click that is holding the on-screen breath button
 local projectileCounter = 0
 local lastTouch = false
+local lastRangeHint = 0
 local aimParams = RaycastParams.new()
 aimParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -59,11 +63,12 @@ local function touchTarget(): Vector3?
 	end
 	local look = camera.CFrame.LookVector
 	local best, bestScore = nil, -math.huge
-	for _, tag in ipairs({ "Viking", "Animal", "TrainingDummy" }) do
+	for _, tag in ipairs({ "Viking", "Animal", "TrainingDummy", "PracticeTarget" }) do
 		for _, model in ipairs(CollectionService:GetTagged(tag)) do
 			local humanoid = model:FindFirstChildOfClass("Humanoid")
 			local target = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart")
-			if target and (not humanoid or humanoid.Health > 0) then
+			local owner = model:GetAttribute("OwnerUserId")
+			if target and (not humanoid or humanoid.Health > 0) and (owner == nil or owner == player.UserId) then
 				local offset = target.Position - root.Position
 				local dist = offset.Magnitude
 				if dist <= AUTO_AIM_RANGE and dist > 0.1 then
@@ -116,9 +121,22 @@ local function mouthPosition(character: Model): Vector3
 	return character:GetPivot().Position
 end
 
-function Combat.cast(abilityId: string?)
+-- `aimAt` overrides the mouse / auto-aim (AFK practice aims for you).
+function Combat.cast(abilityId: string?, aimAt: Vector3?)
 	if not abilityId then
 		return
+	end
+	local practicing = player:GetAttribute("RangeMode") ~= nil
+	if practicing then
+		if abilityId == "Breath" then
+			abilityId = "Fireball" -- left click fires Fireball on the range
+		elseif abilityId ~= "Fireball" then
+			if os.clock() - lastRangeHint > 3 then
+				lastRangeHint = os.clock()
+				App.Notifications.toast("Only Fireball works on the practice range (left click or Q).", Color3.fromRGB(255, 200, 110), "🎯")
+			end
+			return
+		end
 	end
 	local p = App.State.profile
 	local character = player.Character
@@ -142,10 +160,11 @@ function Combat.cast(abilityId: string?)
 	if cd and now < cd.readyAt then
 		return
 	end
-	local cdTime = player:GetAttribute("NoCooldowns") and math.min(ability.cooldown, 0.2) or ability.cooldown
+	local cooldown = practicing and math.min(ability.cooldown, Range.FIREBALL_COOLDOWN) or ability.cooldown
+	local cdTime = player:GetAttribute("NoCooldowns") and math.min(cooldown, 0.2) or cooldown
 	cooldowns[abilityId] = { readyAt = now + cdTime, total = cdTime }
 
-	local aim = Combat.aimPoint()
+	local aim = aimAt or Combat.aimPoint()
 	local projectileId = nil
 	if ability.kind == "projectile" then
 		projectileCounter += 1

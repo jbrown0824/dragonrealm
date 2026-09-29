@@ -1065,10 +1065,13 @@ local services = {
 		end,
 	},
 }
--- Roblox's Lighting defaults for the properties the game tweens
+-- Roblox's Lighting defaults for the properties the game tweens (and the place's own values
+-- from default.project.json for the ones it sets)
 services.Lighting.ExposureCompensation = 0
-services.Lighting.Brightness = 2
-services.Lighting.ClockTime = 14
+services.Lighting.Brightness = 2.4
+services.Lighting.ClockTime = 14.5
+services.Lighting.Ambient = Color3.new(0.27, 0.25, 0.3)
+services.Lighting.OutdoorAmbient = Color3.new(0.55, 0.52, 0.58)
 services.GuiService = Instance.new("GuiService")
 function services.GuiService.GetGuiInset()
 	return Vector2.new(0, 58), Vector2.new(0, 0) -- Roblox's top bar

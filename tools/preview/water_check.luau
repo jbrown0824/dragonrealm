@@ -45,6 +45,14 @@ for _, lake in ipairs(Zones.Lakes) do
 	measure(lake.id, c.X - 90, c.X + 90, c.Z - 140, c.Z + 140)
 end
 measure("River", -640, 640, 230, 330)
+for _, stream in ipairs(Zones.Streams) do
+	local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
+	for _, q in ipairs(stream.points) do
+		x0, x1, z0, z1 = math.min(x0, q[1]), math.max(x1, q[1]), math.min(z0, q[2]), math.max(z1, q[2])
+	end
+	-- just the channel itself: between the river's bank and the lake's
+	measure(stream.id, x0 - stream.width, x1 + stream.width, z0 + 30, z1 - 30)
+end
 
 -- Longships (Camps.luau): 34 long and 7.5 wide, keel about 3 below the waterline.
 for _, ship in ipairs(workspace:GetDescendants()) do

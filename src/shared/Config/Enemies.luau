@@ -57,6 +57,16 @@ Enemies.Vikings = {
 		scale = 1.0, aggroRange = 60,
 		look = { shirt = rgb(150, 120, 40), pants = rgb(60, 50, 40), beard = rgb(220, 170, 90), weapon = "horn", shield = false, cape = rgb(120, 90, 30) },
 	},
+	-- Only comes with night raids on Dragon Town (Config/Raids): heads for the houses and sets
+	-- them alight, and only fights dragons that get right in its way.
+	Torchbearer = {
+		id = "Torchbearer", name = "Torchbearer",
+		health = 48, damage = 6, speed = 15, defense = 2,
+		attackRange = 7, attackCooldown = 1.8,
+		xpMult = 1.2, gearChance = 0.15, seedChance = 0.02, goldMult = 1.2,
+		scale = 0.98, aggroRange = 12,
+		look = { shirt = rgb(170, 90, 40), pants = rgb(70, 55, 40), beard = rgb(90, 50, 25), weapon = "torch", shield = false, warpaint = true },
+	},
 	Chieftain = {
 		id = "Chieftain", name = "Viking Chieftain", elite = true,
 		health = 280, damage = 16, speed = 14, defense = 20,

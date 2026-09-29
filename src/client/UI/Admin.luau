@@ -4,7 +4,8 @@
 --            levelled), treats, the pet book, skins, titles, achievements, Robux passes and
 --            products (test grants), potions, hunger, god mode, teleports...
 --            for yourself or any player you pick at the top
---   World:   start a boss, respawn camps, refill chests, restock everyone's shops
+--   World:   start a boss, respawn camps, refill chests, restock or close the shops, set the
+--            time of day, start or end a night raid, burn and rebuild houses
 --   Balance: live multipliers for ability damage/cooldowns, skill values and global rates,
 --            plus "Print changes" to copy the new numbers into the Config files
 
@@ -341,6 +342,34 @@ local function buildWorldPage(page: Instance)
 	local shopRow = section(scroll, 3, "🛒 Shops")
 	button(shopRow, "Restock shops", nil, function()
 		act("restockShops")
+	end)
+	button(shopRow, "Close shops 60s", nil, function()
+		act("shops", { seconds = 60 })
+	end)
+	button(shopRow, "Reopen shops", nil, function()
+		act("shops", { open = true })
+	end)
+	local timeRow = section(scroll, 4, "🌗 Time of day (night falls at 18:00)")
+	for _, entry in ipairs({ { "🌅 Dawn", 6 }, { "☀️ Noon", 12 }, { "🌇 Dusk soon", 17.8 }, { "🌙 Midnight", 0 } }) do
+		button(timeRow, entry[1], nil, function()
+			act("setHour", { hour = entry[2] })
+		end)
+	end
+	local raidRow = section(scroll, 5, "⚔️ Night raids")
+	button(raidRow, "Raid now", Color3.fromRGB(160, 60, 50), function()
+		act("raidNow")
+	end)
+	button(raidRow, "End: repelled", nil, function()
+		act("raidEnd", { won = true })
+	end)
+	button(raidRow, "End: lost", nil, function()
+		act("raidEnd", { won = false })
+	end)
+	button(raidRow, "Set a house on fire", nil, function()
+		act("burnHouse")
+	end)
+	button(raidRow, "Rebuild houses", nil, function()
+		act("rebuildHouses")
 	end)
 end
 

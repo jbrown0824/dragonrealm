@@ -707,10 +707,20 @@ local function refresh()
 		if id == "Breath" and class then
 			slot.icon.Text = ({ Shadowstalker = "💜", Stormwing = "🌬️", Behemoth = "🔥", Frostwyrm = "❄️", Venomspine = "🧪" })[class.id] or "🔥"
 		end
+		-- practice range: the mouse button fires Fireball too, and the rest sit out
+		if Players.LocalPlayer:GetAttribute("RangeMode") then
+			if i == 1 then
+				slot.icon.Text = Abilities.get("Fireball").icon
+			elseif i > 2 and a then
+				slot.icon.TextTransparency = 0.7
+			end
+		end
 	end
 	refreshTracker(p)
 	root.Enabled = p.class ~= nil
 end
+
+HUD.refresh = refresh
 
 function HUD.init(app)
 	App = app
@@ -764,9 +774,17 @@ function HUD.init(app)
 		bars.staminaFill.Size = UDim2.fromScale(maxStamina > 0 and math.clamp(stamina / maxStamina, 0, 1) or 0, 1)
 		bars.staminaFill.BackgroundColor3 = App.Movement.isFlying() and Color3.fromRGB(120, 230, 255) or C.stamina
 
+		local practicing = Players.LocalPlayer:GetAttribute("RangeMode") ~= nil
 		for i, slot in ipairs(slots) do
 			local id = abilityForSlot(i)
-			if id then
+			if practicing and i == 1 then
+				id = "Fireball"
+			end
+			if practicing and i > 2 then
+				-- resting while you practice
+				slot.cd.Size = UDim2.fromScale(1, id and 1 or 0)
+				slot.cdText.Text = ""
+			elseif id then
 				local remaining, total = App.Combat.getCooldown(id)
 				if remaining > 0.05 and total > 0 then
 					slot.cd.Size = UDim2.fromScale(1, math.clamp(remaining / total, 0, 1))

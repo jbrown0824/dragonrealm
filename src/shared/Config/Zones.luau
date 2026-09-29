@@ -134,6 +134,14 @@ Zones.River = {
 	},
 }
 
+-- Channels carved and drawn like the river. The fjord channel joins Fjord Lake (the Fishing
+-- Village's harbor) to the river, so the longships have a way out to sea. `depth` is the bowl
+-- depth in the middle; the first point sits in the river and the last one in the lake.
+Zones.Streams = {
+	{ id = "FjordChannel", width = 32, depth = 14, points = {
+		{ -446, 268 }, { -448, 312 }, { -462, 360 }, { -456, 410 }, { -466, 458 }, { -468, 500 } } },
+}
+
 -- Fishing spots (on the water surface). kind picks the fish table in Config/Food.
 Zones.FishingSpots = {
 	{ id = "RiverWest", kind = "River", pos = Vector3.new(-120, 0, 274) },
@@ -156,6 +164,19 @@ Zones.Training = {
 	dummies = { Vector3.new(78, 0, 138), Vector3.new(98, 0, 134), Vector3.new(118, 0, 138) },
 	pen = { min = Vector3.new(72, 0, 160), max = Vector3.new(128, 0, 222) },
 	golem = Vector3.new(100, 0, 208),
+}
+
+-- Target practice range (RangeService) on the west side of town, behind the houses on the main
+-- road. Each lane has a firing mat at x = matX (you face -x); your targets move around the field
+-- between x = near and far, within laneHalf of the lane's middle (z). Hay bales at x = backstop
+-- catch stray fireballs.
+Zones.Range = {
+	lanes = { 146, 178, 210 }, -- z of each lane's middle
+	laneHalf = 12,
+	matX = -74,
+	near = -100,
+	far = -124,
+	backstop = -131,
 }
 
 -- Town points of interest.

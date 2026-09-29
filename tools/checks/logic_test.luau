@@ -18,6 +18,10 @@ local Collections = require(Config.Collections)
 local Skins = require(Config.Skins)
 local StoreInfo = require(Config.Store)
 local Shops = require(Config.Shops)
+local Raids = require(Config.Raids)
+local Range = require(Config.Range)
+local DayNight = require(Shared.DayNight)
+local RangeUtil = require(Shared.RangeUtil)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local Tuning = require(Shared.Tuning)
@@ -627,6 +631,84 @@ do
 	check(out[2] == "B" and out[3] == "C", "empty or stale keys fill with the rest in order")
 	local few = TalentUtil.resolveLoadout({ "Breath", "Fireball", "A" }, nil, "Sig")
 	check(few[1] == "A" and few[2] == nil, "loadout with one ability")
+end
+
+---------------------------------------------------------------- day and night
+do
+	check(Game.NIGHT_SECONDS < Game.DAY_SECONDS, "nights are shorter than days")
+	check(math.abs(DayNight.clockTime(0) - Game.DAWN_HOUR) < 1e-6, "the cycle starts at dawn")
+	check(math.abs(DayNight.clockTime(Game.DAY_SECONDS) - Game.DUSK_HOUR) < 1e-6, "dusk at the end of the day")
+	check(not DayNight.isNight(Game.DAY_SECONDS - 1) and DayNight.isNight(Game.DAY_SECONDS + 1), "night starts at dusk")
+	for _, hour in ipairs({ 0, 3, 6, 10, 12, 17.5, 18, 21 }) do
+		local offset = DayNight.offsetFor(1000, hour)
+		local clock = DayNight.clockTime(DayNight.phase(1000, offset))
+		check(math.abs(clock - hour) < 1e-6, "offsetFor puts the clock at " .. hour .. " (" .. clock .. ")")
+	end
+	local last = -1
+	for t = 0, DayNight.cycleLength() - 1, 5 do
+		local c = (DayNight.clockTime(t) - Game.DAWN_HOUR) % 24
+		check(c >= last, "the clock only moves forward (t=" .. t .. ")")
+		last = c
+	end
+	check(DayNight.darkness(12) == 0 and DayNight.darkness(0) == 1, "noon is light, midnight is dark")
+	check(DayNight.format(13.5) == "1:30 PM" and DayNight.format(0.25) == "12:15 AM", "clock text")
+end
+
+---------------------------------------------------------------- night raids
+do
+	check(Raids.CHANCE > 0 and Raids.CHANCE <= 1 and Raids.PITY_NIGHTS >= 1, "raid chance and pity")
+	check(Raids.WARNING + Raids.WAVE_GAP * (#Raids.Waves - 1) < Game.NIGHT_SECONDS - 60, "every wave lands with time to fight before dawn")
+	check(Raids.MAX_BURNED <= #Zones.Houses, "the village can burn")
+	for i, wave in ipairs(Raids.Waves) do
+		for typeId, count in pairs(wave) do
+			if typeId ~= "leader" then
+				check(Enemies.Vikings[typeId] ~= nil and count > 0, "raid wave " .. i .. " viking " .. tostring(typeId))
+			end
+		end
+	end
+	check(Enemies.Vikings[Raids.Captain.base] ~= nil, "raid captain base type")
+	check(Enemies.Vikings.Torchbearer ~= nil and Enemies.Vikings.Torchbearer.look.weapon == "torch", "torchbearers carry torches")
+	check(Zones.TownWalk.nodes[Raids.ENTRY_NODE] ~= nil, "raid entry node exists")
+	for i, landing in ipairs(Raids.Landings) do
+		check(Zones.isIn("Town", landing.shore), "raid landing " .. i .. " is in town")
+		check(math.abs(landing.shipX) > 30, "raid longship " .. i .. " is clear of the bridge")
+	end
+	check(Raids.VILLAGER_FLOOR > 0, "villagers can't finish raiders off")
+	check(Raids.Rewards.xpShare > 0 and Raids.Rewards.gold.base > 0, "raid rewards")
+	check(Collections.getAchievement("Defender") ~= nil and Collections.getAchievement("Sharpshooter") ~= nil, "raid and range achievements")
+end
+
+---------------------------------------------------------------- target practice
+do
+	local patterns = { still = true, slide = true, bob = true, zigzag = true, sprint = true, float = true, popup = true }
+	local R = Zones.Range
+	local lastXp = 0
+	for i, def in ipairs(Range.Levels) do
+		check(def.needed > 0 and def.time > 0 and def.count > 0 and def.size > 0, "range level " .. i .. " numbers")
+		check(def.xp > lastXp, "range level " .. i .. " pays more than the one before")
+		lastXp = def.xp
+		-- enough shots to clear it, even missing half of them
+		check(def.time / Range.FIREBALL_COOLDOWN >= def.needed * 2, "range level " .. i .. " is clearable")
+		for _, pattern in ipairs(def.patterns) do
+			check(patterns[pattern] == true, "range level " .. i .. " pattern " .. pattern)
+			if pattern == "popup" then
+				check((def.life or 0) > 0, "range level " .. i .. " popups have a life")
+			end
+		end
+	end
+	check(Range.AFK.xpPerMinute * 60 < Range.Levels[#Range.Levels].xp * 10, "AFK practice is slower than playing")
+	-- targets stay in their lane and in front of the backstop
+	for _, pattern in pairs({ "slide", "bob", "zigzag", "sprint", "float" }) do
+		local amp = R.laneHalf
+		local t = { pattern = pattern, x = (R.near + R.far) / 2, y = 8, z = R.lanes[1], speed = 18, amp = amp, phase = 1, born = 0 }
+		for k = 0, 200 do
+			local p = RangeUtil.position(t, k * 0.137)
+			check(math.abs(p.Z - R.lanes[1]) <= R.laneHalf + 1e-6, pattern .. " stays in its lane")
+			check(p.X > R.backstop and p.X < R.matX - 6, pattern .. " stays on the field")
+			check(p.Y > 0, pattern .. " stays above the ground")
+		end
+	end
+	check(RangeUtil.expired({ born = 0, life = 2 }, 2.5) and not RangeUtil.expired({ born = 0 }, 99), "popups vanish, others don't")
 end
 
 ---------------------------------------------------------------- balance report

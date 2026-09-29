@@ -454,6 +454,41 @@ ACTIONS.restockShops = function()
 	end
 	return true, "Every shop restocked."
 end
+ACTIONS.setHour = function(_, _, args)
+	local hour = tonumber(args.hour)
+	if not hour then
+		return false, "Pick an hour."
+	end
+	S.DayNightService.setHour(hour)
+	return true, string.format("The clock is now %02d:00.", math.floor(hour) % 24)
+end
+ACTIONS.raidNow = function()
+	return S.RaidService.begin()
+end
+ACTIONS.raidEnd = function(_, _, args)
+	return S.RaidService.stop(args.won == true)
+end
+ACTIONS.burnHouse = function()
+	for index = 1, #Zones.Houses do
+		if S.RaidService.houseState(index) == "ok" then
+			S.RaidService.ignite(index)
+			return true, "House " .. index .. " is on fire."
+		end
+	end
+	return false, "Every house is already burning or burned."
+end
+ACTIONS.rebuildHouses = function()
+	S.RaidService.rebuildAll()
+	return true, "Every house rebuilt."
+end
+ACTIONS.shops = function(_, _, args)
+	if args.open then
+		S.ShopService.reopen()
+		return true, "Shops reopened."
+	end
+	S.ShopService.close(tonumber(args.seconds) or 60)
+	return true, "Shops closed."
+end
 ACTIONS.miniBosses = function()
 	S.CampService.respawnMiniBosses()
 	return true, "Mini-bosses respawned."

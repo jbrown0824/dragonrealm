@@ -36,7 +36,7 @@ Progress saves with DataStores. To test saving in Studio, first publish the game
 | Move / jump | WASD / Space |
 | Fly | F, or jump and press Space again. While flying: Space = up, Ctrl or C = down |
 | Dragon Breath | Hold Left Mouse (aim with the mouse) |
-| Fireball | Q |
+| Fireball | Q (and Left Mouse on the target practice range) |
 | Your dragon's signature ability (from level 3) | 1 |
 | Skill tree abilities | 2, 3, 4, 5 (choose which ones in the skill tree's "Keys 2-5" strip) |
 | Interact (shops, quests, plants, fishing, carcasses) | E |
@@ -69,13 +69,16 @@ The 💎 Store, 🎁 Codes and ❓ Help are the round buttons at the top right.
 - **Dragon Town**: the houses are dragon-sized and you can walk (or fly) inside: a fireplace, a straw nest, a bookshelf, a table and a little hoard. **Villagers** (small civilian dragons like Old Cinderbeard, Pip and Auntie Mossgleam) stroll the streets, pop into their houses, and say something helpful if you chat with them (E). They can't be attacked.
 - **Map and waypoints**: a minimap in the top right (N hides it), and a full map on M. Pick a place, click anywhere on the map, or click a quest in the tracker to get a 📍 waypoint with a glowing guide line. By default the waypoint follows your current quest.
 - **Training grounds** (south-east of the plaza): straw dummies show your live DPS, total damage and time. The golem in the fenced **Sparring Pen** throws practice axes at anyone inside; they hurt, but can never take you below 1 health.
+- **🏹 Target practice** (behind the houses west of the main road): three lanes, each with a firing mat. Stand on a mat, press E and pick a level: your own targets pop up and slide, bob, zigzag, sprint, float or pop up and vanish, and you knock them down with Fireball. While you practice, left click fires Fireball too, its cooldown drops to 0.6 seconds and your other abilities rest. Hit enough targets before time runs out to clear the level; the first clear of each of the 10 levels pays a share of your next level's XP (replays pay less). Gold targets count double. **AFK practice** fires by itself at slow targets and trickles in XP (about a quarter of a level every 10 minutes; Roblox still logs out anyone idle for 20 minutes).
+- **Day and night**: a 9-minute day and a 6-minute night. The sun and moon move, the light cools at night and the street lamps come on. The minimap shows the time.
+- **🌙 Night raids**: each night there's a 1 in 3 chance vikings raid Dragon Town, and after 5 quiet nights in a row the next one always brings a raid. Longships row down the river and land below town in waves, with a Raid Captain in the last one. **Torchbearers** head for the houses and set them alight (hold E at a burning house's door to put the fire out); the villagers come out and puff fire at the raiders (they wear them down, but can't finish them). Beat every raider before dawn and everyone who hit a raider or saved a house gets XP, gold, Pet Treats and a good chance at Rare gear or an egg. Lose (dawn with raiders still in town, or 5 houses burned down) and the raiders loot the market: every shop closes for 3 minutes. Burned houses are rebuilt a few minutes later.
 - **Vikings**: Raiders, Axe Throwers, Shieldbearers, Berserkers, Hornblowers and elite Chieftains, spread across 4 camps from level 1 to 28. They chase, swing, and throw axes at dragons flying overhead.
   - Every camp has a **treasure chest** in the middle. Hold E to open it; the moment you start, the whole camp comes for you. Each dragon has their own chest timer: opening it gets you a prize (gold, gear, sometimes seeds or an egg) and empties it for you for 5 minutes, but friends can still loot it themselves. The lid, the treasure inside and the countdown show your own timer.
   - Vikings respawn **slower while few dragons are in their camp** (2.6× as slow alone, back to normal with 4 or more), so a lone dragon can clear a camp.
   - Each camp has a **champion** (mini-boss) with a 💀 next to its health bar, a telegraphed ground slam, guaranteed Rare+ gear and a chance at eggs. Everyone who hit it and is still near the camp when it falls gets their own drops, so team up without worrying about who lands the last hit.
   - In **Jarl's Fortress**, **Hornblowers** raise the alarm when they spot you. If they finish blowing the horn, every viking in the fortress hunts you. Stun or kill them first! The lower camps only attack when you get close.
 - **Hunting and hunger**: your hunger bar drains over time (faster while flying, half as fast in town). Hungry dragons fly slower and shorter and hit softer; starving is worse. Hunt deer, goats, boars, wolves and bears in **Elk Meadows** (west of town), **Whisperwood** (east), **Bearclaw Hollow** and **Frostfang Ridge** (north). Deer and goats run, boars fight back when hurt, wolves and bears attack. A kill leaves a carcass: hold E to eat it or R to pack the meat.
-- **Fishing**: 🎣 spots on the river, the lakes and the frozen tarn. Cast, wait for a bite, then stop the needle in the green zone. Fish fill your food bag; rare ones (Golden Carp, Ancient Eel) sell for a lot.
+- **Fishing**: 🎣 spots on the river, the lakes and the frozen tarn. Fjord Lake (the Fishing Village's harbor) has a channel out to the river for its longships. Cast, wait for a bite, then stop the needle in the green zone. Fish fill your food bag; rare ones (Golden Carp, Ancient Eel) sell for a lot.
 - **Gear**: **⚡ Equip Best** wears your best item in every slot. Items better than what you're wearing are marked ⬆️ in your Bag and in the Armory, and worn items are marked EQUIPPED at the Anvil.
 - **Loot**: gold on every kill; gear drops in Common, Uncommon, Rare, Epic and Legendary; seeds and eggs are rare drops. Loot only shows up for the player who earned it.
 - **Shops** on the town square: the Emberforge Armory (buy), the Hoard Exchange (sell gear and food) and the Anvil of Ages (upgrade items up to +10).
@@ -99,7 +102,7 @@ The 💎 Store, 🎁 Codes and ❓ Help are the round buttons at the top right.
 Type the admin code into the 🎁 **Codes** window (the default is `DRAGONLORD`: **change it in `src/server/Config/AdminConfig.luau` before you publish**, or lock it to your user id with `ALLOWED_USER_IDS`). A 🛠️ button appears and opens the admin panel:
 
 - **Dragon**: pick any player in the server (🎯, top right), then set their level (1-30) and Paragon, dragon type, gold, gear, eggs, seeds, food, potions, robots and hunger; give any pet (including Secret ones, golden and at any level) and Pet Treats; fill or clear the pet book; max or reset achievements; unlock, lock or put on skins and titles; switch the 2x XP / 2x Gold passes on or off and hand out any store product for testing (no Robux involved); reset the Starter Pack; restock their shops; heal, god mode, no cooldowns, teleports.
-- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions, restock everyone's shops.
+- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions, restock, close or reopen everyone's shops, set the time of day (dawn, noon, just before dusk, midnight), start a night raid or end it (repelled or lost), set a house on fire and rebuild every house.
 - **Balance**: live multipliers for every ability's damage and cooldown, every skill's values, and global damage, health, XP and gold rates. Changes apply to everyone on the server right away and reset when it restarts. **Print changes** lists the new numbers so you can paste them into `src/shared/Config`.
 
 ## Robux store setup
@@ -118,7 +121,9 @@ All balance numbers live in `src/shared/Config/`:
 
 | File | What it controls |
 |---|---|
-| `Game.luau` | Level cap, XP curve, Paragon levels, boss timers, regen, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
+| `Game.luau` | Level cap, XP curve, Paragon levels, day and night length, player dragon size and starting camera distance, boss timers, regen, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
+| `Raids.luau` | Night raids: the chance, the pity rule, waves, the Raid Captain, burning houses, villager help, rewards, how long the shops close |
+| `Range.luau` | Target practice: the 10 levels (targets, patterns, time, XP), the practice Fireball cooldown, AFK practice |
 | `Classes.luau` | Dragon stats, colors, fire styles |
 | `Talents.luau`, `Abilities.luau` | Skill trees and abilities |
 | `Enemies.luau` | Viking, champion (mini-boss) and boss stats and attacks |
@@ -129,10 +134,10 @@ All balance numbers live in `src/shared/Config/`:
 | `Collections.luau`, `Skins.luau` | Pet book milestones, achievements and their rewards; dragon skins |
 | `Civilians.luau` | The village dragons: names, looks, homes, what they say, walking pace |
 | `Items.luau`, `Seeds.luau`, `Quests.luau` | Gear, plants, quests |
-| `Zones.luau` | Map layout: camps, shops, bases, houses, the villagers' walking routes, Battle Zone, hunting grounds, lakes, river, fishing spots, training grounds |
+| `Zones.luau` | Map layout: camps, shops, bases, houses, the villagers' walking routes, Battle Zone, hunting grounds, lakes, river and the fjord channel, fishing spots, training grounds, target practice range |
 | `Sounds.luau` | Sound effect IDs. Paste Creator Store audio IDs here; blank entries are silent |
 
-**Testing quickly:** use admin mode, or in `Game.luau` set `BOSS_FIRST_SPAWN = 40` and `BOSS_WARNING = 20`.
+**Testing quickly:** use admin mode (the World page sets the time of day, starts or ends a raid, sets a house on fire and closes or reopens the shops), or in `Game.luau` set `BOSS_FIRST_SPAWN = 40` and `BOSS_WARNING = 20`.
 
 ## Project layout
 
@@ -147,4 +152,4 @@ src/
 
 - Add sound effects and music IDs in `Config/Sounds.luau`.
 - Add DataStore session locking (for example with ProfileStore) before a big public launch.
-- Add more bosses, more camps, and a day/night cycle.
+- Add more bosses and more camps.

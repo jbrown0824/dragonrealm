@@ -9,6 +9,8 @@
 --   flee        runs from nearby dragons, never attacks
 -- Vikings with def.alarm (Hornblowers) in a camp with `alarm = true` blow a horn when they spot
 -- a dragon; if they finish, every viking in the camp hunts that dragon for a while.
+-- Raiders (opts.raid, RaidService) fight inside town, where vikings normally can't touch you, and
+-- follow opts.objective(e, t) (march, torch a house...) whenever no dragon is in reach.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -258,7 +260,7 @@ local function targetRoot(e, player: Player)
 		end
 	else
 		local area = Zones.areaAt(root.Position)
-		if area and area.safe then
+		if area and area.safe and not e.raid then
 			return nil
 		end
 		if (root.Position - e.spawnPos).Magnitude > e.leash + 40 then
@@ -290,7 +292,7 @@ end
 -- Register any model as something dragons can hit. opts:
 --   def, typeId, displayName, level, scale, kind ("viking" | "animal" | "dummy" | "boss"),
 --   camp, area, customAI, isBoss, miniBoss, arena, noRewards, onDeath, onHit, dummy, keepBody,
---   leash, aggroRange, speed, damage, defense, tagOffset, radius, height
+--   leash, aggroRange, speed, damage, defense, tagOffset, radius, height, raid, objective
 function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart, opts)
 	local def = opts.def or {}
 	local scale = opts.scale or def.scale or 1
@@ -336,6 +338,8 @@ function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart,
 		aggroRange = opts.aggroRange or def.aggroRange or 42,
 		tagOffset = opts.tagOffset,
 		slam = opts.slam,
+		raid = opts.raid == true,
+		objective = opts.objective,
 	}
 	enemies[model] = e
 	createNametag(e)
@@ -567,7 +571,7 @@ function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number,
 		for _, p in ipairs(Players:GetPlayers()) do
 			local character, _, r = S.PlayerService.getCharacter(p)
 			if character and (r.Position - targetPos).Magnitude <= 5 + 2.5 * (character:GetAttribute("DragonScale") or 1) then
-				local o = { sourceLevel = e.level }
+				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil }
 				for k, v in pairs(dmgOpts or {}) do
 					o[k] = v
 				end
@@ -591,7 +595,7 @@ local function meleeSwing(e, player: Player)
 		local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
 		local reach = (e.def.attackRange or 6) + 3 * ((player.Character and player.Character:GetAttribute("DragonScale")) or 1) + 2
 		if flat <= reach and math.abs(offset.Y) <= 9 + e.scale * 2 then
-			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e })
+			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil })
 		end
 	end)
 end
@@ -613,7 +617,7 @@ local function slam(e)
 			if character then
 				local offset = root.Position - center
 				if Vector3.new(offset.X, 0, offset.Z).Magnitude <= cfg.radius + 3 and offset.Y < 14 then
-					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level })
+					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil })
 				end
 			end
 		end
@@ -863,7 +867,10 @@ local function think(e, t: number, dt: number)
 		return
 	end
 
-	-- Idle: wander around home.
+	-- Nobody to fight: raiders get on with the raid, everyone else wanders around home.
+	if e.objective and e.objective(e, t) then
+		return
+	end
 	wander(e, t, e.kind == "animal" and 30 or 22)
 end
 
