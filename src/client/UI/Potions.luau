@@ -103,6 +103,11 @@ function Potions.refresh()
 			buy(id)
 		end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 8), Size = UDim2.fromOffset(150, 38), Parent = row })
 		Theme.setButtonEnabled(button, cost ~= nil and not soldOut and p.gold >= cost)
+		if cost and not soldOut then
+			Theme.onDisabledClick(button, function()
+				App.Store.needGold(cost)
+			end)
+		end
 		if cost then
 			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 48), Size = UDim2.fromOffset(150, 16), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = soldOut and C.bad or C.good, Text = soldOut and "Out of stock" or string.format("%d in stock", left), Parent = row })

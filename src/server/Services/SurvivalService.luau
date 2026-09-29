@@ -1,7 +1,8 @@
 -- Hunger and food. Every dragon's hunger drains over time (faster while flying, slower in
 -- town, slower with Iron Belly Stew and some pets). Below the thresholds in Game.HUNGER_LEVELS
 -- you fly slower and shorter and hit softer. Eat hunted meat or caught fish to fill up.
--- The current value is mirrored to the player attribute "Hunger" for the HUD.
+-- The current value is mirrored to the player attribute "Hunger" for the HUD. The Never Hungry
+-- pass (💎 Store) keeps you full.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -143,6 +144,10 @@ local function onSellFood(player: Player, foodId, count)
 	if not S.ShopService.isNear(player, { "Exchange" }) then
 		return false, "Sell food at the Hoard Exchange in town."
 	end
+	local closed = S.ShopService.closedMessage()
+	if closed then
+		return false, closed
+	end
 	local have = profile.food[foodId] or 0
 	count = math.clamp(math.floor(tonumber(count) or 1), 1, have)
 	if have <= 0 then
@@ -184,7 +189,9 @@ function SurvivalService.start()
 			local profile = S.PlayerService.getProfile(player)
 			local character, _, root = S.PlayerService.getCharacter(player)
 			if profile and profile.class then
-				if character and not S.BossService.isInFight(player) then
+				if S.StoreService.hasPass(player, "NeverHungry") then
+					profile.hunger = Game.HUNGER_MAX
+				elseif character and not S.BossService.isInFight(player) then
 					local stats = S.PlayerService.getStats(player)
 					local rate = Game.HUNGER_DRAIN * (1 - (stats and stats.hungerPct or 0) / 100)
 					if character:GetAttribute("Flying") then

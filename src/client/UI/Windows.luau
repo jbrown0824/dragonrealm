@@ -159,11 +159,42 @@ function Windows.isOpen(name: string): boolean
 	return Windows.current == name
 end
 
+-- Where a window's status banner goes: just below the window when the screen has room for it,
+-- so it never covers what you're reading (it used to sit over the bottom of the window).
+-- Otherwise (short screens, tall windows) it covers the title bar, clear of the close button.
+local BANNER_OVERLAP = 6 -- the banner tucks this far up over the window's bottom edge (its padding)
+local BANNER_ROOM = 28 -- room it needs below the window for one line (window units)
+local BANNER_ROOM_ACTION = 34 -- ... with a button in it
+function Windows.placeBanner(frame: GuiObject, hasAction: boolean?)
+	local banner = frame:FindFirstChild("StatusBanner")
+	local camera = workspace.CurrentCamera
+	if not banner or not camera then
+		return
+	end
+	local vh = (camera.ViewportSize.Y - TOP_BAR) / (Windows.scale or 1)
+	local fit = frame:FindFirstChild("Fit")
+	local k = fit and fit.Scale or 1
+	local h = (frame.Size.Y.Offset + frame.Size.Y.Scale * vh) * k
+	local bottom = frame.Position.Y.Scale * vh + frame.Position.Y.Offset + (1 - frame.AnchorPoint.Y) * h
+	banner.AnchorPoint = Vector2.new(0.5, 0)
+	if (vh - bottom) / k >= (hasAction and BANNER_ROOM_ACTION or BANNER_ROOM) then
+		banner.Position = UDim2.new(0.5, 0, 1, -BANNER_OVERLAP)
+		banner.Size = UDim2.new(1, -40, 0, 0)
+	else
+		banner.Position = UDim2.new(0.5, 0, 0, 4)
+		banner.Size = UDim2.new(1, -140, 0, 0)
+	end
+end
+
 -- Tell the player something about what they just did in a window: it shows in the open
 -- window's status banner (toasts sit behind windows), or as a toast when no window is open.
-function Windows.notify(text: string, color: Color3?, icon: string?)
+-- `action` ({ text, color?, onClick }) puts a button in the banner.
+function Windows.notify(text: string, color: Color3?, icon: string?, action)
 	local entry = Windows.current and Windows.registry[Windows.current]
-	if entry and entry.frame.Visible and Theme.showBanner(entry.frame, (icon and (icon .. "  ") or "") .. text, color) then
+	if entry and entry.frame.Visible then
+		Windows.placeBanner(entry.frame, action ~= nil)
+	end
+	if entry and entry.frame.Visible and Theme.showBanner(entry.frame, (icon and (icon .. "  ") or "") .. text, color, nil, action) then
 		return
 	end
 	if Windows.toast then

@@ -1,5 +1,10 @@
--- Robux purchases (Config/Store): game passes (2x XP, 2x Gold) and developer products (Starter
--- Pack, gold packs, Secret Egg, treats, shop restock).
+-- Robux purchases (Config/Store): game passes (2x XP, 2x Gold, and the handy ones: 2x Flight
+-- Time, Never Hungry, Wayfinder) and developer products (Starter Pack, Gold Rush, gold packs, the
+-- Mythic and Secret Eggs, treats, shop restock). Other services ask about passes here
+-- (xpMultiplier, goldMultiplier, flightMultiplier, hasPass).
+--
+-- Gold Rush is a boost measured in minutes of play: profile.goldRushLeft counts down only while
+-- the player is in the game, so it can't run out while they're away.
 --
 -- Developer products are granted in ProcessReceipt. Every receipt id is remembered on the
 -- profile and the profile is saved before we tell Roblox the purchase went through, so a
@@ -52,8 +57,36 @@ function StoreService.xpMultiplier(player: Player): number
 	return StoreService.hasPass(player, "DoubleXP") and 2 or 1
 end
 
+-- 2x Flight Time: flight stamina multiplier (PlayerService.recompute applies it).
+function StoreService.flightMultiplier(player: Player): number
+	return StoreService.hasPass(player, "DoubleFlight") and Store.FLIGHT_MULT or 1
+end
+
 function StoreService.goldMultiplier(player: Player): number
-	return StoreService.hasPass(player, "DoubleGold") and 2 or 1
+	local profile = S.PlayerService.getProfile(player)
+	local rush = profile and (profile.goldRushLeft or 0) > 0 and Store.GOLD_RUSH_BONUS or 0
+	return (StoreService.hasPass(player, "DoubleGold") and 2 or 1) + rush
+end
+
+-- When the player's Gold Rush ends (server time), for the HUD's countdown. nil if none.
+function StoreService.goldRushEnds(player: Player): number?
+	local profile = S.PlayerService.getProfile(player)
+	local left = profile and profile.goldRushLeft or 0
+	return left > 0 and workspace:GetServerTimeNow() + left or nil
+end
+
+-- Count down every online player's Gold Rush.
+local function tickGoldRush(dt: number)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local profile = S.PlayerService.getProfile(player)
+		if profile and (profile.goldRushLeft or 0) > 0 then
+			profile.goldRushLeft = math.max(0, profile.goldRushLeft - dt)
+			if profile.goldRushLeft == 0 then
+				S.PlayerService.notify(player, "Your Gold Rush is over. Thanks for playing!", Color3.fromRGB(255, 210, 90), "💸")
+				S.PlayerService.markDirty(player)
+			end
+		end
+	end
 end
 
 local function checkPasses(player: Player)
@@ -68,6 +101,7 @@ local function checkPasses(player: Player)
 			end
 		end
 	end
+	S.PlayerService.recompute(player)
 	S.PlayerService.markDirty(player)
 end
 
@@ -76,6 +110,7 @@ local function passGranted(player: Player, passId: string)
 	owned[player] = owned[player] or {}
 	owned[player][passId] = true
 	S.PlayerService.notify(player, string.format("Thank you! %s %s is now active.", pass.icon, pass.name), Color3.fromRGB(120, 230, 140), "💎")
+	S.PlayerService.recompute(player)
 	S.PlayerService.markDirty(player)
 end
 
@@ -134,6 +169,11 @@ function StoreService.grantProduct(player: Player, key: string): string
 	if product.skin then
 		S.AchievementService.giveSkin(player, product.skin)
 		table.insert(parts, "the " .. Skins.get(product.skin).name .. " skin")
+	end
+	if product.goldRushMinutes then
+		local cap = Store.GOLD_RUSH_MAX_MINUTES * 60
+		profile.goldRushLeft = math.min(cap, (profile.goldRushLeft or 0) + product.goldRushMinutes * 60)
+		table.insert(parts, string.format("+100%% gold for %d minutes of play", math.floor(profile.goldRushLeft / 60 + 0.5)))
 	end
 	if product.restock then
 		S.StockService.restockNow(player)
@@ -224,6 +264,13 @@ function StoreService.start()
 	Players.PlayerRemoving:Connect(function(player)
 		owned[player] = nil
 	end)
+	local last = workspace:GetServerTimeNow()
+	while true do
+		task.wait(5)
+		local now = workspace:GetServerTimeNow()
+		tickGoldRush(now - last)
+		last = now
+	end
 end
 
 return StoreService

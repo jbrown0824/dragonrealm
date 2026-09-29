@@ -711,6 +711,20 @@ local HANDLERS = {
 	splash = function(d)
 		VFX.splash(d.pos, d.big)
 	end,
+	-- a practice target knocked down (gold ones sparkle more)
+	pop = function(d)
+		local color = d.color or Color3.fromRGB(255, 220, 90)
+		burst(d.pos, Color3.new(1, 1, 1), color, d.big and 30 or 16, 22, 1.4, SPARKLE)
+		ring(d.pos - Vector3.new(0, 0.4, 0), d.big and 7 or 4.5, color, 0.35, 0.3)
+	end,
+	-- a viking landing on the beach after leaping off a longship
+	thud = function(d)
+		burst(d.pos + Vector3.new(0, 0.5, 0), Color3.fromRGB(225, 205, 160), Color3.fromRGB(150, 125, 90), 14, 12, 2.5, SMOKE)
+	end,
+	-- flames beaten out of a burning house
+	douse = function(d)
+		burst(d.pos, Color3.fromRGB(230, 230, 230), Color3.fromRGB(90, 90, 95), 40, 18, 6, SMOKE)
+	end,
 }
 
 function VFX.init(app)

@@ -22,6 +22,7 @@ local function click(root: Instance, text: string)
 	return b
 end
 
+local UIS
 task.spawn(function()
 	task.wait(2)
 	local me = Instance.new("Player")
@@ -33,11 +34,12 @@ task.spawn(function()
 	gui.Parent = me
 	SIM_LOCAL_PLAYER = me
 	Players.LocalPlayer = me
-	-- the default Roblox camera follows your character
+	-- the default Roblox camera follows your character, keeping whatever direction it points in
 	game:GetService("RunService").RenderStepped:Connect(function()
 		local r = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
 		if r then
-			workspace.CurrentCamera.CFrame = CFrame.lookAt(r.Position + Vector3.new(0, 12, 25), r.Position)
+			local camera = workspace.CurrentCamera
+			camera.CFrame = CFrame.lookAt(r.Position - camera.CFrame.LookVector * 27, r.Position)
 		end
 	end)
 	me.Parent = Players
@@ -46,6 +48,7 @@ task.spawn(function()
 	end)
 	Players.PlayerAdded:Fire(me)
 	task.wait(2)
+	require(__proxy("Shared/Config/Raids")).CHANCE = 0 -- raids only when this test starts them
 	Windows = mod("UI/Windows")
 	local State = mod("Controllers/State")
 	check(State.profile ~= nil, "client got its profile")
@@ -142,11 +145,58 @@ task.spawn(function()
 	mod("UI/Pets").open("Eggs")
 	task.wait(0.2)
 	local pets = Windows.registry.Pets.frame
+	-- eggs waiting: a red count on the Pets menu button and on the Eggs tab
+	local waiting = mod("UI/HUD").eggsWaiting(State.profile)
+	check(waiting > 0, "the tutorial egg is waiting")
+	local function badgeOn(root: Instance, buttonText: string): string?
+		local button = findButton(root, buttonText)
+		local badge = button and button:FindFirstChild("Badge")
+		return badge and badge.Visible and badge.Text or nil
+	end
+	check(badgeOn(Windows.guis.HUD, "🐲") == tostring(waiting), "a red egg count on the Pets menu button")
+	check(badgeOn(pets, "Eggs") == tostring(waiting), "... and on the Eggs tab")
+	-- the odds fit on one line; the full list of pets opens on request
+	check(findButton(pets, "Hide pets") == nil, "egg cards start folded")
+	click(pets, "See every pet")
+	task.wait(0.1)
+	check(findButton(pets, "Hide pets") ~= nil, "See every pet unfolds an egg")
+	click(pets, "Hide pets")
 	click(pets, "Hatch yours") -- the tutorial egg
+	local overlay = Windows.guis.Top:FindFirstChild("HatchOverlay")
+	task.wait(0.3)
+	overlay.Activated:Fire()
+	check(overlay.Visible, "a click before the reveal doesn't skip it")
 	task.wait(2.5)
-	click(Windows.guis.Top, "Awesome") -- close the reveal
+	overlay.Activated:Fire() -- a click outside the card closes the reveal
+	check(not overlay.Visible, "clicking the underlay closes the reveal")
 	task.wait(3)
-	click(pets, "My Pets")
+	check(mod("UI/HUD").eggsWaiting(State.profile) == waiting - 1, "the egg hatched")
+	-- can't afford an egg: the message offers gold packs (never a pop-up of its own)
+	local goldBefore = S.PlayerService.getProfile(me).gold
+	S.PlayerService.getProfile(me).gold = 0
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Pets").open("Eggs")
+	task.wait(0.1)
+	click(pets, "Buy & Hatch")
+	local banner = pets:FindFirstChild("StatusBanner")
+	check(banner.Visible and banner.Action.Visible, "a click on an egg you can't afford offers gold")
+	check(banner.Position.Y.Scale == 1 or banner.Position.Y.Offset <= 8, "the message sits below the window or on its title bar, not over the eggs")
+	click(banner, "Get gold")
+	check(Windows.isOpen("Store"), "Get gold opens the Store")
+	S.PlayerService.getProfile(me).gold = goldBefore
+	S.PlayerService.markDirty(me)
+	-- on a big screen there's room for the message just below the window
+	local camera = workspace.CurrentCamera
+	local viewport = camera.ViewportSize
+	camera.ViewportSize = Vector2.new(1920, 1080)
+	task.wait(0.1)
+	Windows.notify("Testing the banner", nil, "🧪")
+	local storeBanner = Windows.registry.Store.frame:FindFirstChild("StatusBanner")
+	check(storeBanner.Visible and storeBanner.Position.Y.Scale == 1, "window messages show just below the window when there's room")
+	camera.ViewportSize = viewport
+	task.wait(0.1)
+	mod("UI/Pets").open("Pets")
 	task.wait(0.2)
 
 	-- pets follow their owner, even across a long teleport (boss arena) and back
@@ -284,9 +334,22 @@ task.spawn(function()
 		check(VFX.errorCount == 0, "every spell effect played cleanly (" .. VFX.errorCount .. " errors)")
 	end
 
+	local function questMarkers(): number
+		local count = 0
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			if child.Name == "QuestMarker" then
+				count += 1
+			end
+		end
+		return count
+	end
+	local markersBefore = questMarkers()
+	check(markersBefore > 0, "quest markers over the givers")
 	local _, hum = S.PlayerService.getCharacter(me)
 	hum.Health = 0
 	task.wait(Game.RESPAWN_TIME + 2)
+	check(questMarkers() == markersBefore, "quest markers survive a respawn (" .. questMarkers() .. "/" .. markersBefore .. ")")
+	check(me.PlayerGui:FindFirstChild("WaypointMarker") ~= nil, "the waypoint pin survives a respawn")
 	local d1 = petDistances()
 	check(#d1 >= 1, "pets after respawn (" .. #d1 .. ")")
 	for _, d in ipairs(d1) do
@@ -333,6 +396,33 @@ task.spawn(function()
 	tile.Activated:Fire()
 	task.wait(0.3)
 	check(spent() == before, "first click only selects")
+	-- the Learn / Max bubble never covers another skill (you can click between the two in a row)
+	local bubble, neighbour = nil, nil
+	for _, child in ipairs(tile.Parent:GetChildren()) do
+		if child.ClassName == "Frame" and child.ZIndex == 20 and child.Visible then
+			bubble = child
+		elseif child ~= tile and child.ClassName == "TextButton" and child.Size.X.Offset == 50 and child.Position.Y.Offset == tile.Position.Y.Offset then
+			neighbour = child
+		end
+	end
+	check(bubble ~= nil, "the Learn / Max bubble shows")
+	if bubble then
+		local bx, by, bw, bh = bubble.Position.X.Offset, bubble.Position.Y.Offset, bubble.Size.X.Offset, bubble.Size.Y.Offset
+		for _, child in ipairs(tile.Parent:GetChildren()) do
+			if child.ClassName == "TextButton" and child.Size.X.Offset == 50 then
+				local x, y = child.Position.X.Offset, child.Position.Y.Offset
+				check(bx + bw <= x or bx >= x + 50 or by + bh <= y or by >= y + 50, "the bubble doesn't cover a skill")
+			end
+		end
+	end
+	check(neighbour ~= nil, "the tile has a neighbour in its row")
+	if neighbour then
+		neighbour.Activated:Fire()
+		task.wait(0.2)
+		tile.Activated:Fire()
+		task.wait(0.2)
+		check(spent() == before, "clicking between two skills only selects them")
+	end
 	tile.Activated:Fire()
 	task.wait(0.5)
 	check(spent() == before + 1, "second click learns a rank")
@@ -384,6 +474,33 @@ task.spawn(function()
 	check(not okQ or (Waypoint.get() and Waypoint.get().questId == "C1"), "tracking a quest sets its waypoint")
 	local mini = Windows.guis.HUD:FindFirstChild("Minimap")
 	check(mini ~= nil, "minimap exists")
+	-- the Wayfinder pass: a 🌀 beside every place on the map teleports you there
+	local mapFrame = Windows.registry.Map.frame
+	check(mapFrame:FindFirstChild("Teleport", true) == nil, "no teleport buttons without the Wayfinder pass")
+	Remotes.func("AdminAction"):InvokeServer("pass", { pass = "Wayfinder", on = true })
+	task.wait(4.5) -- (no teleporting straight out of a fight)
+	Windows.open("Map")
+	task.wait(0.3)
+	local hatchery = Zones.getPlace("shop:Hatchery")
+	local tpButton = nil
+	for _, d in ipairs(mapFrame:GetDescendants()) do
+		if d.Name == "Teleport" then
+			for _, sibling in ipairs(d.Parent:GetChildren()) do
+				if sibling ~= d and sibling.ClassName == "TextButton" and tostring(sibling.Text):find("Hatchery", 1, true) then
+					tpButton = d
+				end
+			end
+		end
+	end
+	check(tpButton ~= nil, "teleport buttons with the Wayfinder pass")
+	if tpButton then
+		tpButton.Activated:Fire()
+		task.wait(0.5)
+		local at = rootOf(me).Position
+		check(Vector3.new(at.X - hatchery.drop.X, 0, at.Z - hatchery.drop.Z).Magnitude < 4, "the 🌀 button teleports you to the Hatchery")
+		check(not Windows.isOpen("Map"), "... and closes the map")
+	end
+	Remotes.func("AdminAction"):InvokeServer("pass", { pass = "Wayfinder", on = false })
 
 	-- boss banner can be minimized to a pill and opened again
 	Remotes.func("AdminAction"):InvokeServer("bossNow", { seconds = 60 })
@@ -447,8 +564,135 @@ task.spawn(function()
 	click(fishing, "REEL!")
 	task.wait(1)
 
+	-- the sky follows the server's day/night clock
+	local Lighting = game:GetService("Lighting")
+	local dayBrightness = Lighting.Brightness
+	Remotes.func("AdminAction"):InvokeServer("setHour", { hour = 23 })
+	task.wait(0.5)
+	check(math.abs(Lighting.ClockTime - 23) < 0.3, "the sky clock follows the server (" .. Lighting.ClockTime .. ")")
+	check(Lighting.Brightness < dayBrightness, "nights are darker")
+	local lamp = CollectionService:GetTagged("Lamp")[1]
+	check(lamp and lamp:FindFirstChildOfClass("PointLight").Enabled, "street lamps light up at night")
+	local clockText = nil
+	for _, d in ipairs(Windows.guis.HUD.Minimap:GetDescendants()) do
+		if d.ClassName == "TextLabel" and tostring(d.Text):find("PM", 1, true) then
+			clockText = d.Text
+		end
+	end
+	check(clockText ~= nil and clockText:find("11:") ~= nil, "the minimap clock shows the night (" .. tostring(clockText) .. ")")
+
+	-- a night raid: the bar, the longships, then a lost raid closes the shops
+	local Raids = require(__proxy("Shared/Config/Raids"))
+	Remotes.func("AdminAction"):InvokeServer("raidNow")
+	task.wait(1)
+	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
+	check(raidBar and raidBar.Visible, "the raid bar shows")
+	local minimize = raidBar:FindFirstChild("Minimize", true)
+	check(minimize ~= nil, "the raid bar has a minimize button")
+	if minimize then
+		minimize.Activated:Fire()
+	end
+	task.wait(0.4)
+	local raidPill = Windows.guis.HUD:FindFirstChild("RaidPill")
+	check(raidPill and raidPill.Visible and not raidBar.Visible, "the raid bar minimizes to a pill")
+	if raidPill then
+		raidPill.Activated:Fire()
+	end
+	task.wait(0.4)
+	check(raidBar.Visible and not raidPill.Visible, "the pill opens the raid bar again")
+	task.wait(Raids.WARNING + 3)
+	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders landed")
+	-- a knocked-out villager sprawls on the ground (the Animator poses it)
+	local villager = S.CivilianService.villagers()[1]
+	for _ = 1, Raids.VILLAGER_HITS do
+		S.CivilianService.hurt(villager)
+	end
+	task.wait(0.5)
+	check(villager.model:GetAttribute("KnockedOut") == true, "a villager is knocked out")
+	-- the quest givers show crossed swords while they fight, and their quests again afterwards
+	local function markerTexts(): { [string]: number }
+		local texts = {}
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			if child.Name == "QuestMarker" then
+				local label = child:FindFirstChildOfClass("TextLabel")
+				texts[label.Text] = (texts[label.Text] or 0) + 1
+			end
+		end
+		return texts
+	end
+	local during = markerTexts()
+	check(during["⚔️"] ~= nil and (during["!"] or 0) + (during["?"] or 0) == 0, "quest givers show swords during a raid")
+	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
+	task.wait(0.5)
+	check(markerTexts()["⚔️"] == nil, "the swords go away after the raid")
+	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
+	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
+	Remotes.func("AdminAction"):InvokeServer("rebuildHouses")
+	Remotes.func("AdminAction"):InvokeServer("setHour", { hour = 10 })
+	task.wait(0.5)
+	check(not raidBar.Visible, "the bar hides once the shops reopen")
+
+	-- target practice: the window, AFK auto-fire, and left click firing Fireball on the range
+	local casts = {}
+	Remotes.event("CastAbility").OnServerEvent:Connect(function(_, abilityId)
+		casts[abilityId] = (casts[abilityId] or 0) + 1
+	end)
+	tp(me, Vector3.new(Zones.Range.matX, 6, Zones.Range.lanes[2]))
+	task.wait(0.3)
+	Remotes.event("OpenPanel"):FireClient(me, "Range")
+	task.wait(0.2)
+	check(Windows.isOpen("Range"), "OpenPanel Range")
+	me.CameraMaxZoomDistance = 160
+	click(Windows.registry.Range.frame, "Start AFK")
+	task.wait(0.1)
+	local RangeInfo = require(__proxy("Shared/Config/Range"))
+	check(me.CameraMaxZoomDistance == RangeInfo.CAMERA_ZOOM, "starting practice pulls the camera in")
+	check(workspace.CurrentCamera.CFrame.LookVector.X < -0.5, "and points it down the lane")
+	task.wait(0.5)
+	check(me.CameraMaxZoomDistance == Game.CAMERA_MAX_ZOOM, "then lets the player zoom again")
+	check(me:GetAttribute("RangeMode") == "afk" and not Windows.isOpen("Range"), "AFK practice starts from the window")
+	local logAfk = #REMOTE_LOG
+	local rangePanel = Windows.guis.HUD:FindFirstChild("RangePanel")
+	check(rangePanel and rangePanel.Visible, "the practice panel shows")
+	task.wait(6)
+	check((casts.Fireball or 0) >= 1, "AFK practice fires by itself (" .. tostring(casts.Fireball) .. ")")
+	local xpNumbers = 0
+	for i = logAfk + 1, #REMOTE_LOG do
+		local entry = REMOTE_LOG[i]
+		if entry.remote == "DamageNumber" and entry.player == me then
+			for _, n in ipairs(entry.args[1]) do
+				if n.kind == "xp" then
+					xpNumbers += 1
+				end
+			end
+		end
+	end
+	check(xpNumbers >= 1, "AFK hits show rising +XP (" .. xpNumbers .. ")")
+	local target = CollectionService:GetTagged("PracticeTarget")[1]
+	if target then
+		local RangeUtil = require(__proxy("Shared/RangeUtil"))
+		local want = RangeUtil.position(RangeUtil.fromModel(target), workspace:GetServerTimeNow())
+		check((target:GetPivot().Position - want).Magnitude < 1, "the client moves the targets")
+	end
+	click(rangePanel, "Stop")
+	task.wait(0.5)
+	check(me:GetAttribute("RangeMode") == nil and not rangePanel.Visible, "practice stops")
+	check(Remotes.func("RangeAction"):InvokeServer("start", 1), "start level 1 from the client")
+	task.wait(0.3)
+	casts = {}
+	UIS = game:GetService("UserInputService")
+	UIS.InputBegan:Fire({ UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown }, false)
+	task.wait(1.6)
+	UIS.InputEnded:Fire({ UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown })
+	check((casts.Fireball or 0) >= 2 and not casts.Breath, "holding left click fires Fireball on the range")
+	mod("Controllers/Combat").cast("Breath")
+	UIS.InputBegan:Fire({ KeyCode = Enum.KeyCode.Two, UserInputType = Enum.UserInputType.Keyboard }, false)
+	task.wait(0.3)
+	Remotes.func("RangeAction"):InvokeServer("stop")
+	task.wait(0.3)
+
 	-- eat with G, go home with H, pets with P
-	local UIS = game:GetService("UserInputService")
+	UIS = game:GetService("UserInputService")
 	for _, key in ipairs({ Enum.KeyCode.G, Enum.KeyCode.P, Enum.KeyCode.K, Enum.KeyCode.B, Enum.KeyCode.J, Enum.KeyCode.H, Enum.KeyCode.Q, Enum.KeyCode.T, Enum.KeyCode.F }) do
 		UIS.InputBegan:Fire({ KeyCode = key, UserInputType = Enum.UserInputType.Keyboard }, false)
 		task.wait(0.2)

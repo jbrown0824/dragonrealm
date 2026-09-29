@@ -95,9 +95,19 @@ local function buildTerrain()
 		terrainPath(road.a, road.b, road.width, Enum.Material[road.material])
 	end
 
-	-- Battle Zone floor and the training yard
+	-- Battle Zone floor and the training yard (the dummies, the ground in front of them where you
+	-- fight, and the sparring pen)
 	terrain:FillBlock(CFrame.new(0, -2, -265), Vector3.new(190, 4, 140), Enum.Material.Sand)
-	terrain:FillBlock(CFrame.new(100, -2, 176), Vector3.new(70, 4, 104), Enum.Material.Sand)
+	local tr = Zones.Training
+	local tx0, tx1, tz0, tz1 = tr.pen.min.X, tr.pen.max.X, tr.pen.min.Z, tr.pen.max.Z
+	for _, d in ipairs(tr.dummies) do
+		tx0, tx1, tz0 = math.min(tx0, d.X), math.max(tx1, d.X), math.min(tz0, d.Z - 18)
+	end
+	tx0, tx1, tz1 = tx0 - 6, tx1 + 6, tz1 + 6
+	terrain:FillBlock(CFrame.new((tx0 + tx1) / 2, -2, (tz0 + tz1) / 2), Vector3.new(tx1 - tx0, 4, tz1 - tz0), Enum.Material.Sand)
+	local range = Zones.Range
+	local rz0, rz1 = range.lanes[1] - range.laneHalf - 4, range.lanes[#range.lanes] + range.laneHalf + 4
+	terrain:FillBlock(CFrame.new((range.backstop + range.matX + 8) / 2, -2, (rz0 + rz1) / 2), Vector3.new(range.matX + 8 - range.backstop, 4, rz1 - rz0), Enum.Material.Sand)
 
 	-- Viking lands: colder, muddier ground
 	terrain:FillBlock(CFrame.new(0, -2, 710), Vector3.new(1320, 4, 800), Enum.Material.LeafyGrass)
@@ -358,7 +368,11 @@ local function buildTraining(parent: Instance)
 		local dummy = Props.dummy(f, pos, Vector3.new(0, 0, -1))
 		CollectionService:AddTag(dummy, "TrainingDummy")
 	end
-	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 130), Vector3.new(0, 5, 130)), "🎯 TRAINING DUMMIES\nHit one to see your DPS!", Vector2.new(13, 4))
+	-- signs face the main road, in the gaps between the houses (houses 4-5 and 5-6)
+	local signX = (Zones.Houses[4].pos.X + Zones.HouseSize.Z / 2 + tr.pen.min.X) / 2
+	local gap1 = (Zones.Houses[4].pos.Z + Zones.Houses[5].pos.Z) / 2
+	local gap2 = (Zones.Houses[5].pos.Z + Zones.Houses[6].pos.Z) / 2
+	Props.sign(f, CFrame.lookAt(Vector3.new(signX, 5, gap1), Vector3.new(0, 5, gap1)), "🎯 TRAINING DUMMIES\nHit one to see your DPS!", Vector2.new(13, 4))
 
 	-- Sparring pen: a fence with a red danger line inside. The golem throws at anyone in it.
 	local pen = tr.pen
@@ -386,7 +400,75 @@ local function buildTraining(parent: Instance)
 	end
 	local golem = Props.golem(f, tr.golem, Vector3.new(0, 0, -1))
 	CollectionService:AddTag(golem, "TrainingDummy")
-	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 176), Vector3.new(0, 5, 176)), "🥊 SPARRING PEN\nThe golem throws back!", Vector2.new(11, 4), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
+	Props.sign(f, CFrame.lookAt(Vector3.new(signX, 5, gap2), Vector3.new(0, 5, gap2)), "🥊 SPARRING PEN\nThe golem throws back!", Vector2.new(11, 4), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
+end
+
+-- Target practice range (Zones.Range, RangeService): a sandy field behind the houses on the
+-- west side of the main road, split into lanes by rope fences, with a firing mat at the east end
+-- of each lane (a "Range" PanelPrompt opens the practice window) and hay bales at the far end.
+local function buildRange(parent: Instance)
+	local f = folder("Range", parent)
+	local R = Zones.Range
+	local z0, z1 = R.lanes[1] - R.laneHalf - 4, R.lanes[#R.lanes] + R.laneHalf + 4
+	local xBack, xFront = R.backstop, R.matX + 8
+	local rope = Color3.fromRGB(150, 110, 70)
+	-- fences round the field and between the lanes (the mats' end stays open)
+	for _, z in ipairs({ z0, z1 }) do
+		Props.fence(f, Vector3.new(xFront, 0, z), Vector3.new(xBack, 0, z), rope)
+	end
+	for i = 1, #R.lanes - 1 do
+		local z = (R.lanes[i] + R.lanes[i + 1]) / 2
+		Props.fence(f, Vector3.new(R.matX - 7, 0, z), Vector3.new(xBack + 2, 0, z), rope)
+	end
+	-- hay bales in front of a tall plank wall catch stray fireballs
+	Props.part(f, Vector3.new(1, 12, z1 - z0), CFrame.new(xBack - 1.5, 6, (z0 + z1) / 2), Props.DARK_WOOD, Enum.Material.WoodPlanks)
+	for z = z0 + 3, z1 - 3, 6 do
+		for row = 0, 1 do
+			local bale = Props.part(f, Vector3.new(3.6, 3, 5.6), CFrame.new(xBack + 1, 1.5 + row * 3, z + row * 3 - 1.5) * CFrame.Angles(0, math.rad(row * 4 - 2), 0), Color3.fromRGB(220, 190, 110), Enum.Material.Fabric)
+			bale.Name = "HayBale"
+		end
+	end
+	for lane, z in ipairs(R.lanes) do
+		-- the firing mat, with a glowing line along its front edge
+		local mat = Props.part(f, Vector3.new(11, 0.6, 12), CFrame.new(R.matX, 0.3, z), Color3.fromRGB(150, 110, 70), Enum.Material.WoodPlanks)
+		mat.Name = "FiringMat"
+		local line = Props.part(f, Vector3.new(0.4, 0.2, 12), CFrame.new(R.matX - 5.3, 0.7, z), Color3.fromRGB(255, 200, 80), Enum.Material.Neon)
+		line.CanCollide = false
+		line.CastShadow = false
+		-- lane number on a post beside the mat
+		Props.column(f, Vector3.new(R.matX + 3, 0, z - 7), 7, 0.6, Props.DARK_WOOD, Enum.Material.Wood)
+		local board = Props.part(f, Vector3.new(3.4, 2.6, 0.3), CFrame.lookAt(Vector3.new(R.matX + 3, 7.4, z - 7), Vector3.new(R.matX + 13, 7.4, z - 7)), Color3.fromRGB(95, 65, 40), Enum.Material.Wood)
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = Enum.NormalId.Front
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 40
+		gui.LightInfluence = 0
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.FredokaOne
+		label.TextScaled = true
+		label.TextColor3 = Color3.fromRGB(255, 225, 150)
+		label.Text = "Lane " .. lane
+		label.Parent = gui
+		gui.Parent = board
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Target Practice"
+		prompt.ObjectText = "Lane " .. lane
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 14
+		prompt.RequiresLineOfSight = false
+		prompt:SetAttribute("Panel", "Range")
+		prompt:SetAttribute("Lane", lane)
+		CollectionService:AddTag(prompt, "PanelPrompt")
+		prompt.Parent = mat
+	end
+	-- a big sign high on the backstop at the far end: you see it over the targets from the mats,
+	-- and from the main road through the gap between houses 2 and 3 (z 174-200). (It used to
+	-- stand behind the mats, right between the practice camera and your dragon.)
+	local signZ = 187
+	Props.sign(f, CFrame.lookAt(Vector3.new(xBack - 2.6, 29, signZ), Vector3.new(0, 29, signZ)), "🏹 TARGET PRACTICE\nFireball the moving targets!", Vector2.new(16, 5))
 end
 
 local function buildTown(map: Folder)
@@ -413,6 +495,7 @@ local function buildTown(map: Folder)
 	buildQuestGivers(town)
 	buildWarHorn(town)
 	buildTraining(town)
+	buildRange(town)
 
 	-- Dragon-sized houses (wide arched doors, tall walls, perch beams on the roofs)
 	local walls = { Color3.fromRGB(235, 220, 190), Color3.fromRGB(215, 200, 230), Color3.fromRGB(200, 225, 210) }
@@ -423,8 +506,13 @@ local function buildTown(map: Folder)
 		model.Name = "House" .. i
 	end
 
-	-- Lamps along the main road
-	for z = 60, 200, 35 do
+	-- Lamps along the main road: one at the top of the street, then one in each gap between houses
+	-- (clear of the paths to their doors)
+	local mainLamps = { 64 }
+	for i = 1, 2 do
+		table.insert(mainLamps, (Zones.Houses[i].pos.Z + Zones.Houses[i + 1].pos.Z) / 2)
+	end
+	for _, z in ipairs(mainLamps) do
 		Props.lamp(town, Vector3.new(-12, 0, z))
 		Props.lamp(town, Vector3.new(12, 0, z))
 	end
@@ -433,9 +521,10 @@ local function buildTown(map: Folder)
 		Props.lamp(town, Vector3.new(11, 0, z))
 	end
 
-	-- Trees around the edges of town, leaving gaps for the paths out to the hunting grounds
+	-- Trees around the edges of town, leaving gaps for the paths out to the hunting grounds (and
+	-- room for the last houses on the main road)
 	for x = -265, 265, 24 do
-		if math.abs(x) > 64 then
+		if math.abs(x) > 76 then
 			Props.tree(town, Vector3.new(x + rng:NextNumber(-4, 4), 0, 236 + rng:NextNumber(-3, 3)), rng:NextNumber(0.8, 1.2), "oak")
 		end
 		if math.abs(x) > 110 then
@@ -444,11 +533,11 @@ local function buildTown(map: Folder)
 	end
 	for z = -330, 220, 26 do
 		if math.abs(z) > 16 then
-			Props.tree(town, Vector3.new(-268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
-			Props.tree(town, Vector3.new(268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
+			Props.tree(town, Vector3.new(-273 + rng:NextNumber(-3, 3), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
+			Props.tree(town, Vector3.new(273 + rng:NextNumber(-3, 3), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
 		end
 	end
-	for _, p in ipairs({ Vector3.new(-80, 0, 60), Vector3.new(-100, 0, -80), Vector3.new(100, 0, -80), Vector3.new(-118, 0, 160), Vector3.new(118, 0, 60) }) do
+	for _, p in ipairs({ Vector3.new(-80, 0, 60), Vector3.new(-100, 0, -80), Vector3.new(100, 0, -80), Vector3.new(118, 0, 60) }) do
 		Props.tree(town, p, 1.1, "oak")
 		Props.bush(town, p + Vector3.new(6, 0, 4))
 	end
@@ -588,7 +677,8 @@ local function buildBases(map: Folder)
 			end
 		end
 
-		local sign = Props.sign(model, cf * CFrame.new(0, 5, -hd - 1), "🏠 Empty Lair", Vector2.new(14, 3.6))
+		-- hung high over the gap in the fence, so dragons (and night raiders) walk in under it
+		local sign = Props.sign(model, cf * CFrame.new(0, 5, -hd - 1), "🏠 Empty Lair", Vector2.new(14, 3.6), nil, nil, 8)
 		sign.Name = "Sign"
 
 		buildBotDock(model, cf * CFrame.new(-hw + 11, 0, -hd + 11))

@@ -3,6 +3,8 @@
 -- Run: ./run.sh (boot.luau is prepended)
 task.spawn(function()
 	task.wait(3)
+	-- keep it daytime (no nightfall raids) until the day/night section below
+	S.DayNightService.setHour(6.5)
 	local p1 = addPlayer(101, "Tester")
 	local p2 = addPlayer(102, "Buddy")
 	task.wait(1)
@@ -401,9 +403,11 @@ task.spawn(function()
 	check(vet.plots[2].stage >= 1, "revived plant keeps growing")
 
 	step("death + respawn")
-	local _, hum2 = S.PlayerService.getCharacter(p1)
+	local _, hum2, deadRoot = S.PlayerService.getCharacter(p1)
 	S.SurvivalService.setHunger(p1, 0)
 	hum2.Health = 0
+	task.wait(0.2)
+	check(deadRoot.Anchored, "a fallen dragon lies down where it fell")
 	task.wait(Game.RESPAWN_TIME + 1)
 	check(rootOf(p1) ~= nil, "respawned")
 	check(profile.hunger >= Game.HUNGER_AFTER_DEATH - 1, "respawn hunger floor (" .. profile.hunger .. ")")
@@ -455,6 +459,20 @@ task.spawn(function()
 	check(invoke("StudioPurchase", p1, "product", "StarterPack") and profile.starterPack and profile.skins.Sunrise, "starter pack")
 	check((profile.eggs.StormEgg or 0) == stormBefore + 2, "starter pack eggs")
 	check(not invoke("StudioPurchase", p1, "product", "StarterPack"), "the starter pack is once only")
+	-- Gold Rush: +100% gold for 30 minutes of play, counting down only while you're online
+	local goldMult = S.StoreService.goldMultiplier(p1)
+	check(invoke("StudioPurchase", p1, "product", "GoldRush") and profile.goldRushLeft == 30 * 60, "gold rush bought")
+	check(S.StoreService.goldMultiplier(p1) == goldMult + StoreInfo.GOLD_RUSH_BONUS, "gold rush adds +100% gold")
+	check(S.PlayerService.snapshot(p1).goldRushEnds ~= nil, "the HUD gets the gold rush countdown")
+	local rushLeft = profile.goldRushLeft
+	task.wait(11)
+	check(profile.goldRushLeft < rushLeft and profile.goldRushLeft > rushLeft - 20, "gold rush counts down while playing")
+	invoke("StudioPurchase", p1, "product", "GoldRush")
+	check(profile.goldRushLeft > rushLeft, "buying another adds time")
+	profile.goldRushLeft = 3
+	task.wait(6)
+	check(profile.goldRushLeft == 0 and S.StoreService.goldMultiplier(p1) == goldMult, "gold rush ends")
+	check(S.PlayerService.snapshot(p1).goldRushEnds == nil, "no countdown once it's over")
 	-- a real Roblox receipt: granted once, even if Roblox sends it again
 	StoreInfo.Products.GoldSmall.productId = 12345
 	local mps = game:GetService("MarketplaceService")
@@ -470,6 +488,38 @@ task.spawn(function()
 	end
 	local okSecret, secretPet = invoke("HatchEgg", p1, "SecretEgg")
 	check(okSecret and require(__proxy("Shared/Config/Pets")).get(secretPet.species).rarity == "Secret", "the secret egg hatches a Secret pet")
+	check(okSecret and secretPet.species ~= "AuroraSerpent", "the Secret Egg never hatches the Mythic Egg's Aurora Serpent")
+	-- the Mythic Egg: sold for Robux too, and never hatches below Epic
+	local mythicBefore = profile.eggs.MythicEgg or 0
+	check(invoke("StudioPurchase", p1, "product", "MythicEgg") and profile.eggs.MythicEgg == mythicBefore + 1, "a Mythic Egg from the Store")
+	while #profile.pets >= Game.PET_LIMIT do
+		table.remove(profile.pets)
+	end
+	local okMythicBuy, boughtPet = invoke("HatchEgg", p1, "MythicEgg")
+	local boughtRarity = okMythicBuy and require(__proxy("Shared/Config/Pets")).get(boughtPet.species).rarity
+	check(boughtRarity == "Epic" or boughtRarity == "Legendary" or boughtRarity == "Secret", "Mythic Eggs hatch Epic or better (" .. tostring(boughtRarity) .. ")")
+	-- handy passes: 2x Flight Time, Never Hungry, Wayfinder
+	local stamina0 = S.PlayerService.getStats(p1).stamina
+	check(invoke("StudioPurchase", p1, "pass", "DoubleFlight"), "2x Flight Time bought")
+	check(math.abs(S.PlayerService.getStats(p1).stamina - stamina0 * StoreInfo.FLIGHT_MULT) < 0.01, "2x Flight Time doubles flight stamina")
+	check(invoke("StudioPurchase", p1, "pass", "NeverHungry"), "Never Hungry bought")
+	profile.hunger = 40
+	task.wait(1.5)
+	check(profile.hunger == Game.HUNGER_MAX, "Never Hungry keeps you full")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+	task.wait(5)
+	local okTp, whyTp = invoke("TeleportTo", p1, "square")
+	check(not okTp and tostring(whyTp):find("Wayfinder") ~= nil, "teleporting needs the Wayfinder pass")
+	check(invoke("StudioPurchase", p1, "pass", "Wayfinder"), "Wayfinder bought")
+	local campDrop = Zones.getPlace("camp:RaiderCamp").drop
+	check(invoke("TeleportTo", p1, "camp:RaiderCamp"), "Wayfinder teleports to a camp")
+	local at = rootOf(p1).Position
+	check(Vector3.new(at.X - campDrop.X, 0, at.Z - campDrop.Z).Magnitude < 3, "... to the edge of it (" .. math.floor(at.X) .. ", " .. math.floor(at.Z) .. ")")
+	check(not invoke("TeleportTo", p1, "range"), "Wayfinder has a cooldown")
+	check(not invoke("TeleportTo", p1, "nowhere"), "unknown places are refused")
+	task.wait(StoreInfo.WAYFINDER_COOLDOWN + 1)
+	check(invoke("TeleportTo", p1, "range"), "Wayfinder works again after the cooldown")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 
 	step("admin: paragon, pets, collection, store")
 	local function admin(action, args)
@@ -511,6 +561,275 @@ task.spawn(function()
 	admin("clearPets")
 	check(#buddy.pets == 0, "admin releases every pet")
 
+	step("day and night")
+	local DayNight = require(__proxy("Shared/DayNight"))
+	local Raids = require(__proxy("Shared/Config/Raids"))
+	local chance = Raids.CHANCE
+	Raids.CHANCE = 0 -- no raids by chance in here: the pity rule and the admin still start them
+	check(Game.NIGHT_SECONDS < Game.DAY_SECONDS, "nights are shorter than days")
+	S.DayNightService.setHour(12)
+	local _, noon = DayNight.now()
+	check(not S.DayNightService.isNight() and workspace:GetAttribute("Night") == false, "noon is daytime")
+	check(math.abs(noon - 12) < 0.1, "the clock reads noon (" .. noon .. ")")
+	for n = 1, Raids.PITY_NIGHTS do
+		S.DayNightService.setHour(20)
+		task.wait(0.6)
+		check(workspace:GetAttribute("Night") == true and not S.RaidService.isActive(), "a quiet night " .. n)
+		S.DayNightService.setHour(8)
+		task.wait(0.6)
+	end
+	check(S.RaidService.quietNights() == Raids.PITY_NIGHTS, "quiet nights counted (" .. S.RaidService.quietNights() .. ")")
+	S.DayNightService.setHour(20)
+	task.wait(0.6)
+	check(S.RaidService.isActive(), "after " .. Raids.PITY_NIGHTS .. " quiet nights a raid is guaranteed")
+
+	step("night raid: repelled")
+	invoke("AdminAction", p1, "god", { on = true })
+	invoke("AdminAction", p1, "god", { on = true, userId = 102 })
+	check(workspace:GetAttribute("RaidPhase") == "incoming", "longships incoming")
+	check(#workspace.RaidShips:GetChildren() == #Raids.Landings, "longships on the river")
+	local function passengers()
+		local n = 0
+		for _, ship in ipairs(workspace.RaidShips:GetChildren()) do
+			for _, child in ipairs(ship:GetChildren()) do
+				if child.Name == "Passenger" then
+					n += 1
+				end
+			end
+		end
+		return n
+	end
+	check(passengers() > 0, "the raiders ride in on the longships (" .. passengers() .. ")")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+	tp(p2, S.FarmService.getHomeCFrame(p2).Position)
+	task.wait(Raids.WARNING + 0.1)
+	check(workspace:GetAttribute("RaidPhase") == "fighting" and #S.RaidService.raiders() < (workspace:GetAttribute("RaidLeft") or 0), "they leap ashore one after another")
+	local wave1 = workspace:GetAttribute("RaidLeft") or 0
+	task.wait(wave1 * Raids.HOP_GAP + Raids.LEAP_TIME + 1)
+	check(#S.RaidService.raiders() == wave1 and passengers() == 0, "the whole wave is ashore, nobody left standing on deck (" .. #S.RaidService.raiders() .. "/" .. wave1 .. ", " .. passengers() .. " aboard)")
+	local ship1 = workspace.RaidShips:GetChildren()[1]
+	local moored = ship1 and ship1.PrimaryPart.Position
+	task.wait(3)
+	check(ship1 and (ship1.PrimaryPart.Position - moored).Magnitude > 10, "the longships row back out for the next wave")
+	check(workspace:GetAttribute("RaidNextWaveAt") ~= nil, "the raid bar knows when the next wave lands")
+	task.wait(Raids.SHIP_OUT_TIME)
+	check(passengers() > 0, "the next wave climbs aboard upriver")
+	local raiders = S.RaidService.raiders()
+	check(#raiders > 0 and raiders[1].raid, "raiders in town (" .. #raiders .. ")")
+	local r1 = raiders[1]
+	tp(p1, r1.root.Position + Vector3.new(10, 5, 0))
+	task.wait(0.2)
+	check(S.EnemyService.targetRoot(r1, p1) ~= nil, "raiders can fight dragons inside town")
+	tp(p1, r1.root.Position + Vector3.new(Raids.CHASE_RANGE + 20, 5, 0))
+	task.wait(0.2)
+	check(S.EnemyService.targetRoot(r1, p1) == nil, "raiders give up on a dragon that gets away")
+	-- a dragon on the beach with every raider nearby: only a few go after it, the rest find others
+	tp(p1, Vector3.new(0, 5, 247))
+	task.wait(3)
+	local onMe = 0
+	for _, e in ipairs(S.RaidService.raiders()) do
+		local d = e.root.Position - rootOf(p1).Position
+		if e.target == p1 and Vector3.new(d.X, 0, d.Z).Magnitude >= 12 then
+			onMe += 1
+		end
+	end
+	check(onMe <= Raids.CROWD, "at most " .. Raids.CROWD .. " raiders pile onto one dragon (" .. onMe .. ")")
+	local goals = {}
+	for _, e in ipairs(S.RaidService.raiders()) do
+		if e.goal then
+			goals[e.goal.kind] = true
+		end
+	end
+	check(goals.house ~= nil, "torchbearers head for the houses")
+	check(goals.villager ~= nil or goals.dragon ~= nil, "fighters pick their own victims")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+	-- villagers can be knocked out, and get back up
+	local victim = S.CivilianService.villagers()[1]
+	for _ = 1, Raids.VILLAGER_HITS do
+		S.CivilianService.hurt(victim)
+	end
+	check(victim.knockedOut and victim.model:GetAttribute("KnockedOut") == true and victim.root.Anchored, "a villager hit enough times is knocked out")
+	check(S.RaidService.isActive(), "the raid goes on")
+	task.wait(Raids.VILLAGER_KNOCKOUT + 1)
+	check(not victim.knockedOut and not victim.root.Anchored, "knocked-out villagers get back up")
+	-- a beaten raider topples over before it vanishes
+	local faller = S.RaidService.raiders()[1]
+	if faller then
+		S.CombatService.damageEnemy(p1, faller, 1e9, false)
+		task.wait(1)
+		check(faller.root.Anchored and faller.root.CFrame.UpVector.Y < 0.5, "a beaten viking falls over (up " .. faller.root.CFrame.UpVector.Y .. ")")
+	end
+	task.wait(2)
+	local defending = 0
+	for _, v in ipairs(S.CivilianService.villagers()) do
+		if v.defending then
+			defending += 1
+		end
+	end
+	check(defending > 0, "villagers come out to fight (" .. defending .. ")")
+	-- the quest givers are busy: no quests during a raid
+	local someQuest = require(__proxy("Shared/Config/Quests")).List[1].id
+	local okQuest, whyQuest = invoke("AcceptQuest", p1, someQuest)
+	check(not okQuest and whyQuest == Raids.QUEST_BUSY, "no quests during a raid (" .. tostring(whyQuest) .. ")")
+	-- ...because they're breathing fire at raiders who come near their posts
+	local elder = nil
+	for _, model in ipairs(game:GetService("CollectionService"):GetTagged("QuestGiver")) do
+		if model:GetAttribute("GiverId") == "Elder" then
+			elder = model
+		end
+	end
+	local near = S.RaidService.raiders()[1]
+	if elder and near then
+		local look0 = elder:GetPivot().LookVector
+		local post = Zones.QuestGivers.Elder.position
+		near.root.CFrame = CFrame.new(post + Vector3.new(0, 3, -12))
+		local hp = near.humanoid.Health
+		task.wait(0.8)
+		check(near.dead or near.humanoid.Health < hp, "the Elder breathes fire at a raider near its post")
+		check(elder:GetPivot().LookVector:Dot(look0) < 0.999, "the Elder turns to face the raider")
+	end
+	-- villager fire can't finish a raider fresh off the boat, but can once it's been ashore a while
+	local villager = S.CivilianService.villagers()[2]
+	local fresh, old = S.RaidService.raiders()[1], S.RaidService.raiders()[2]
+	if villager and fresh and old and fresh ~= old then
+		fresh.landedAt = workspace:GetServerTimeNow()
+		for _ = 1, 60 do
+			S.RaidService.villagerPuff(villager, fresh)
+		end
+		check(not fresh.dead and fresh.humanoid.Health >= fresh.humanoid.MaxHealth * Raids.VILLAGER_FLOOR * 0.95, "villagers alone can't finish a raider fresh off the boat")
+		old.landedAt = workspace:GetServerTimeNow() - Raids.VILLAGER_FINISH_AFTER - 1
+		check(S.RaidService.villagerFloor(old) == 0, "the floor wears away the longer a raider is ashore")
+		for _ = 1, 60 do
+			if old.dead then
+				break
+			end
+			S.RaidService.villagerPuff(villager, old)
+		end
+		check(old.dead, "villagers can finish a raider that's been ashore a while")
+	end
+	local lit = nil
+	for _ = 1, 90 do
+		task.wait(1)
+		for i = 1, #Zones.Houses do
+			if S.RaidService.houseState(i) == "burning" then
+				lit = i
+			end
+		end
+		if lit then
+			break
+		end
+	end
+	check(lit ~= nil, "a torchbearer walked to a house and set it alight")
+	if lit then
+		tp(p1, Zones.houseDoor(Zones.Houses[lit]) + Vector3.new(0, 5, 0))
+		task.wait(0.2)
+		local house = workspace.Map.Town:FindFirstChild("House" .. lit)
+		local douse = house and house:FindFirstChildWhichIsA("ProximityPrompt", true)
+		check(douse ~= nil, "a burning house has a prompt at its door")
+		if douse then
+			douse.Triggered:Fire(p1)
+		end
+		check(S.RaidService.houseState(lit) == "ok", "beating out the flames saves the house")
+	end
+	local repelled = profile.raidsRepelled
+	local buddyRepelled = S.PlayerService.getProfile(p2).raidsRepelled
+	for _ = 1, 150 do
+		for _, e in ipairs(S.RaidService.raiders()) do
+			S.CombatService.damageEnemy(p1, e, 1e9, false)
+		end
+		task.wait(1)
+		if not S.RaidService.isActive() then
+			break
+		end
+	end
+	check(not S.RaidService.isActive() and workspace:GetAttribute("RaidPhase") == nil, "the raid is over")
+	check(profile.raidsRepelled == repelled + 1, "the defender got the raid reward")
+	check(S.PlayerService.getProfile(p2).raidsRepelled == buddyRepelled, "dragons who didn't help get nothing")
+	check(S.ShopService.closedMessage() == nil, "shops stay open after a win")
+	task.wait(26)
+	check(#workspace.RaidShips:GetChildren() == 0, "the longships rowed away")
+
+	step("night raid: lost")
+	S.DayNightService.setHour(19)
+	local okRaid, raidMsg = invoke("AdminAction", p1, "raidNow", {})
+	check(okRaid, "admin starts a raid: " .. tostring(raidMsg))
+	task.wait(Raids.WARNING + 1)
+	local torched = {}
+	for i = 1, #Zones.Houses do
+		if #torched < Raids.MAX_BURNED and S.RaidService.ignite(i) then
+			table.insert(torched, i)
+		end
+	end
+	task.wait(Raids.Tiers[#Raids.Tiers].burnTime + 1)
+	check(not S.RaidService.isActive(), "the raid is lost when " .. Raids.MAX_BURNED .. " houses burn")
+	check(S.RaidService.houseState(torched[1]) == "burned", "burned houses stay burned for a while")
+	check(S.ShopService.closedMessage() ~= nil and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops close after a lost raid")
+	tp(p1, Zones.getShop("Armory").position + Vector3.new(0, 5, -10))
+	task.wait(0.2)
+	local okBuy, whyBuy = invoke("BuyItem", p1, 1)
+	check(not okBuy and tostring(whyBuy):find("looted") ~= nil, "the Armory won't trade while closed (" .. tostring(whyBuy) .. ")")
+	task.wait(math.max(Raids.SHOPS_CLOSED, Raids.REBUILD) + 1)
+	check(S.ShopService.closedMessage() == nil and workspace:GetAttribute("ShopsClosedUntil") == nil, "the shops reopen")
+	check(S.RaidService.houseState(torched[1]) == "ok", "burned houses are rebuilt")
+	step("raids wait for bosses")
+	S.DayNightService.setHour(8)
+	task.wait(0.6)
+	check(invoke("AdminAction", p1, "bossNow", { seconds = 10 }), "a boss warning")
+	Raids.CHANCE = 1
+	S.DayNightService.setHour(19)
+	task.wait(0.6)
+	check(not S.RaidService.isActive() and S.RaidService.isPending(), "a raid rolled during a boss warning waits")
+	task.wait(14) -- nobody queued, so the boss moves on
+	check(S.RaidService.isActive(), "the raid starts once the boss is gone")
+	S.RaidService.stop(true)
+	Raids.CHANCE = chance
+	S.DayNightService.setHour(9)
+	invoke("AdminAction", p1, "god", { on = false })
+	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
+
+	step("target practice")
+	local Range = require(__proxy("Shared/Config/Range"))
+	local mat = Vector3.new(Zones.Range.matX, 6, Zones.Range.lanes[1])
+	tp(p1, mat)
+	tp(p2, mat + Vector3.new(0, 0, 4))
+	task.wait(0.3)
+	check(not invoke("RangeAction", p1, "start", 3), "locked levels can't be started")
+	check(invoke("RangeAction", p1, "start", 1), "start level 1 on a mat")
+	check(p1:GetAttribute("RangeMode") == "level", "practice mode on")
+	check(#S.RangeService.targetsFor(p1) == Range.Levels[1].count, "my targets popped up")
+	check(#S.RangeService.targetsFor(p2) == 0, "other dragons can't hit my targets")
+	check(not invoke("RangeAction", p2, "start", 1), "a lane is one dragon's at a time")
+	local function xpScore()
+		return profile.level * 1e9 + (profile.paragon or 0) * 1e6 + profile.xp
+	end
+	local score0 = xpScore()
+	for shot = 1, 60 do
+		if not p1:GetAttribute("RangeMode") then
+			break
+		end
+		local targets = S.RangeService.targetsFor(p1) -- (none for a moment when one blast got both)
+		if targets[1] then
+			fire("CastAbility", p1, "Fireball", targets[1].root.Position, "range" .. shot)
+		end
+		task.wait(0.7)
+	end
+	check(profile.rangeLevel == 1, "level 1 cleared (best " .. tostring(profile.rangeLevel) .. ")")
+	check(xpScore() > score0, "clearing a level gives XP")
+	check(p1:GetAttribute("RangeMode") == nil and #S.RangeService.targetsFor(p1) == 0, "the session ended")
+	check(invoke("RangeAction", p1, "afk"), "start AFK practice")
+	local score1 = xpScore()
+	for shot = 1, 8 do
+		local targets = S.RangeService.targetsFor(p1)
+		if targets[1] then
+			fire("CastAbility", p1, "Fireball", targets[1].root.Position, "afk" .. shot)
+		end
+		task.wait(0.7)
+	end
+	check(xpScore() > score1, "AFK practice pays XP for the targets it hits")
+	tp(p1, mat + Vector3.new(60, 0, 0))
+	task.wait(0.5)
+	check(p1:GetAttribute("RangeMode") == nil, "walking off the mat ends practice")
+
 	step("snapshot + leave")
 	local snap = S.PlayerService.snapshot(p1)
 	check(snap and snap.garden and snap.pets and snap.isAdmin == true, "snapshot fields")
@@ -521,7 +840,7 @@ task.spawn(function()
 	SIM.done = true
 end)
 
-local limit = 900
+local limit = 1600
 while not SIM.done and SIM.now < limit do
 	SIM.step(0.1)
 end

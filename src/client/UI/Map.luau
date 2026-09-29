@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
+local DayNight = require(Shared.DayNight)
 local Remotes = require(Shared.Remotes)
 
 local Theme = require(script.Parent.Theme)
@@ -141,6 +142,11 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	for _, p in ipairs(Util.spline(Zones.River.points, 16)) do
 		draw.circle(p.X, p.Z, Zones.River.width / 2, Color3.fromRGB(70, 130, 210), 0, 3)
 	end
+	for _, stream in ipairs(Zones.Streams) do
+		for _, p in ipairs(Util.spline(stream.points, 12)) do
+			draw.circle(p.X, p.Z, stream.width / 2, Color3.fromRGB(70, 130, 210), 0, 3)
+		end
+	end
 	for _, lake in ipairs(Zones.Lakes) do
 		for _, lobe in ipairs(lake.lobes) do
 			draw.circle(lake.center.X + lobe[1], lake.center.Z + lobe[2], lobe[3], lake.frozen and Color3.fromRGB(195, 228, 248) or Color3.fromRGB(70, 130, 210), 0, 3)
@@ -164,6 +170,7 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	end
 	draw.text(Zones.WarHorn.X, Zones.WarHorn.Z, "📯", 13, nil, 5)
 	draw.text(Zones.Training.dummies[2].X, Zones.Training.dummies[2].Z + 30, "🎯", 13, nil, 5)
+	draw.text((Zones.Range.matX + Zones.Range.far) / 2, Zones.Range.lanes[2], "🏹", 13, nil, 5)
 	for _, spot in ipairs(Zones.FishingSpots) do
 		draw.text(spot.pos.X, spot.pos.Z, "🎣", 11, nil, 5)
 	end
@@ -276,6 +283,20 @@ local function buildMini(root: Instance)
 	Theme.make("UICorner", { CornerRadius = UDim.new(1, 0), Parent = mini.edgePin })
 	Theme.stroke(mini.edgePin, Color3.new(1, 1, 1), 2)
 	mini.arenaLabel = Theme.label({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.3, BackgroundColor3 = Color3.fromRGB(60, 20, 20), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, Text = "⚔️ Boss Arena", Visible = false, ZIndex = 50, Parent = frame })
+	-- time of day (shared/DayNight), bottom-left corner
+	mini.clock = Theme.label({
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 4, 1, -4),
+		Size = UDim2.fromOffset(84, 18),
+		BackgroundTransparency = 0.35,
+		BackgroundColor3 = Color3.fromRGB(20, 20, 35),
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "",
+		ZIndex = 55,
+		Parent = frame,
+	})
+	Theme.corner(mini.clock, 6)
 	local open = Theme.make("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 60, Parent = frame })
 	open.Activated:Connect(function()
 		App.Windows.toggle("Map")
@@ -312,10 +333,37 @@ local function buildMini(root: Instance)
 			d.ZIndex = 71
 		end
 	end
+	-- the hotkey, next to the button (nothing said N hid the minimap)
+	mini.hideKey = Theme.label({
+		Position = UDim2.fromOffset(33, 8),
+		Size = UDim2.fromOffset(52, 18),
+		BackgroundTransparency = 0.35,
+		BackgroundColor3 = Color3.fromRGB(20, 20, 35),
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "N = hide",
+		Visible = not App.Windows.mobile,
+		ZIndex = 70,
+		Parent = frame,
+	})
+	Theme.corner(mini.hideKey, 6)
+	-- the minimap's own button while it's hidden (the menu has no Map button: click the minimap
+	-- or press M for the big map)
 	mini.show = Theme.button("🗺️", C.panel2, function()
 		Map.setMiniVisible(true, true)
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -MINI_RIGHT, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
+	end, { Name = "ShowMinimap", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -MINI_RIGHT, 0, 10), Size = UDim2.fromOffset(44, 40), TextSize = 22, Visible = false, Parent = root })
 	Theme.stroke(mini.show, C.accentDark, 2, 0.2)
+	Theme.label({
+		Position = UDim2.fromOffset(3, 1),
+		Size = UDim2.fromOffset(14, 14),
+		TextSize = 11,
+		TextColor3 = C.accent,
+		TextStrokeTransparency = 0.3,
+		Text = "N",
+		Visible = not App.Windows.mobile,
+		ZIndex = 3,
+		Parent = mini.show,
+	})
 	mini.visible = true
 end
 
@@ -355,6 +403,8 @@ local function updateMini()
 	mini.arrow.Rotation = heading(root)
 	local area = Zones.areaAt(pos)
 	mini.zoneLabel.Text = area and area.name or "The Wilds"
+	local t, clock = DayNight.now()
+	mini.clock.Text = (DayNight.isNight(t) and "🌙 " or "☀️ ") .. DayNight.format(clock)
 	-- edge pin when the waypoint is off the minimap
 	local wp = App.Waypoint.get()
 	if wp then
@@ -372,28 +422,6 @@ local function updateMini()
 end
 
 ---------------------------------------------------------------- full map
-
-local function placesList()
-	local list = {
-		{ "🏠 Your lair", nil, "home" },
-		{ "🐉 Town square", Vector3.new(0, 0, 0) },
-		{ "🎯 Training grounds", Zones.Training.dummies[2] },
-		{ "📯 War Horn (bosses)", Zones.WarHorn },
-	}
-	for _, shop in ipairs(Zones.Shops) do
-		table.insert(list, { ({ Armory = "⚔️ ", Exchange = "💰 ", Forge = "🔨 ", Alchemist = "🧪 ", Hatchery = "🥚 " })[shop.id] .. shop.name, shop.position })
-	end
-	local bzArea = Zones.getArea("BattleZone")
-	table.insert(list, { "🏟️ Battle Zone (PvP)", (bzArea.min + bzArea.max) / 2 })
-	for _, area in ipairs(Zones.HuntingGrounds) do
-		local a = Zones.getArea(area.id)
-		table.insert(list, { string.format("🦌 %s (Lv %d-%d)", a.name, area.levels[1], area.levels[2]), (area.min + area.max) / 2 })
-	end
-	for _, camp in ipairs(Zones.Camps) do
-		table.insert(list, { string.format("⚔️ %s (Lv %d-%d)", camp.name, camp.levels[1], camp.levels[2]), camp.center })
-	end
-	return list
-end
 
 function Map.refreshList()
 	local p = App.State.profile
@@ -440,16 +468,36 @@ function Map.refreshList()
 	if not any then
 		Theme.label({ Size = UDim2.new(1, -8, 0, 20), LayoutOrder = nextOrder(), TextSize = 12, TextColor3 = C.subtext, Text = "No quests to track. Talk to a dragon with a ❗", Parent = big.list })
 	end
-	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 16, TextColor3 = C.accent, Text = "🧭 Places", Parent = big.list })
-	for _, place in ipairs(placesList()) do
-		Theme.button(place[1], C.panel3, function()
-			local pos = place[3] == "home" and App.Waypoint.homePosition() or place[2]
+	-- Places: click one for a waypoint. With the Wayfinder pass, the 🌀 beside it teleports you.
+	local wayfinder = p.passes and p.passes.Wayfinder == true
+	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 16, TextColor3 = C.accent, Text = wayfinder and "🧭 Places  (🌀 = teleport)" or "🧭 Places", Parent = big.list })
+	for _, place in ipairs(Zones.places()) do
+		local row = Theme.make("Frame", { Size = UDim2.new(1, -8, 0, 26), BackgroundTransparency = 1, LayoutOrder = nextOrder(), Parent = big.list })
+		Theme.button(place.label, C.panel3, function()
+			local pos = place.id == "home" and App.Waypoint.homePosition() or place.pos
 			if pos then
-				App.Waypoint.setPlace(pos, (place[1]:gsub("^%S+%s", "")))
+				App.Waypoint.setPlace(pos, (place.label:gsub("^%S+%s", "")))
 				Map.refreshList()
 			end
-		end, { Size = UDim2.new(1, -8, 0, 26), LayoutOrder = nextOrder(), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = big.list })
+		end, { Size = UDim2.new(1, wayfinder and -40 or 0, 1, 0), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+		if wayfinder then
+			Theme.button("🌀", Color3.fromRGB(70, 90, 170), function()
+				Map.teleport(place.id)
+			end, { Name = "Teleport", AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 36, 1, 0), TextSize = 14, Parent = row })
+		end
 	end
+end
+
+-- Wayfinder pass: jump to a place (the server checks the pass, combat and the cooldown).
+function Map.teleport(placeId: string)
+	task.spawn(function()
+		local ok, message = Remotes.func("TeleportTo"):InvokeServer(placeId)
+		if ok then
+			App.Windows.close("Map")
+		elseif message then
+			App.Windows.notify(message, C.bad, "🧭")
+		end
+	end)
 end
 
 local function buildBig()

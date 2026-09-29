@@ -425,7 +425,10 @@ function Instance.new(className)
 		o._props.Text = ""
 	elseif className == "Frame" or className == "TextLabel" or className == "ScrollingFrame" or className == "ImageLabel" or className == "ViewportFrame" then
 		o._props.Visible = true
-	elseif className == "ScreenGui" or className == "BillboardGui" or className == "SurfaceGui" or className == "Highlight" or className == "Beam" or className == "PointLight" or className == "ParticleEmitter" then
+	elseif className == "ScreenGui" or className == "BillboardGui" or className == "SurfaceGui" then
+		o._props.Enabled = true
+		o._props.ResetOnSpawn = true
+	elseif className == "Highlight" or className == "Beam" or className == "PointLight" or className == "ParticleEmitter" then
 		o._props.Enabled = true
 	elseif className == "Attachment" then
 		o._props.CFrame = CFrame.new()
@@ -517,6 +520,16 @@ InstMT.__newindex = function(o, k, v)
 	end
 	if o._class == "Player" and k == "Character" and v ~= nil then
 		o._props.Character = v
+		-- like Roblox, a new character clears PlayerGui of every gui left at ResetOnSpawn = true
+		-- (quest markers once vanished after a death because of this)
+		local playerGui = o:FindFirstChild("PlayerGui")
+		if playerGui then
+			for _, child in ipairs(playerGui:GetChildren()) do
+				if child._props.ResetOnSpawn == true then
+					child:Destroy()
+				end
+			end
+		end
 		o.CharacterAdded:Fire(v)
 		return
 	end
@@ -752,6 +765,15 @@ function M.GetPivot(o)
 	end
 	return CFrame.new()
 end
+-- Roblox keeps part rotations orthonormal. Without this, moving a model every frame (a rowing
+-- longship) compounds rounding error until the parts fly off to infinity.
+local function orthonormal(cf)
+	local r = cf.r
+	local x = Vector3.new(r[1], r[4], r[7]).Unit
+	local y = Vector3.new(r[2], r[5], r[8])
+	y = (y - x * x:Dot(y)).Unit
+	return CFrame.fromMatrix(cf.p, x, y, x:Cross(y))
+end
 function M.PivotTo(o, target)
 	if o._props.CFrame then
 		o._props.CFrame = target
@@ -760,7 +782,7 @@ function M.PivotTo(o, target)
 	local offset = target * M.GetPivot(o):Inverse()
 	for _, d in ipairs(M.GetDescendants(o)) do
 		if PART_CLASSES[d._class] then
-			d._props.CFrame = offset * d._props.CFrame
+			d._props.CFrame = orthonormal(offset * d._props.CFrame)
 		end
 	end
 end
@@ -1065,10 +1087,13 @@ local services = {
 		end,
 	},
 }
--- Roblox's Lighting defaults for the properties the game tweens
+-- Roblox's Lighting defaults for the properties the game tweens (and the place's own values
+-- from default.project.json for the ones it sets)
 services.Lighting.ExposureCompensation = 0
-services.Lighting.Brightness = 2
-services.Lighting.ClockTime = 14
+services.Lighting.Brightness = 2.4
+services.Lighting.ClockTime = 14.5
+services.Lighting.Ambient = Color3.new(0.27, 0.25, 0.3)
+services.Lighting.OutdoorAmbient = Color3.new(0.55, 0.52, 0.58)
 services.GuiService = Instance.new("GuiService")
 function services.GuiService.GetGuiInset()
 	return Vector2.new(0, 58), Vector2.new(0, 0) -- Roblox's top bar

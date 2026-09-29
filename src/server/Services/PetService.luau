@@ -53,7 +53,7 @@ end
 local function rollSpecies(eggId: string): string?
 	local egg = Pets.Eggs[eggId]
 	local rarity = egg and Util.weightedPick(egg.weights)
-	local list = rarity and Pets.speciesOfRarity(rarity)
+	local list = rarity and Pets.speciesFor(eggId, rarity)
 	if not list or #list == 0 then
 		return nil
 	end
@@ -121,6 +121,10 @@ local function onBuyEgg(player: Player, eggId)
 	end
 	if not S.ShopService.isNear(player, { "Hatchery" }) then
 		return false, "Visit Nestmother's Hatchery in town to buy eggs."
+	end
+	local closed = S.ShopService.closedMessage()
+	if closed then
+		return false, closed
 	end
 	local full = nestFull(profile)
 	if full then

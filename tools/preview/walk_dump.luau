@@ -1,6 +1,7 @@
 -- Dumps every straight walk a village dragon can take (CivilianService): the TownWalk graph,
 -- each house door to its street node and up the ramp inside, and between the indoor spots.
--- walk_check.py tests them against the world's solid parts.
+-- Also the night raiders' walk from the beach into town. walk_check.py tests them against the
+-- world's solid parts.
 local Zones = require(__proxy("Shared/Config/Zones"))
 local W = Zones.TownWalk
 local function out(a: Vector3, b: Vector3, floor: number, label: string)
@@ -22,6 +23,29 @@ for i, house in ipairs(Zones.Houses) do
 	for a = 1, #spots do
 		for b = a + 1, #spots do
 			out(spots[a], spots[b], Zones.HOUSE_FLOOR, string.format("House%d spot%d-spot%d", i, a - 1, b - 1))
+		end
+	end
+end
+-- Night raiders (RaidService) jump off the longships onto the beach and walk to the entry node,
+-- then follow the same graph as the villagers.
+local Raids = require(__proxy("Shared/Config/Raids"))
+for i, landing in ipairs(Raids.Landings) do
+	out(landing.shore, W.nodes[Raids.ENTRY_NODE], 0, "RaidLanding" .. i .. "-" .. Raids.ENTRY_NODE)
+end
+-- ...and their way to dragons at home in their lairs (Zones.LairApproach).
+for side, approach in pairs(Zones.LairApproach) do
+	local path = { W.nodes[approach.from] }
+	for _, p in ipairs(approach.via) do
+		table.insert(path, p)
+	end
+	for k = 1, #path - 1 do
+		out(path[k], path[k + 1], 0, "Lair-" .. side .. "-" .. k)
+	end
+	for _, base in ipairs(Zones.Bases) do
+		if (base.center.X < 0) == (side == "west") then
+			local road = Vector3.new(approach.roadX, 0, base.center.Z)
+			out(path[#path], road, 0, "Lair-" .. side .. "-road" .. base.index)
+			out(road, Zones.lairGate(base), 0, "Lair-gate" .. base.index)
 		end
 	end
 end

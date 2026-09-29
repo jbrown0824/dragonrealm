@@ -3,6 +3,8 @@
 -- in the queue is teleported to the Boss Arena and the boss is scaled to their combined power:
 -- its health is set so the group can kill it in about Game.BOSS_TARGET_FIGHT_SECONDS, and its
 -- hits are tuned to the group's average health.
+-- A boss never shows up during a night raid on Dragon Town: its warning waits until the raid is
+-- over (and RaidService holds a raid back while a boss is on its way or being fought).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +13,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local Enemies = require(Shared.Config.Enemies)
+local Raids = require(Shared.Config.Raids)
 local Zones = require(Shared.Config.Zones)
 local StatCalc = require(Shared.StatCalc)
 local Remotes = require(Shared.Remotes)
@@ -73,6 +76,11 @@ local function announce(title: string, text: string, color: Color3, duration: nu
 end
 
 ---------------------------------------------------------------- queries used by other services
+
+-- A boss is on its way (warning) or being fought. Night raids wait for this (RaidService).
+function BossService.isBusy(): boolean
+	return phase ~= "idle"
+end
 
 function BossService.isInFight(player: Player): boolean
 	return fight ~= nil and fight.participants[player] == true
@@ -698,7 +706,12 @@ function BossService.start()
 		task.wait(0.5)
 		local t = serverNow()
 		if phase == "idle" and t >= nextSpawnAt - Game.BOSS_WARNING then
-			startWarning()
+			if S.RaidService.isActive() then
+				-- the town is being raided: the boss waits until that's over
+				nextSpawnAt = t + Game.BOSS_WARNING + Raids.BOSS_AFTER_RAID
+			else
+				startWarning()
+			end
 		elseif phase == "warning" and t >= nextSpawnAt then
 			startFight()
 		end

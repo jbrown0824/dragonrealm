@@ -222,6 +222,7 @@ function Tutorial.init(app)
 	markerAttachment.Parent = workspace.Terrain
 	marker = Instance.new("BillboardGui")
 	marker.Name = "TutorialMarker"
+	marker.ResetOnSpawn = false -- lives in PlayerGui: keep it when the dragon respawns
 	marker.Adornee = markerAttachment
 	marker.Size = UDim2.fromOffset(120, 70)
 	marker.AlwaysOnTop = true

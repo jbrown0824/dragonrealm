@@ -45,6 +45,14 @@ Game.MAX_DAMAGE_REDUCTION = 0.75
 Game.PVP_DAMAGE_MULT = 0.45 -- keeps battles in the Battle Zone from ending instantly
 Game.HOME_TELEPORT_COOLDOWN = 15
 
+-- Player dragons and the camera. Dragons are 20-40 studs long, so Roblox's default 12.5-stud
+-- camera starts inside the tail. Your first dragon each session starts the camera about a body
+-- length back (Movement.frameDragon); you can still zoom in to CAMERA_MIN_ZOOM or out to MAX.
+Game.PLAYER_DRAGON_SCALE = 0.9 -- player dragons only (villagers, pets and statues keep their size)
+Game.CAMERA_START_ZOOM = 1.0 -- x the dragon's length, plus 6 studs
+Game.CAMERA_MIN_ZOOM = 10
+Game.CAMERA_MAX_ZOOM = 160
+
 -- Flight
 Game.FLIGHT_DRAIN = 9 -- stamina per second while flying
 Game.FLIGHT_REGEN = 16 -- stamina per second while grounded
@@ -70,6 +78,14 @@ Game.EAT_HEAL_PCT = 10 -- eating also heals this % of max health
 -- Pets
 Game.PET_LIMIT = 30
 Game.PET_SLOT_LEVELS = { 1, 10, 20 } -- one more pet can follow you at each of these levels
+
+-- Day and night (shared/DayNight). A day runs from DAWN_HOUR to DUSK_HOUR on the Lighting
+-- clock, and the night wraps round from dusk to dawn in less real time, so nights pass quicker.
+Game.DAY_SECONDS = 9 * 60
+Game.NIGHT_SECONDS = 6 * 60
+Game.DAWN_HOUR = 6
+Game.DUSK_HOUR = 18
+Game.START_HOUR = 10 -- where the clock starts when a server boots
 
 -- Bosses
 Game.BOSS_FIRST_SPAWN = 5 * 60 -- seconds after the server starts until the first boss

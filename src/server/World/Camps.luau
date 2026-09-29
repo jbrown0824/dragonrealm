@@ -147,6 +147,8 @@ local function fishingVillage(parent: Instance, camp)
 	-- longships out on the lake and docks reaching toward them
 	Props.longship(f, CFrame.new(-468, Zones.WATER_LEVEL, 584) * CFrame.Angles(0, math.rad(10), 0))
 	Props.longship(f, CFrame.new(-458, Zones.WATER_LEVEL, 646) * CFrame.Angles(0, math.rad(-15), 0))
+	-- and one heading out through the channel to the river (Zones.Streams)
+	Props.longship(f, CFrame.new(-458, Zones.WATER_LEVEL, 404) * CFrame.Angles(0, math.rad(7), 0))
 	for _, z in ipairs({ 580, 624 }) do
 		Props.part(f, Vector3.new(44, 1, 6), CFrame.new(-408, 0.6, z), Color3.fromRGB(130, 95, 60), Enum.Material.WoodPlanks)
 		for x = -428, -388, 10 do

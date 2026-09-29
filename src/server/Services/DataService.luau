@@ -63,6 +63,7 @@ local function defaultProfile()
 		passes = {}, -- [passId] = true (Robux game passes, remembered for Studio tests)
 		receipts = {}, -- recent Robux purchase ids, so a purchase is never granted twice
 		starterPack = false, -- bought the Starter Pack
+		goldRushLeft = 0, -- seconds of Gold Rush (Robux boost) left; only counts down while playing
 		robots = { water = false, harvest = 0 },
 		tutorial = 0, -- step reached; -1 = finished or skipped
 		tutorialRewarded = false,
@@ -70,6 +71,9 @@ local function defaultProfile()
 		animalsHunted = 0,
 		fishCaught = 0,
 		chestsOpened = 0,
+		-- added in the day/night update
+		raidsRepelled = 0, -- night raids on Dragon Town beaten (RaidService)
+		rangeLevel = 0, -- highest target practice level cleared (RangeService)
 		settings = { minimap = true },
 	}
 end

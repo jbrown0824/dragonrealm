@@ -10,7 +10,8 @@ end
 
 local Pets = {}
 
--- "Secret" pets only come from the Secret Egg in the 💎 Store (Robux).
+-- "Secret" pets come from the Secret Egg in the 💎 Store (Robux), except the Aurora Serpent: a
+-- 1% chance in every Mythic Egg (species with `egg` set only hatch from that egg).
 Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
 Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000, Secret = 3000 }
 
@@ -87,9 +88,13 @@ Pets.Species = {
 		look = palette(rgb(22, 26, 72), rgb(255, 215, 120), rgb(60, 70, 140), rgb(150, 200, 255), rgb(255, 255, 255), rgb(40, 50, 125), rgb(255, 220, 130), rgb(255, 250, 220), rgb(255, 200, 80)) },
 	PhantomNibbler = { name = "Phantom Nibbler", rarity = "Secret", plan = "Shadowstalker", stats = { healthPct = 14, defensePct = 10, dodge = 5 }, aura = rgb(120, 255, 220),
 		look = palette(rgb(205, 232, 242), rgb(120, 160, 180), rgb(240, 250, 255), rgb(120, 255, 220), rgb(120, 255, 220), rgb(170, 210, 225), rgb(232, 242, 246), rgb(170, 255, 235), rgb(40, 170, 150)) },
+	-- only in Mythic Eggs (1%): night-sky scales with the northern lights rippling down its frills
+	AuroraSerpent = { name = "Aurora Serpent", rarity = "Secret", plan = "Venomspine", egg = "MythicEgg", stats = { lootPct = 15, critDamage = 20, attackPct = 8 }, aura = rgb(130, 255, 190),
+		look = palette(rgb(20, 40, 60), rgb(60, 220, 170), rgb(90, 120, 170), rgb(170, 110, 255), rgb(150, 255, 220), rgb(40, 90, 110), rgb(200, 255, 235), rgb(160, 255, 210), rgb(140, 80, 255)) },
 }
 
--- Eggs. `weights` pick the rarity; the species is then random within that rarity.
+-- Eggs. `weights` pick the rarity; the species is then random within that rarity
+-- (Pets.speciesFor). `store` = the 💎 Store product that sells it for Robux.
 -- Eggs without a price can't be bought: they drop from mini-bosses, bosses and chests.
 Pets.EggOrder = { "EmberEgg", "StormEgg", "MythicEgg", "SecretEgg" }
 Pets.Eggs = {
@@ -99,10 +104,10 @@ Pets.Eggs = {
 	StormEgg = { name = "Storm Egg", icon = "🌩️", price = 2000, color = rgb(120, 180, 255),
 		weights = { Uncommon = 45, Rare = 38, Epic = 14, Legendary = 3 },
 		desc = "Crackles with energy. Good odds of a Rare, and a small chance of Legendary." },
-	MythicEgg = { name = "Mythic Egg", icon = "🌟", price = nil, color = rgb(255, 210, 90),
-		weights = { Rare = 45, Epic = 40, Legendary = 15 },
-		desc = "Only found on mini-bosses, bosses and camp chests. Never hatches anything below Rare." },
-	SecretEgg = { name = "Secret Egg", icon = "🔮", price = nil, robux = true, color = rgb(255, 150, 240),
+	MythicEgg = { name = "Mythic Egg", icon = "🌟", price = nil, color = rgb(255, 210, 90), store = "MythicEgg",
+		weights = { Epic = 72, Legendary = 27, Secret = 1 },
+		desc = "Always Epic or Legendary, with a 1% chance of the Aurora Serpent (a Secret found nowhere else). Found free on mini-bosses, bosses and camp chests." },
+	SecretEgg = { name = "Secret Egg", icon = "🔮", price = nil, robux = true, store = "SecretEgg", color = rgb(255, 150, 240),
 		weights = { Secret = 100 },
 		desc = "A shimmering egg from the 💎 Store. Always hatches one of the three Secret nano dragons." },
 }
@@ -128,6 +133,24 @@ end
 function Pets.displayName(pet): string
 	local species = Pets.get(pet.species)
 	return (pet.golden and "✨ Golden " or "") .. (species and species.name or pet.species)
+end
+
+-- The species an egg can hatch at `rarity`: the ones found only in this egg (`egg` = its id), or
+-- if it has none of that rarity, every species of that rarity that isn't tied to another egg.
+function Pets.speciesFor(eggId: string, rarity: string)
+	local own, open = {}, {}
+	for id, s in pairs(Pets.Species) do
+		if s.rarity == rarity then
+			if s.egg == eggId then
+				table.insert(own, id)
+			elseif s.egg == nil then
+				table.insert(open, id)
+			end
+		end
+	end
+	local list = #own > 0 and own or open
+	table.sort(list)
+	return list
 end
 
 function Pets.speciesOfRarity(rarity: string)

@@ -3,7 +3,7 @@
 --   * in your lair, only the planting spot you're facing shows its prompts, with a glowing
 --     outline, so you never water or harvest the plot next to the one you meant
 --   * hides other players' loot orbs
---   * shows ❗ / ❓ quest markers over village dragons
+--   * shows ❗ / ❓ quest markers over village dragons (⚔️ while they fight a raid)
 --   * renders stealthed dragons as see-through (or almost invisible to others)
 --   * camp chests: each dragon has their own chest timer, so the lid, the treasure inside and
 --     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute
@@ -135,6 +135,7 @@ local function addChest(model: Instance)
 	local lid = model:FindFirstChild("Lid")
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "ChestLabel"
+	gui.ResetOnSpawn = false -- lives in PlayerGui: keep it when the dragon respawns
 	gui.Adornee = base
 	gui.Size = UDim2.fromOffset(260, 30)
 	gui.StudsOffset = Vector3.new(0, 6.5, 0)
@@ -283,6 +284,7 @@ local function addMarker(model: Instance)
 	local head = model:FindFirstChild("Head") or model.PrimaryPart
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "QuestMarker"
+	gui.ResetOnSpawn = false -- lives in PlayerGui: without this a respawn wiped every marker
 	gui.Size = UDim2.fromOffset(60, 60)
 	gui.StudsOffset = Vector3.new(0, 11, 0)
 	gui.AlwaysOnTop = true
@@ -306,8 +308,15 @@ local function refreshMarkers()
 	if not p then
 		return
 	end
+	local raiding = workspace:GetAttribute("RaidPhase") ~= nil
 	for giverId, label in pairs(markers) do
 		local state = QuestUtil.giverState(giverId, p.quests, p.level)
+		if raiding then
+			-- busy fighting the raiders: no quests until it's over
+			label.Text = "⚔️"
+			label.TextColor3 = Color3.new(1, 1, 1)
+			continue
+		end
 		if state == "turnin" then
 			label.Text = "?"
 			label.TextColor3 = Color3.fromRGB(255, 215, 60)
@@ -382,6 +391,7 @@ function WorldView.init(app)
 		refreshMarkers()
 	end)
 	App.State.changed:Connect(refreshMarkers)
+	workspace:GetAttributeChangedSignal("RaidPhase"):Connect(refreshMarkers)
 	refreshMarkers()
 end
 

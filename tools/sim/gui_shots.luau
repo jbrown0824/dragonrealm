@@ -36,12 +36,32 @@ task.spawn(function()
 			print(line)
 		end
 	end
+	-- click the first visible button under `root` whose text contains `text`
+	local function click(root: Instance, text: string)
+		for _, d in ipairs(root:GetDescendants()) do
+			if d.ClassName == "TextButton" and d.Visible ~= false and tostring(d.Text):find(text, 1, true) then
+				d.Activated:Fire()
+				return d
+			end
+		end
+		io.stderr:write("ERROR: no button '" .. text .. "'\n")
+		return nil
+	end
 	shot("classselect")
 	Remotes.func("ChooseClass"):InvokeServer("Stormwing")
 	mod("UI/ClassSelect").hide()
 	task.wait(1)
-	Remotes.event("TutorialStep"):FireServer(-1)
+	Remotes.event("TutorialStep"):FireServer(-1) -- (finished: pays the tutorial egg)
 	task.wait(1)
+	click(gui, "Skip tour") -- and close the tour panel, so the HUD shots show what's under it
+	task.wait(0.2)
+	click(gui, "Really skip?")
+	task.wait(0.5)
+	-- a brand-new dragon: the Starter Pack button (with its Robux price) and a Gold Rush running
+	S.PlayerService.getProfile(me).goldRushLeft = 1500
+	S.PlayerService.markDirty(me)
+	task.wait(1)
+	shot("hud_new")
 	-- give the dragon a little of everything so the screens have content
 	local profile = S.PlayerService.getProfile(me)
 	S.PlayerService.setLevel(me, 12)
@@ -61,6 +81,26 @@ task.spawn(function()
 	shot("pets")
 	mod("UI/Pets").open("Eggs")
 	shot("eggs")
+	local petsFrame = Windows.registry.Pets.frame
+	click(petsFrame, "See every pet")
+	shot("eggs_open")
+	click(petsFrame, "Hatch yours")
+	task.wait(2.5)
+	shot("hatch")
+	click(gui, "Awesome!")
+	-- can't afford an egg: the message under the window offers gold, and opens the Store at it
+	local goldBefore = profile.gold
+	profile.gold = 100
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Pets").open("Eggs")
+	click(petsFrame, "Buy & Hatch")
+	shot("need_gold")
+	click(petsFrame, "Get gold")
+	shot("store_gold")
+	profile.gold = goldBefore
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
 	mod("UI/Store").open()
 	shot("store")
 	for _, tab in ipairs({ "Pets", "Achievements", "Skins" }) do
@@ -69,6 +109,14 @@ task.spawn(function()
 	end
 	Windows.open("SkillTree")
 	shot("skilltree")
+	-- a skill picked: its Learn / Max bubble sits between the row's two skills
+	for _, d in ipairs(Windows.registry.SkillTree.frame:GetDescendants()) do
+		if d.ClassName == "TextButton" and d.Size.X.Offset == 50 and d.Size.Y.Offset == 50 then
+			d.Activated:Fire()
+			break
+		end
+	end
+	shot("skilltree_popup")
 	Windows.open("Potions")
 	shot("potions")
 	mod("UI/Shop").open("Buy")
@@ -94,6 +142,27 @@ task.spawn(function()
 	end
 	Windows.close()
 	shot("hud2")
+	-- a night raid on the way (the raid bar), then target practice (window and session panel)
+	S.DayNightService.setHour(22)
+	Remotes.func("AdminAction"):InvokeServer("raidNow")
+	task.wait(1)
+	shot("raid")
+	mod("UI/RaidUI").setMinimized(true)
+	shot("raid_pill")
+	mod("UI/RaidUI").setMinimized(false)
+	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
+	task.wait(0.5)
+	shot("shops_closed")
+	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
+	S.DayNightService.setHour(10)
+	tp(me, Vector3.new(Zones.Range.matX, 6, Zones.Range.lanes[1]))
+	task.wait(0.5)
+	Windows.open("Range")
+	shot("range")
+	Windows.close()
+	Remotes.func("RangeAction"):InvokeServer("start", 1)
+	task.wait(1)
+	shot("range_session")
 	SIM.done = true
 end)
 

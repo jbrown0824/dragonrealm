@@ -25,6 +25,7 @@ WorldBuilder.build()
 
 local ORDER = {
 	"DataService",
+	"DayNightService",
 	"PlayerService",
 	"CombatService",
 	"EnemyService",
@@ -42,8 +43,10 @@ local ORDER = {
 	"PotionService",
 	"PetService",
 	"TrainingService",
+	"RangeService",
 	"CampService",
 	"CivilianService",
+	"RaidService",
 	"AchievementService",
 	"StoreService",
 	"AdminService",

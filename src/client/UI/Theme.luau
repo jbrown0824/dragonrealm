@@ -98,6 +98,8 @@ function Theme.label(props)
 	return Theme.make("TextLabel", defaults)
 end
 
+local disabledClicks = setmetatable({}, { __mode = "k" }) -- [button] = function (Theme.onDisabledClick)
+
 function Theme.button(text: string, color: Color3?, onClick, props)
 	local base = color or Theme.Colors.panel3
 	local defaults = {
@@ -126,6 +128,8 @@ function Theme.button(text: string, color: Color3?, onClick, props)
 		button.Activated:Connect(function()
 			if button.Active then
 				onClick()
+			elseif disabledClicks[button] then
+				disabledClicks[button]()
 			end
 		end)
 	end
@@ -137,6 +141,12 @@ function Theme.setButtonEnabled(button: TextButton, enabled: boolean)
 	button.AutoButtonColor = false
 	button.TextTransparency = enabled and 0 or 0.5
 	button.BackgroundTransparency = enabled and 0 or 0.4
+end
+
+-- What a click on a disabled button does instead (it stays dimmed), e.g. explain that you're
+-- short on gold. Only for buttons made with Theme.button and an onClick.
+function Theme.onDisabledClick(button: TextButton, handler)
+	disabledClicks[button] = handler
 end
 
 -- A progress bar. Returns container, fill, label.
@@ -173,6 +183,8 @@ function Theme.bar(parent: Instance, color: Color3, size: UDim2, position: UDim2
 	})
 	return container, fill, label
 end
+
+local bannerActions = setmetatable({}, { __mode = "k" }) -- [status banner] = the action it shows
 
 -- A centered window with a title bar and close button. Returns frame, content, closeButton.
 function Theme.window(parent: Instance, title: string, size: Vector2)
@@ -224,11 +236,11 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 	})
 	Theme.pad(content, 12)
 	-- Messages about this window (errors, "bought it!") show here instead of in a toast, which
-	-- would be hidden behind the window. See Windows.notify.
+	-- would be hidden behind the window. Windows.notify puts it just below the window.
 	local banner = Theme.make("Frame", {
 		Name = "StatusBanner",
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -10),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, -6),
 		Size = UDim2.new(1, -40, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Colors.bg,
@@ -238,22 +250,41 @@ function Theme.window(parent: Instance, title: string, size: Vector2)
 	})
 	Theme.corner(banner, 10)
 	Theme.stroke(banner, Theme.Colors.accent, 2)
-	Theme.pad(banner, 10)
+	Theme.pad(banner, 6)
 	Theme.label({
 		Name = "Text",
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		TextSize = 16,
+		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 41,
 		Parent = banner,
 	})
+	-- an optional button on the right ("Get gold"), see Theme.showBanner
+	local action = Theme.button("", Theme.Colors.good, nil, {
+		Name = "Action",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0), -- (top-aligned: the banner sizes itself to its text)
+		Size = UDim2.fromOffset(130, 24),
+		TextSize = 14,
+		Visible = false,
+		ZIndex = 42,
+		Parent = banner,
+	})
+	action.Activated:Connect(function()
+		local entry = bannerActions[banner]
+		if entry then
+			banner.Visible = false
+			entry.onClick()
+		end
+	end)
 	return frame, content, close, titleBar
 end
 
--- Show a message in a window's status banner for a few seconds.
+-- Show a message in a window's status banner for a few seconds. `action` ({ text, color?,
+-- onClick }) adds a button on the right, and keeps the message up a little longer.
 local bannerTokens = {}
-function Theme.showBanner(frame: Instance, text: string, color: Color3?, seconds: number?)
+function Theme.showBanner(frame: Instance, text: string, color: Color3?, seconds: number?, action)
 	local banner = frame:FindFirstChild("StatusBanner")
 	if not banner then
 		return false
@@ -262,9 +293,17 @@ function Theme.showBanner(frame: Instance, text: string, color: Color3?, seconds
 	bannerTokens[banner] = token
 	banner.Text.Text = text
 	banner.Text.TextColor3 = color or Theme.Colors.text
+	banner.Text.Size = UDim2.new(1, action and -140 or 0, 0, action and 24 or 0) -- as tall as the button
 	banner.UIStroke.Color = color or Theme.Colors.accent
+	bannerActions[banner] = action
+	local button = banner:FindFirstChild("Action")
+	if button then
+		button.Visible = action ~= nil
+		button.Text = action and action.text or ""
+		button.BackgroundColor3 = action and action.color or Theme.Colors.good
+	end
 	banner.Visible = true
-	task.delay(seconds or 4, function()
+	task.delay(seconds or (action and 7 or 4), function()
 		if bannerTokens[banner] == token then
 			banner.Visible = false
 		end
@@ -287,6 +326,38 @@ function Theme.roundButton(icon: string, onClick, props)
 	local button = Theme.button(icon, defaults.BackgroundColor3, onClick, defaults)
 	button:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
 	return button
+end
+
+-- A red count bubble on a button's top-right corner ("you have something to do here"). Set its
+-- Text and Visible yourself; Theme.setBadge does both.
+function Theme.badge(parent: Instance, props)
+	local defaults = {
+		Name = "Badge",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 4, 0, -4),
+		Size = UDim2.fromOffset(24, 24),
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Theme.Colors.bad,
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = "0",
+		Visible = false,
+		ZIndex = 3,
+		Parent = parent,
+	}
+	for k, v in pairs(props or {}) do
+		defaults[k] = v
+	end
+	local badge = Theme.label(defaults)
+	badge.TextWrapped = false
+	Theme.corner(badge, 12)
+	Theme.stroke(badge, Color3.fromRGB(255, 255, 255), 1.5, 0.2)
+	return badge
+end
+
+function Theme.setBadge(badge: TextLabel, count: number)
+	badge.Visible = count > 0
+	badge.Text = count > 99 and "99+" or tostring(count)
 end
 
 -- A minimize button: an amber circle with a white bar drawn as a Frame (a dash glyph was a gray

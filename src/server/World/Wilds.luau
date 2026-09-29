@@ -133,6 +133,44 @@ local function carveRiver()
 	fillWater(-656, 220, 656, 340, -32) -- stays inside the ground block (x = +-660)
 end
 
+-- Channels (Zones.Streams) joining a lake to the river. They cut through the river's and the
+-- lake's banks, so they're done in two halves around those: the bed and sandy banks first (the
+-- river and lake beds only fill below the surface layer, so the sand survives), then the bowls
+-- and water last (carving through already-filled water is fine: it gets refilled).
+-- They use their own Random so the lakes' random shapes stay the same.
+local streamPoints = {} -- [streamId] = { { p, w } }
+
+local function streamBanks()
+	local srng = Random.new(8812)
+	for _, stream in ipairs(Zones.Streams) do
+		local list = {}
+		local minX, minZ, maxX, maxZ = math.huge, math.huge, -math.huge, -math.huge
+		for i, p in ipairs(Util.spline(stream.points, 6)) do
+			local w = stream.width * (0.9 + 0.1 * math.sin(i * 0.23 + srng:NextNumber(0, 0.5)))
+			table.insert(list, { p = p, w = w })
+			minX, maxX = math.min(minX, p.X - w), math.max(maxX, p.X + w)
+			minZ, maxZ = math.min(minZ, p.Z - w), math.max(maxZ, p.Z + w)
+		end
+		streamPoints[stream.id] = list
+		lakeBed(minX - 8, minZ - 8, maxX + 8, maxZ + 8)
+		for _, sp in ipairs(list) do
+			beach(sp.p.X, sp.p.Z, sp.w / 2)
+		end
+	end
+end
+
+local function streamWater()
+	for _, stream in ipairs(Zones.Streams) do
+		local minX, minZ, maxX, maxZ = math.huge, math.huge, -math.huge, -math.huge
+		for _, sp in ipairs(streamPoints[stream.id]) do
+			bowl(sp.p.X, sp.p.Z, sp.w / 2, stream.depth)
+			minX, maxX = math.min(minX, sp.p.X - sp.w), math.max(maxX, sp.p.X + sp.w)
+			minZ, maxZ = math.min(minZ, sp.p.Z - sp.w), math.max(maxZ, sp.p.Z + sp.w)
+		end
+		fillWater(minX - 4, minZ - 4, maxX + 4, maxZ + 4, BED_BOTTOM + 4)
+	end
+end
+
 function Wilds.inRiver(p: Vector3, margin: number): boolean
 	for _, rp in ipairs(riverPoints) do
 		local dx, dz = p.X - rp.p.X, p.Z - rp.p.Z
@@ -140,15 +178,25 @@ function Wilds.inRiver(p: Vector3, margin: number): boolean
 			return true
 		end
 	end
+	for _, list in pairs(streamPoints) do
+		for _, sp in ipairs(list) do
+			local dx, dz = p.X - sp.p.X, p.Z - sp.p.Z
+			if dx * dx + dz * dz < (sp.w / 2 + margin) ^ 2 then
+				return true
+			end
+		end
+	end
 	return false
 end
 
 -- Terrain water first (other builders place things around it).
 function Wilds.buildWater()
+	streamBanks()
 	carveRiver()
 	for _, lake in ipairs(Zones.Lakes) do
 		carveLake(lake)
 	end
+	streamWater()
 end
 
 ---------------------------------------------------------------- hunting grounds

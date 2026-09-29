@@ -18,6 +18,10 @@ local Collections = require(Config.Collections)
 local Skins = require(Config.Skins)
 local StoreInfo = require(Config.Store)
 local Shops = require(Config.Shops)
+local Raids = require(Config.Raids)
+local Range = require(Config.Range)
+local DayNight = require(Shared.DayNight)
+local RangeUtil = require(Shared.RangeUtil)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local Tuning = require(Shared.Tuning)
@@ -423,7 +427,7 @@ end
 for _, eggId in ipairs(Pets.EggOrder) do
 	local egg = Pets.Eggs[eggId]
 	for rarity, w in pairs(egg.weights) do
-		check(w > 0 and #Pets.speciesOfRarity(rarity) > 0, eggId .. " has " .. rarity .. " species")
+		check(w > 0 and #Pets.speciesFor(eggId, rarity) > 0, eggId .. " has " .. rarity .. " species")
 	end
 end
 check(Game.petSlots(1) == 1 and Game.petSlots(10) == 2 and Game.petSlots(30) == 3, "pet slots by level")
@@ -607,7 +611,61 @@ do
 			check(Pets.Eggs[eggId] ~= nil, key .. " egg exists")
 		end
 	end
-	check(#Pets.speciesOfRarity("Secret") == 3, "three Secret pets")
+	check(#Pets.speciesFor("SecretEgg", "Secret") == 3, "the Secret Egg hatches three Secret pets")
+	local mythicSecret = Pets.speciesFor("MythicEgg", "Secret")
+	check(#mythicSecret == 1 and mythicSecret[1] == "AuroraSerpent", "the Mythic Egg's Secret is the Aurora Serpent")
+	check(not table.find(Pets.speciesFor("SecretEgg", "Secret"), "AuroraSerpent"), "the Aurora Serpent only comes from Mythic Eggs")
+	for id, sp in pairs(Pets.Species) do
+		check(sp.egg == nil or Pets.Eggs[sp.egg] ~= nil, id .. " is tied to a real egg")
+	end
+	-- the Mythic Egg: Epic and up, a 1% Secret, sold for Robux (cheaper than the Secret Egg) and found free
+	local mythic = Pets.Eggs.MythicEgg
+	local mythicTotal = 0
+	for _, w in pairs(mythic.weights) do
+		mythicTotal += w
+	end
+	check(not mythic.weights.Common and not mythic.weights.Uncommon and not mythic.weights.Rare, "Mythic Eggs never hatch below Epic")
+	check(math.abs(mythic.weights.Secret / mythicTotal - 0.01) < 1e-6, "Mythic Eggs have a 1% Secret")
+	check(StoreInfo.Products[mythic.store] ~= nil and StoreInfo.Products[mythic.store].eggs.MythicEgg == 1, "the Mythic Egg is in the Store")
+	check(StoreInfo.Products.MythicEgg.robux < StoreInfo.Products.SecretEgg.robux, "the Mythic Egg costs less than the Secret Egg")
+	check(mythic.desc:find("free") ~= nil and StoreInfo.Products.MythicEgg.desc:find("free") ~= nil, "the Mythic Egg says free players can find it too")
+	for _, eggId in ipairs(Pets.EggOrder) do
+		local egg = Pets.Eggs[eggId]
+		check(egg.store == nil or StoreInfo.Products[egg.store] ~= nil, eggId .. " store product exists")
+	end
+	-- passes
+	for _, passId in ipairs(StoreInfo.PassOrder) do
+		local pass = StoreInfo.Passes[passId]
+		check(pass ~= nil and pass.robux > 0 and pass.desc ~= nil, "store pass " .. passId)
+	end
+	check(StoreInfo.FLIGHT_MULT > 1 and StoreInfo.WAYFINDER_COOLDOWN > 0, "handy pass numbers")
+	-- places (the world map list and Wayfinder teleports)
+	local placeIds = {}
+	local B = Zones.WorldBounds
+	for _, place in ipairs(Zones.places()) do
+		check(not placeIds[place.id], "place ids are unique: " .. place.id)
+		placeIds[place.id] = true
+		if place.id ~= "home" then
+			check(place.pos ~= nil and place.drop ~= nil, "place " .. place.id .. " has a spot")
+			check(place.drop.X > B.min.X and place.drop.X < B.max.X and place.drop.Z > B.min.Z and place.drop.Z < B.max.Z, "place " .. place.id .. " is on the map")
+		end
+	end
+	-- nobody gets teleported into a lake
+	for _, place in ipairs(Zones.places()) do
+		for _, lake in ipairs(Zones.Lakes) do
+			for _, lobe in ipairs(lake.lobes) do
+				local c = lake.center + Vector3.new(lobe[1], 0, lobe[2])
+				if place.drop then
+					check(Vector3.new(place.drop.X - c.X, 0, place.drop.Z - c.Z).Magnitude > lobe[3] + 4, "place " .. place.id .. " isn't in " .. lake.id)
+				end
+			end
+		end
+	end
+	for _, camp in ipairs(Zones.Camps) do
+		local drop = Zones.getPlace("camp:" .. camp.id).drop
+		check((drop - camp.center).Magnitude > camp.radius, "Wayfinder sets you down outside " .. camp.id)
+	end
+	check(Zones.getPlace("home") ~= nil and Zones.getPlace("nowhere") == nil, "place lookup")
 	check(StoreInfo.goldFor(20, 30) > StoreInfo.goldFor(20, 1) * 5, "gold packs grow with level")
 	for eggId in pairs(Shops.Eggs) do
 		check(Pets.Eggs[eggId] and Pets.Eggs[eggId].price ~= nil, "the hatchery only stocks eggs with a price: " .. eggId)
@@ -627,6 +685,155 @@ do
 	check(out[2] == "B" and out[3] == "C", "empty or stale keys fill with the rest in order")
 	local few = TalentUtil.resolveLoadout({ "Breath", "Fireball", "A" }, nil, "Sig")
 	check(few[1] == "A" and few[2] == nil, "loadout with one ability")
+end
+
+---------------------------------------------------------------- day and night
+do
+	check(Game.NIGHT_SECONDS < Game.DAY_SECONDS, "nights are shorter than days")
+	check(math.abs(DayNight.clockTime(0) - Game.DAWN_HOUR) < 1e-6, "the cycle starts at dawn")
+	check(math.abs(DayNight.clockTime(Game.DAY_SECONDS) - Game.DUSK_HOUR) < 1e-6, "dusk at the end of the day")
+	check(not DayNight.isNight(Game.DAY_SECONDS - 1) and DayNight.isNight(Game.DAY_SECONDS + 1), "night starts at dusk")
+	for _, hour in ipairs({ 0, 3, 6, 10, 12, 17.5, 18, 21 }) do
+		local offset = DayNight.offsetFor(1000, hour)
+		local clock = DayNight.clockTime(DayNight.phase(1000, offset))
+		check(math.abs(clock - hour) < 1e-6, "offsetFor puts the clock at " .. hour .. " (" .. clock .. ")")
+	end
+	local last = -1
+	for t = 0, DayNight.cycleLength() - 1, 5 do
+		local c = (DayNight.clockTime(t) - Game.DAWN_HOUR) % 24
+		check(c >= last, "the clock only moves forward (t=" .. t .. ")")
+		last = c
+	end
+	check(DayNight.darkness(12) == 0 and DayNight.darkness(0) == 1, "noon is light, midnight is dark")
+	check(DayNight.format(13.5) == "1:30 PM" and DayNight.format(0.25) == "12:15 AM", "clock text")
+end
+
+---------------------------------------------------------------- night raids
+do
+	check(Raids.CHANCE > 0 and Raids.CHANCE <= 1 and Raids.PITY_NIGHTS >= 1, "raid chance and pity")
+	check(Raids.MAX_BURNED <= #Zones.Houses, "the village can burn")
+	-- villagers and quest givers help more when few dragons are online, and can finish stragglers
+	local d1, f1 = Raids.villagerHelp(1)
+	local d2, f2 = Raids.villagerHelp(2)
+	local d3, f3 = Raids.villagerHelp(3)
+	check(d1 > d2 and d2 > d3 and d3 == 1, "villager fire hits harder with fewer dragons online")
+	check(f1 < f2 and f2 < f3 and f3 == Raids.VILLAGER_FINISH_AFTER, "villagers finish raiders sooner with fewer dragons online")
+	check(Raids.villagerHelp(0) == d1 and Raids.villagerHelp(12) == 1, "villager help for an empty or full server")
+	check(f3 < Game.NIGHT_SECONDS / 2, "a straggler can be finished by the villagers well before dawn")
+	check(Raids.ELDER_DAMAGE > Raids.VILLAGER_DAMAGE and Raids.ELDER_RANGE > Raids.VILLAGER_RANGE, "quest givers hit harder and reach further than villagers")
+	local lastMax, lastRaiders = 0, 0
+	for t, tier in ipairs(Raids.Tiers) do
+		check(tier.maxLevel > lastMax, "raid tier " .. t .. " covers higher levels than the one before")
+		lastMax = tier.maxLevel
+		check(#tier.waves == Raids.WAVES, "raid tier " .. t .. " has " .. Raids.WAVES .. " waves")
+		check(Raids.WARNING + Raids.WAVE_GAP * (#tier.waves - 1) < Game.NIGHT_SECONDS - 60, "raid tier " .. t .. ": every wave lands with time to fight before dawn")
+		check(tier.burnTime > 0 and tier.captainHealth > 0 and tier.levelBelow >= 0, "raid tier " .. t .. " numbers")
+		local raiders, leaders = 0, 0
+		for i, wave in ipairs(tier.waves) do
+			for typeId, count in pairs(wave) do
+				if typeId == "leader" then
+					leaders += 1
+				else
+					raiders += count
+					check(Enemies.Vikings[typeId] ~= nil and count > 0, "raid tier " .. t .. " wave " .. i .. " viking " .. tostring(typeId))
+				end
+			end
+		end
+		check(leaders == 1, "raid tier " .. t .. " has one Raid Captain")
+		check(raiders >= lastRaiders, "raid tier " .. t .. " is no smaller than the gentler one")
+		lastRaiders = raiders
+	end
+	check(lastMax == math.huge, "the last raid tier covers every level")
+	check(Raids.tierFor(1) == Raids.Tiers[1] and Raids.tierFor(30) == Raids.Tiers[#Raids.Tiers], "raid tier by level")
+	check(Raids.CROWD >= 1 and Raids.CHASE_RANGE > 20 and Raids.FLYER_HEIGHT > 5, "raider chase limits")
+	check(Raids.VILLAGER_HITS >= 1 and Raids.VILLAGER_KNOCKOUT > 0, "villager knockouts")
+	for _, approach in pairs(Zones.LairApproach) do
+		check(Zones.TownWalk.nodes[approach.from] ~= nil, "lair approach starts on the street graph")
+	end
+	for _, base in ipairs(Zones.Bases) do
+		check(Zones.baseAt(base.center) == base and Zones.baseAt(Zones.lairGate(base)) == base, "lair " .. base.index .. " contains its own gate")
+	end
+	check(Zones.baseAt(Vector3.new(0, 0, 0)) == nil, "the plaza is nobody's lair")
+	check(Enemies.Vikings[Raids.Captain.base] ~= nil, "raid captain base type")
+	check(Enemies.Vikings.Torchbearer ~= nil and Enemies.Vikings.Torchbearer.look.weapon == "torch", "torchbearers carry torches")
+	check(Zones.TownWalk.nodes[Raids.ENTRY_NODE] ~= nil, "raid entry node exists")
+	for i, landing in ipairs(Raids.Landings) do
+		check(Zones.isIn("Town", landing.shore), "raid landing " .. i .. " is in town")
+		check(math.abs(landing.shipX) > 30, "raid longship " .. i .. " is clear of the bridge")
+	end
+	check(Raids.VILLAGER_FLOOR > 0, "villagers can't finish raiders off")
+	check(Raids.Rewards.xpShare > 0 and Raids.Rewards.gold.base > 0, "raid rewards")
+	check(Collections.getAchievement("Defender") ~= nil and Collections.getAchievement("Sharpshooter") ~= nil, "raid and range achievements")
+end
+
+---------------------------------------------------------------- target practice
+do
+	local patterns = { still = true, slide = true, bob = true, zigzag = true, sprint = true, float = true, popup = true }
+	local R = Zones.Range
+	local lastXp = 0
+	for i, def in ipairs(Range.Levels) do
+		check(def.needed > 0 and def.time > 0 and def.count > 0 and def.size > 0, "range level " .. i .. " numbers")
+		check(def.xp > lastXp, "range level " .. i .. " pays more than the one before")
+		lastXp = def.xp
+		-- enough shots to clear it, even missing half of them
+		check(def.time / Range.FIREBALL_COOLDOWN >= def.needed * 2, "range level " .. i .. " is clearable")
+		for _, pattern in ipairs(def.patterns) do
+			check(patterns[pattern] == true, "range level " .. i .. " pattern " .. pattern)
+			if pattern == "popup" then
+				check((def.life or 0) > 0, "range level " .. i .. " popups have a life")
+			end
+		end
+	end
+	check(Range.AFK.xpPerMinute * 60 < Range.Levels[#Range.Levels].xp * 10, "AFK practice is slower than playing")
+	check(Range.afkXpPerHit(100) >= 1 and Range.afkXpPerHit(8000) > Range.afkXpPerHit(1000), "AFK XP per hit grows with the level, never 0")
+	check(Range.SPLASH >= Range.PROJECTILE_RADIUS, "a practice fireball that touches a target knocks it down")
+	local lastSize = math.huge
+	for i, def in ipairs(Range.Levels) do
+		check(def.size <= lastSize, "range level " .. i .. " targets are no bigger than the level before")
+		lastSize = def.size
+	end
+	-- targets stay in their lane and in front of the backstop
+	for _, pattern in pairs({ "slide", "bob", "zigzag", "sprint", "float" }) do
+		local amp = R.laneHalf
+		local t = { pattern = pattern, x = (R.near + R.far) / 2, y = 8, z = R.lanes[1], speed = 18, amp = amp, phase = 1, born = 0 }
+		for k = 0, 200 do
+			local p = RangeUtil.position(t, k * 0.137)
+			check(math.abs(p.Z - R.lanes[1]) <= R.laneHalf + 1e-6, pattern .. " stays in its lane")
+			check(p.X > R.backstop and p.X < R.matX - 6, pattern .. " stays on the field")
+			check(p.Y > 0, pattern .. " stays above the ground")
+		end
+	end
+	-- sliders and sprinters never move faster than their level's speed, and sprinters rest at each side
+	for _, pattern in ipairs({ "slide", "sprint" }) do
+		local t = { pattern = pattern, x = 0, y = 8, z = 0, speed = 13, amp = R.laneHalf, phase = 2, born = 0 }
+		local fastest, still = 0, 0
+		local dt = 0.02
+		for k = 0, 1000 do
+			local a, b = RangeUtil.position(t, k * dt), RangeUtil.position(t, (k + 1) * dt)
+			local v = math.abs(b.Z - a.Z) / dt
+			fastest = math.max(fastest, v)
+			if v < 0.01 then
+				still += dt
+			end
+		end
+		check(fastest <= t.speed * 1.02, pattern .. " moves at most `speed` studs a second (" .. math.floor(fastest) .. ")")
+		if pattern == "sprint" then
+			check(still > 2, "sprinters rest between dashes")
+		end
+	end
+	check(RangeUtil.expired({ born = 0, life = 2 }, 2.5) and not RangeUtil.expired({ born = 0 }, 99), "popups vanish, others don't")
+	-- the practice camera (CAMERA_ZOOM behind the mat, looking down the lane) has open air around
+	-- it: a house wall there made Roblox pull the camera in
+	local camX = R.matX + Range.CAMERA_ZOOM
+	for _, house in ipairs(Zones.Houses) do
+		local halfX = house.facing.X ~= 0 and Zones.HouseSize.Z / 2 or Zones.HouseSize.X / 2
+		local halfZ = house.facing.X ~= 0 and Zones.HouseSize.X / 2 or Zones.HouseSize.Z / 2
+		for _, z in ipairs(R.lanes) do
+			local dx = math.max(0, math.abs(camX - house.pos.X) - halfX)
+			local dz = math.max(0, math.abs(z - house.pos.Z) - halfZ)
+			check(math.max(dx, dz) >= 6, "the practice camera on lane z " .. z .. " clears house at " .. house.pos.X .. ", " .. house.pos.Z)
+		end
+	end
 end
 
 ---------------------------------------------------------------- balance report

@@ -1,6 +1,7 @@
 -- Pets window: your nano dragons (equip, feed treats to level up, merge three into a golden
 -- one, release) and eggs. Buying an egg at the Hatchery hatches it right away with a little
--- reveal; eggs you find wait here until you hatch them. Each egg lists every pet it can hatch.
+-- reveal; eggs you find wait here until you hatch them. Each egg shows its rarity odds on one
+-- line, and "See every pet" lists each pet it can hatch.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -9,6 +10,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local PetInfo = require(Shared.Config.Pets)
+local StoreInfo = require(Shared.Config.Store)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local DragonBuilder = require(Shared.DragonBuilder)
@@ -27,6 +29,9 @@ local tabButtons = {}
 local petsPage, eggsPage
 local header, grid, details = nil, nil, {}
 local eggsList, eggsHeader
+local eggsBadge -- red count on the Eggs tab: eggs waiting to hatch
+local expanded = {} -- [eggId] = true: that egg's card lists every pet it can hatch
+local revealed = false -- the hatched pet's card is showing (a click outside it closes it)
 local selected = nil
 local releaseArmed = nil
 local busy = false
@@ -104,6 +109,7 @@ local function showHatch(pet)
 	local species = PetInfo.get(pet.species)
 	local color = PetInfo.RarityColors[species.rarity]
 	hatching = true
+	revealed = false
 	overlay.Visible = true
 	overlay.BackgroundTransparency = 1
 	TweenService:Create(overlay, TweenInfo.new(0.3), { BackgroundTransparency = 0.35 }):Play()
@@ -135,7 +141,15 @@ local function showHatch(pet)
 		card.UIStroke.Thickness = rare and 5 or 3
 		preview(card.View, pet.species)
 		App.Sfx.play("LevelUp")
+		revealed = true
 	end)
+end
+
+local function closeHatch()
+	overlay.Visible = false
+	hatching = false
+	revealed = false
+	Pets.refresh()
 end
 
 ---------------------------------------------------------------- pages
@@ -221,7 +235,11 @@ local function refreshPets(p)
 			Theme.setButtonEnabled(details.merge, false)
 		else
 			details.merge.Text = string.format("✨ Merge %d/%d", math.min(same, PetInfo.MERGE_COUNT), PetInfo.MERGE_COUNT)
-			Theme.setButtonEnabled(details.merge, same >= PetInfo.MERGE_COUNT and p.gold >= (PetInfo.MergeGold[species.rarity] or 0))
+			local mergeGold = PetInfo.MergeGold[species.rarity] or 0
+			Theme.setButtonEnabled(details.merge, same >= PetInfo.MERGE_COUNT and p.gold >= mergeGold)
+			Theme.onDisabledClick(details.merge, same >= PetInfo.MERGE_COUNT and function()
+				App.Store.needGold(mergeGold)
+			end or nil)
 		end
 		details.equip.Text = isEquipped and "Unequip" or "Equip"
 		details.equip.BackgroundColor3 = isEquipped and Color3.fromRGB(120, 60, 60) or Color3.fromRGB(60, 140, 70)
@@ -246,13 +264,29 @@ local function eggContents(eggId: string)
 	for _, rarity in ipairs(PetInfo.RarityOrder) do
 		local w = egg.weights[rarity]
 		if w then
-			local species = PetInfo.speciesOfRarity(rarity)
+			local species = PetInfo.speciesFor(eggId, rarity)
 			for _, id in ipairs(species) do
 				table.insert(list, { id = id, chance = w / total / #species * 100 })
 			end
 		end
 	end
 	return list
+end
+
+-- The chance of each rarity on one color-coded line: "Common 62%   Uncommon 30%   ...".
+local function oddsLine(egg): string
+	local total = 0
+	for _, w in pairs(egg.weights) do
+		total += w
+	end
+	local parts = {}
+	for _, rarity in ipairs(PetInfo.RarityOrder) do
+		local w = egg.weights[rarity]
+		if w then
+			table.insert(parts, string.format("<font color=\"%s\">%s %s%%</font>", Theme.colorHex(PetInfo.RarityColors[rarity]), rarity, Util.fmt(math.floor(w / total * 1000 + 0.5) / 10)))
+		end
+	end
+	return table.concat(parts, "   ")
 end
 
 local function refreshEggs(p)
@@ -268,13 +302,24 @@ local function refreshEggs(p)
 			continue -- sold in the 💎 Store; shows here once you have one to hatch
 		end
 		local contents = eggContents(eggId)
-		local rows = math.ceil(#contents / 4)
-		local card = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 96 + rows * 50), BackgroundColor3 = C.panel2, LayoutOrder = i, Parent = eggsList })
+		local open = expanded[eggId] == true
+		local rows = open and math.ceil(#contents / 4) or 0
+		local card = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 100 + (open and rows * 50 + 2 or 0)), BackgroundColor3 = C.panel2, LayoutOrder = i, Parent = eggsList })
 		Theme.corner(card, 10)
 		Theme.stroke(card, egg.color, 2, 0.3)
+		-- the buy button takes the top right; the name and description get the rest. "Hatch yours"
+		-- sits on the bottom row beside "See every pet".
+		local sold = egg.price ~= nil or egg.store ~= nil
+		local right = 250
 		Theme.label({ Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(64, 70), TextSize = 48, TextXAlignment = Enum.TextXAlignment.Center, Text = egg.icon, Parent = card })
-		Theme.label({ Position = UDim2.fromOffset(78, 8), Size = UDim2.new(1, -330, 0, 26), Font = Theme.Fonts.title, TextSize = 22, TextColor3 = egg.color, Text = egg.name, Parent = card })
-		Theme.label({ Position = UDim2.fromOffset(78, 36), Size = UDim2.new(1, -330, 0, 40), TextSize = 12, Font = Theme.Fonts.body, TextColor3 = C.subtext, TextYAlignment = Enum.TextYAlignment.Top, Text = egg.desc, Parent = card })
+		Theme.label({ Position = UDim2.fromOffset(78, 6), Size = UDim2.new(1, -78 - right, 0, 26), Font = Theme.Fonts.title, TextSize = 22, TextColor3 = egg.color, Text = egg.name, Parent = card })
+		Theme.label({ Position = UDim2.fromOffset(78, 33), Size = UDim2.new(1, -78 - right, 0, 32), TextSize = 12, Font = Theme.Fonts.body, TextColor3 = C.subtext, TextYAlignment = Enum.TextYAlignment.Top, Text = egg.desc, Parent = card })
+		-- the odds on one color-coded line, and a button for the full list of pets
+		Theme.label({ Position = UDim2.fromOffset(78, 72), Size = UDim2.new(1, -78 - (owned > 0 and 320 or 160), 0, 20), TextSize = 13, RichText = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, Text = oddsLine(egg), Parent = card })
+		Theme.button(open and "Hide pets" or "🔍 See every pet", C.panel3, function()
+			expanded[eggId] = not open or nil
+			Pets.refresh()
+		end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 70), Size = UDim2.fromOffset(140, 24), TextSize = 13, Parent = card })
 
 		-- right side: buy & hatch (Hatchery eggs), and hatch the ones you found
 		if egg.price then
@@ -285,10 +330,24 @@ local function refreshEggs(p)
 					selected = pet.uid
 					showHatch(pet)
 				end)
-			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 16, Parent = card })
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 8), Size = UDim2.fromOffset(230, 38), TextSize = 16, Parent = card })
 			Theme.setButtonEnabled(buy, left > 0 and not nestFull and p.gold >= egg.price)
-			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 52), Size = UDim2.fromOffset(230, 18), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
+			if left > 0 and not nestFull then
+				Theme.onDisabledClick(buy, function()
+					App.Store.needGold(egg.price)
+				end)
+			end
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 48), Size = UDim2.fromOffset(230, 16), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = left > 0 and C.good or C.bad, Text = nestFull and "Your nest is full!" or (left > 0 and string.format("%d in stock", left) or "Out of stock"), Parent = card })
+		end
+		if egg.store and not egg.price then
+			-- sold for Robux (the Mythic Egg also drops in the wild, and says so)
+			local product = StoreInfo.Products[egg.store]
+			Theme.button(string.format("💎 Buy one  R$ %d", product.robux), ROBUX_GREEN, function()
+				App.Store.buy("product", egg.store)
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 8), Size = UDim2.fromOffset(230, 38), TextSize = 16, Parent = card })
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 48), Size = UDim2.fromOffset(230, 16), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = C.subtext, Text = egg.robux and "only in the 💎 Store" or "or find one free in the wild", Parent = card })
 		end
 		if owned > 0 then
 			local hatch = Theme.button(string.format("🥚 Hatch yours (%d)", owned), Color3.fromRGB(200, 120, 60), function()
@@ -296,14 +355,17 @@ local function refreshEggs(p)
 					selected = pet.uid
 					showHatch(pet)
 				end)
-			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, egg.price and -250 or -10, 0, 10), Size = UDim2.fromOffset(190, 40), TextSize = 15, Parent = card })
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -160, 0, 70), Size = UDim2.fromOffset(152, 24), TextSize = 13, Parent = card })
 			Theme.setButtonEnabled(hatch, not nestFull)
-		elseif not egg.price then
-			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 12), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
+		elseif not sold then
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
+		end
+		if not open then
+			continue
 		end
 
 		-- what's inside
-		local grid = Theme.make("Frame", { Position = UDim2.fromOffset(10, 86), Size = UDim2.new(1, -20, 0, rows * 50), BackgroundTransparency = 1, Parent = card })
+		local grid = Theme.make("Frame", { Position = UDim2.fromOffset(10, 100), Size = UDim2.new(1, -20, 0, rows * 50), BackgroundTransparency = 1, Parent = card })
 		Theme.make("UIGridLayout", { CellSize = UDim2.new(0.25, -6, 0, 44), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
 		for k, entry in ipairs(contents) do
 			local species = PetInfo.get(entry.id)
@@ -329,6 +391,7 @@ function Pets.refresh()
 	for name, b in pairs(tabButtons) do
 		b.BackgroundColor3 = name == tab and C.accentDark or C.panel3
 	end
+	Theme.setBadge(eggsBadge, App.HUD.eggsWaiting(p))
 	if tab == "Pets" then
 		refreshPets(p)
 	else
@@ -354,6 +417,7 @@ function Pets.init(app)
 			Pets.refresh()
 		end, { Position = UDim2.fromOffset((i - 1) * 130, 0), Size = UDim2.fromOffset(120, 32), TextSize = 15, Parent = content })
 	end
+	eggsBadge = Theme.badge(tabButtons.Eggs, { Size = UDim2.fromOffset(22, 22), TextSize = 13 })
 	petsPage = Theme.make("Frame", { Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, Parent = content })
 	eggsPage = Theme.make("Frame", { Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, Visible = false, Parent = content })
 
@@ -451,7 +515,14 @@ function Pets.init(app)
 	-- Hatch reveal overlay: a button, so clicks can't reach the windows underneath while it shows
 	overlay = Theme.make("TextButton", { Name = "HatchOverlay", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, AutoButtonColor = false, Text = "", Active = true, Modal = true, Visible = false, ZIndex = 50, Parent = App.Windows.guis.Top })
 	Theme.label({ Name = "Egg", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromOffset(160, 160), TextSize = 140, TextXAlignment = Enum.TextXAlignment.Center, Text = "🥚", ZIndex = 51, Parent = overlay })
-	local card = Theme.make("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromOffset(380, 400), BackgroundColor3 = C.panel, Visible = false, ZIndex = 51, Parent = overlay })
+	-- once the pet is revealed, a click outside its card closes it (the card itself is Active, so
+	-- clicks on it don't)
+	overlay.Activated:Connect(function()
+		if revealed then
+			closeHatch()
+		end
+	end)
+	local card = Theme.make("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromOffset(380, 400), BackgroundColor3 = C.panel, Active = true, Visible = false, ZIndex = 51, Parent = overlay })
 	Theme.corner(card, 14)
 	Theme.stroke(card, C.accent, 3)
 	Theme.label({ Name = "Rarity", Position = UDim2.fromOffset(0, 10), Size = UDim2.new(1, 0, 0, 22), TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 52, Parent = card })
@@ -459,11 +530,7 @@ function Pets.init(app)
 	Theme.corner(view, 10)
 	Theme.label({ Name = "Title", Position = UDim2.fromOffset(0, 252), Size = UDim2.new(1, 0, 0, 34), Font = Theme.Fonts.title, TextSize = 30, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 52, Parent = card })
 	Theme.label({ Name = "Stats", Position = UDim2.fromOffset(20, 290), Size = UDim2.new(1, -40, 0, 44), TextSize = 15, TextColor3 = C.good, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 52, Parent = card })
-	Theme.button("Awesome!", Color3.fromRGB(60, 140, 70), function()
-		overlay.Visible = false
-		hatching = false
-		Pets.refresh()
-	end, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(180, 42), ZIndex = 52, Parent = card })
+	Theme.button("Awesome!", Color3.fromRGB(60, 140, 70), closeHatch, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(180, 42), ZIndex = 52, Parent = card })
 
 	App.Windows.register("Pets", window, Pets.refresh)
 	App.State.changed:Connect(function()

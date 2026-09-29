@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
+local Range = require(Shared.Config.Range)
 local Zones = require(Shared.Config.Zones)
 local StatCalc = require(Shared.StatCalc)
 local Tuning = require(Shared.Tuning)
@@ -162,11 +163,17 @@ function CombatService.canPvP(player: Player): boolean
 	return player:GetAttribute("InBattleZone") == true and not S.BossService.isInFight(player)
 end
 
--- Everything a player could hit right now.
+-- Everything a player could hit right now (their own practice targets included: those entries
+-- have `practice` set and a plain { Position } as their root).
 function CombatService.collectTargets(attacker: Player?)
 	local list = {}
 	for _, e in ipairs(S.EnemyService.alive()) do
 		table.insert(list, { model = e.model, humanoid = e.humanoid, root = e.root, radius = e.radius, enemy = e })
+	end
+	if attacker then
+		for _, target in ipairs(S.RangeService.targetsFor(attacker)) do
+			table.insert(list, target)
+		end
 	end
 	if attacker and CombatService.canPvP(attacker) then
 		for _, other in ipairs(Players:GetPlayers()) do
@@ -333,6 +340,10 @@ end
 -- One hit from a player's ability on one target.
 local function hitTarget(ctx, target, mult: number, effects, fromPos: Vector3?, critBonus: number?)
 	local stats = ctx.stats
+	if target.practice then
+		S.RangeService.onHit(ctx.player, target.practice)
+		return
+	end
 	if target.humanoid.Health <= 0 then
 		return
 	end
@@ -370,7 +381,8 @@ local function aoe(ctx, center: Vector3, radius: number, mult: number, effects, 
 	for _, target in ipairs(CombatService.collectTargets(ctx.player)) do
 		local offset = target.root.Position - center
 		local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
-		if flat <= radius + target.radius and math.abs(offset.Y) <= (verticalReach or radius) + target.radius then
+		local reach = target.practice and math.min(radius, Range.SPLASH) or radius -- practice needs real aim
+		if flat <= reach + target.radius and math.abs(offset.Y) <= (verticalReach or radius) + target.radius then
 			hitTarget(ctx, target, mult, effects, center)
 			count += 1
 		end
@@ -411,7 +423,8 @@ local function stepProjectiles(dt: number)
 		for _, target in ipairs(CombatService.collectTargets(proj.ctx.player)) do
 			local p = closestPointOnSegment(from, to, target.root.Position)
 			local d = (p - target.root.Position).Magnitude
-			if d <= proj.hitRadius + target.radius then
+			local hitRadius = target.practice and math.min(proj.hitRadius, Range.PROJECTILE_RADIUS) or proj.hitRadius
+			if d <= hitRadius + target.radius then
 				local along = (p - from).Magnitude
 				if along < bestDist then
 					bestDist = along
@@ -483,10 +496,16 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 	if not table.find(stats.abilities, abilityId) then
 		return
 	end
+	-- On the practice range only Fireball works, on a shorter cooldown.
+	local practicing = S.RangeService.mode(player) ~= nil
+	if practicing and abilityId ~= "Fireball" then
+		return
+	end
 	local ability = StatCalc.resolveAbility(abilityId, stats.classId, stats)
 	if not ability then
 		return
 	end
+	local cooldown = practicing and math.min(ability.cooldown, Range.FIREBALL_COOLDOWN) or ability.cooldown
 
 	local cds = cooldowns[player]
 	if not cds then
@@ -497,7 +516,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 	if t < (cds[abilityId] or 0) - 0.15 then
 		return
 	end
-	cds[abilityId] = t + (player:GetAttribute("NoCooldowns") and math.min(ability.cooldown, 0.2) or ability.cooldown)
+	cds[abilityId] = t + (player:GetAttribute("NoCooldowns") and math.min(cooldown, 0.2) or cooldown)
 
 	if not isFiniteVector(aim) then
 		aim = root.Position + root.CFrame.LookVector * 30

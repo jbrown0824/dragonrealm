@@ -22,6 +22,7 @@ local EVENTS = {
 	"Fishing", -- fishing session updates
 	"TuningChanged", -- admin balance overrides for every client
 	"AdminState", -- tells a player they're an admin
+	"RangeState", -- your target practice session (level, hits, time, result)
 	-- client -> server
 	"CastAbility",
 	"SetFlying",
@@ -50,6 +51,7 @@ local FUNCTIONS = {
 	"LeaveBossFight",
 	"Transform",
 	"TeleportHome",
+	"TeleportTo", -- Wayfinder pass: a place id from Zones.places()
 	"BuyPotion",
 	"BuyEgg",
 	"HatchEgg",
@@ -69,6 +71,7 @@ local FUNCTIONS = {
 	"RedeemCode",
 	"AdminAction",
 	"GetTuning",
+	"RangeAction",
 }
 
 local Remotes = {}

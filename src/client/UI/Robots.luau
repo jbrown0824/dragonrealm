@@ -49,6 +49,11 @@ local function row(order: number, icon: string, title: string, body: string, own
 		Parent = frame,
 	})
 	Theme.setButtonEnabled(button, cost ~= nil and p.gold >= cost)
+	if cost then
+		Theme.onDisabledClick(button, function()
+			App.Store.needGold(cost)
+		end)
+	end
 end
 
 function Robots.refresh()

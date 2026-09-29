@@ -22,6 +22,10 @@ local Tuning = require(Shared.Tuning)
 local DragonBuilder = require(Shared.DragonBuilder)
 local Remotes = require(Shared.Remotes)
 
+local WorldUtil = require(script.Parent.Parent.World.WorldUtil)
+local Props = require(script.Parent.Parent.World.Props)
+local StoreInfo = require(Shared.Config.Store)
+
 local PlayerService = {}
 local S -- all services
 
@@ -224,6 +228,7 @@ function PlayerService.recompute(player: Player)
 		end
 	end
 	st.stats = StatCalc.compute(profile.class, profile.level, equippedItems(profile), profile.talents, buffStats)
+	st.stats.stamina *= S.StoreService.flightMultiplier(player) -- the 2x Flight Time pass
 
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -266,6 +271,8 @@ function PlayerService.snapshot(player: Player)
 		fishCaught = profile.fishCaught,
 		animalsHunted = profile.animalsHunted,
 		chestsOpened = profile.chestsOpened,
+		raidsRepelled = profile.raidsRepelled,
+		rangeLevel = profile.rangeLevel,
 		petBook = profile.petBook,
 		achievements = profile.achievements,
 		milestones = profile.milestones,
@@ -275,6 +282,7 @@ function PlayerService.snapshot(player: Player)
 		title = profile.title,
 		passes = S.StoreService.ownedPasses(player),
 		starterPack = profile.starterPack,
+		goldRushEnds = S.StoreService.goldRushEnds(player),
 		goldPackAmounts = S.StoreService.goldPackAmounts(player),
 		inventory = profile.inventory,
 		equipped = profile.equipped,
@@ -335,7 +343,7 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	local stats = st.stats
 
 	local skin = Skins.get(profile.skin)
-	local model, hipHeight = DragonBuilder.build(profile.class, { name = player.Name, colors = skin and skin.colors, fire = skin and skin.fire })
+	local model, hipHeight = DragonBuilder.build(profile.class, { scale = Game.PLAYER_DRAGON_SCALE, name = player.Name, colors = skin and skin.colors, fire = skin and skin.fire })
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R15
 	humanoid.HipHeight = hipHeight
@@ -383,6 +391,10 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	end)
 
 	humanoid.Died:Connect(function()
+		-- down on its belly where it fell, until the respawn (clients sprawl it: DragonRig "downed")
+		pcall(function()
+			WorldUtil.layDragon(model, root, S.EnemyService.groundAt(root.Position, 2).Y)
+		end)
 		S.BossService.onPlayerDied(player)
 		S.SurvivalService.onDied(player)
 		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
@@ -424,20 +436,22 @@ local function gainParagon(player: Player, profile)
 	updateNametag(player)
 end
 
-function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
+-- Returns the XP actually gained (after XP bonuses and the 2x XP pass).
+function PlayerService.addXP(player: Player, amount: number, raw: boolean?): number
 	local profile = PlayerService.getProfile(player)
 	local st = state[player]
 	if not profile or not st or amount <= 0 then
-		return
+		return 0
 	end
 	if not raw and st.stats then
 		amount = amount * (1 + st.stats.xpPct / 100) * Tuning.global("xp") * S.StoreService.xpMultiplier(player)
 	end
-	profile.xp += math.floor(amount)
+	local gained = math.floor(amount)
+	profile.xp += gained
 	if profile.level >= Game.LEVEL_CAP then
 		gainParagon(player, profile)
 		PlayerService.markDirty(player)
-		return
+		return gained
 	end
 
 	local startLevel = profile.level
@@ -452,10 +466,10 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		if humanoid then
 			humanoid.Health = humanoid.MaxHealth
 		end
-		local gained = profile.level - startLevel
+		local levels = profile.level - startLevel
 		Remotes.event("Announce"):FireClient(player, {
 			title = "LEVEL UP!",
-			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, gained, gained > 1 and "s" or "",
+			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, levels, levels > 1 and "s" or "",
 				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or ""),
 			color = Color3.fromRGB(255, 215, 80),
 			duration = 4,
@@ -475,6 +489,7 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		end
 	end
 	PlayerService.markDirty(player)
+	return gained
 end
 
 function PlayerService.addGold(player: Player, amount: number, applyBonus: boolean?): number
@@ -793,6 +808,35 @@ local function onTeleportHome(player: Player)
 	return true
 end
 
+-- The Wayfinder pass (💎 Store): teleport to a place from the world map's list.
+local function onTeleportTo(player: Player, placeId)
+	local st = state[player]
+	local place = type(placeId) == "string" and Zones.getPlace(placeId)
+	if not st or not place or not PlayerService.getCharacter(player) then
+		return false, "You can't do that right now."
+	end
+	if not S.StoreService.hasPass(player, "Wayfinder") then
+		return false, "Teleporting needs the Wayfinder pass (💎 Store)."
+	end
+	if place.id == "home" then
+		return onTeleportHome(player)
+	end
+	if S.BossService.isInFight(player) then
+		return false, "You can't leave a boss fight!"
+	end
+	if now() < (st.wayfinderReadyAt or 0) then
+		return false, string.format("Wait %d more seconds.", math.ceil(st.wayfinderReadyAt - now()))
+	end
+	if now() - st.lastDamaged < 4 then
+		return false, "You can't teleport while in combat!"
+	end
+	local drop = place.drop
+	local ground = Props.groundY(drop.X, drop.Z)
+	st.wayfinderReadyAt = now() + StoreInfo.WAYFINDER_COOLDOWN
+	PlayerService.teleport(player, CFrame.new(drop.X, math.max(ground, Zones.WATER_LEVEL) + 8, drop.Z))
+	return true
+end
+
 ---------------------------------------------------------------- lifecycle
 
 local function onPlayerAdded(player: Player)
@@ -875,6 +919,7 @@ function PlayerService.start()
 		end
 	end)
 	Remotes.func("TeleportHome").OnServerInvoke = onTeleportHome
+	Remotes.func("TeleportTo").OnServerInvoke = onTeleportTo
 	Remotes.event("SetFlying").OnServerEvent:Connect(function(player, flying)
 		local character = player.Character
 		if character then
