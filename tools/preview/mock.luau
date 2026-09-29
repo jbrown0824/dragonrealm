@@ -752,6 +752,15 @@ function M.GetPivot(o)
 	end
 	return CFrame.new()
 end
+-- Roblox keeps part rotations orthonormal. Without this, moving a model every frame (a rowing
+-- longship) compounds rounding error until the parts fly off to infinity.
+local function orthonormal(cf)
+	local r = cf.r
+	local x = Vector3.new(r[1], r[4], r[7]).Unit
+	local y = Vector3.new(r[2], r[5], r[8])
+	y = (y - x * x:Dot(y)).Unit
+	return CFrame.fromMatrix(cf.p, x, y, x:Cross(y))
+end
 function M.PivotTo(o, target)
 	if o._props.CFrame then
 		o._props.CFrame = target
@@ -760,7 +769,7 @@ function M.PivotTo(o, target)
 	local offset = target * M.GetPivot(o):Inverse()
 	for _, d in ipairs(M.GetDescendants(o)) do
 		if PART_CLASSES[d._class] then
-			d._props.CFrame = offset * d._props.CFrame
+			d._props.CFrame = orthonormal(offset * d._props.CFrame)
 		end
 	end
 end

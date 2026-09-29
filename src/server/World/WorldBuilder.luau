@@ -453,10 +453,11 @@ local function buildRange(parent: Instance)
 		CollectionService:AddTag(prompt, "PanelPrompt")
 		prompt.Parent = mat
 	end
-	-- a high sign behind the mats, readable from the main road through the gap between houses 2
-	-- and 3 (z 178-196); dragons walk under it on their way over
+	-- a big sign high on the backstop at the far end: you see it over the targets from the mats,
+	-- and from the main road through the gap between houses 2 and 3 (z 178-196). (It used to
+	-- stand behind the mats, right between the practice camera and your dragon.)
 	local signZ = 187
-	Props.sign(f, CFrame.lookAt(Vector3.new(R.matX + 12, 14, signZ), Vector3.new(0, 14, signZ)), "🏹 TARGET PRACTICE\nFireball the moving targets!", Vector2.new(14, 4.4))
+	Props.sign(f, CFrame.lookAt(Vector3.new(xBack - 2.6, 29, signZ), Vector3.new(0, 29, signZ)), "🏹 TARGET PRACTICE\nFireball the moving targets!", Vector2.new(16, 5))
 end
 
 local function buildTown(map: Folder)

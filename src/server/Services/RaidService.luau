@@ -22,6 +22,7 @@
 -- "fighting"), RaidLandsAt, RaidEndsAt, RaidLeft, RaidWave, RaidWaves, HousesBurned,
 -- RaidMaxBurned. Each house model carries Fire ("burning" / "burned") and BurnsAt.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -53,6 +54,7 @@ local endRaid: (won: boolean, reason: string?) -> () -- below; burning a house d
 local STREET_GOALS = { "PN", "PNE", "PE", "PSE", "PS", "PSW", "PW", "PNW", "N1", "N2", "N3", "E1", "E2", "W1", "S1" }
 local CHAR = Color3.fromRGB(38, 32, 30)
 local SHIP_SIDE = 9 -- a landed longship sits this far from the middle of the river, toward town
+local SHIP_KEEL = CFrame.new(0, -2.4, 0) -- where Props.longship puts the keel (the ship's PrimaryPart)
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -92,6 +94,7 @@ local function setAttributes()
 	workspace:SetAttribute("RaidLeft", r and r.left or nil)
 	workspace:SetAttribute("RaidWave", r and r.wave or nil)
 	workspace:SetAttribute("RaidWaves", r and #r.tier.waves or nil)
+	workspace:SetAttribute("RaidNextWaveAt", r and r.nextWaveAt or nil)
 	workspace:SetAttribute("HousesBurned", r and r.burned or nil)
 	workspace:SetAttribute("RaidMaxBurned", Raids.MAX_BURNED)
 end
@@ -344,16 +347,23 @@ local function shipCF(x: number, heading: number, side: number): CFrame
 	return CFrame.lookAt(pos, ahead)
 end
 
--- Row a ship from x `a` to x `b` along the river over `seconds` (drifting from `sideA` to
--- `sideB` toward the bank), then call done.
-local function row(ship: Model, a: number, b: number, sideA: number, sideB: number, seconds: number, done: (() -> ())?)
+-- Row a ship from where it is now to x `toX`, `toSide` studs toward the town bank, over
+-- `seconds` (easing in to run aground gently), then call done. The keel is the ship's
+-- PrimaryPart and sits SHIP_KEEL below the waterline frame the ship was built on.
+local function rowTo(ship: Model, toX: number, toSide: number, seconds: number, done: (() -> ())?)
+	local keel = ship.PrimaryPart
+	if not keel then
+		return
+	end
+	local here = (keel.CFrame * SHIP_KEEL:Inverse()).Position
+	local fromX, fromSide = here.X, riverZ(here.X) - here.Z
+	local heading = toX > fromX and 1 or -1
 	task.spawn(function()
-		local heading = b > a and 1 or -1
 		local start = os.clock()
 		while ship.Parent do
 			local k = math.min(1, (os.clock() - start) / seconds)
-			local e = 1 - (1 - k) * (1 - k) -- slow down as they run aground
-			ship:PivotTo(shipCF(a + (b - a) * e, heading, sideA + (sideB - sideA) * e))
+			local e = 1 - (1 - k) * (1 - k)
+			ship:PivotTo(shipCF(fromX + (toX - fromX) * e, heading, fromSide + (toSide - fromSide) * e) * SHIP_KEEL)
 			if k >= 1 then
 				break
 			end
@@ -365,6 +375,17 @@ local function row(ship: Model, a: number, b: number, sideA: number, sideB: numb
 	end)
 end
 
+local function rowAll(r, inbound: boolean, seconds: number)
+	for i, ship in ipairs(r.ships) do
+		local landing = Raids.Landings[i]
+		if inbound then
+			rowTo(ship, landing.shipX, SHIP_SIDE, seconds)
+		else
+			rowTo(ship, landing.fromX, 0, seconds)
+		end
+	end
+end
+
 -- Weld every part to the keel, so moving the ship moves (and replicates) one part, not ~110.
 local function weldTo(model: Model, anchor: BasePart)
 	for _, d in ipairs(model:GetDescendants()) do
@@ -374,6 +395,7 @@ local function weldTo(model: Model, anchor: BasePart)
 			d.CanTouch = false
 			if d ~= anchor then
 				local weld = Instance.new("WeldConstraint")
+				weld.Name = "ShipWeld"
 				weld.Part0 = anchor
 				weld.Part1 = d
 				weld.Parent = d
@@ -406,48 +428,90 @@ local function waveList(r, index: number): { string }
 	return list
 end
 
--- Vikings standing on each deck: the next wave, waiting to hop ashore. Just for show (no
--- Humanoid); the real raiders spawn on the beach as these jump off.
+-- Which ship each raider in a wave rides (by its place in the list).
+local function shipFor(k: number): number
+	return (k % #Raids.Landings) + 1
+end
+
+-- The wave's vikings stand on the decks in two rows, cheering (the Animator waves their arms:
+-- tag "VikingPassenger"). They're only for show (no Humanoid): each one leaps ashore and turns
+-- into the real raider where it lands. r.waveList keeps the order so ships and landings agree.
 local function board(r, index: number)
 	local list = waveList(r, index)
+	r.waveList = list
 	for s, ship in ipairs(r.ships) do
 		local keel = ship.PrimaryPart
 		if keel and ship.Parent then
 			local mine = {}
 			for k, typeId in ipairs(list) do
-				if k % #r.ships == s - 1 then
-					table.insert(mine, typeId)
+				if shipFor(k) == s then
+					table.insert(mine, { k = k, typeId = typeId })
 				end
 			end
 			local count = math.min(Raids.PASSENGERS, #mine)
-			local frame = keel.CFrame * CFrame.new(0, 2.4, 0) -- the ship's own frame at the waterline
+			local slots = math.ceil(count / 2)
+			local frame = keel.CFrame * SHIP_KEEL:Inverse() -- the ship's own frame at the waterline
 			for i = 1, count do
-				local typeId = mine[i]
+				local typeId = mine[i].typeId
 				local def = typeId == "leader" and Enemies.Vikings[Raids.Captain.base] or Enemies.Vikings[typeId]
 				local look = typeId == "leader" and Raids.Captain.look or def.look
 				local scale = typeId == "leader" and Raids.Captain.scale or def.scale
 				local model = VikingBuilder.build(look, scale, "Passenger")
-				local along = count > 1 and (-9 + 18 * (i - 1) / (count - 1)) or 0
-				local deck = (frame * CFrame.new(i % 2 == 0 and 1.2 or -1.2, 0.6, along)).Position
+				local slot = math.ceil(i / 2)
+				local along = slots > 1 and (-9 + 18 * (slot - 1) / (slots - 1)) or 0
+				local deck = (frame * CFrame.new(i % 2 == 0 and 1.3 or -1.3, 0.6, along)).Position
 				local pos = deck + Vector3.new(0, 3.05 * scale, 0)
 				model:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(0, 0, -1)))
+				model:SetAttribute("Order", mine[i].k)
+				model:SetAttribute("Scale", scale)
 				weldTo(model, keel)
+				CollectionService:AddTag(model, "VikingPassenger")
 				model.Parent = ship
 			end
 		end
 	end
 end
 
--- A passenger jumps off the ship (with a splash); returns where it was.
-local function disembark(ship: Model?): Vector3?
-	local passenger = ship and ship:FindFirstChild("Passenger")
-	if not passenger then
-		return nil
+-- A spot on the beach for a raider to land on.
+local function shoreSpot(landing): Vector3
+	for _ = 1, 10 do
+		local try = landing.shore + Vector3.new(math.random(-8, 8), 0, math.random(-5, 3))
+		local ok, ground = S.EnemyService.isGoodSpawn(try)
+		if ok then
+			return ground
+		end
 	end
-	local pos = passenger:GetPivot().Position
-	passenger:Destroy()
-	S.CombatService.broadcastVFX({ kind = "splash", pos = Vector3.new(pos.X, Zones.WATER_LEVEL, pos.Z - 6), big = false })
-	return pos
+	return (S.EnemyService.terrainGround(landing.shore))
+end
+
+-- A passenger leaps off the deck in an arc and lands on the beach at `to`, then `done` runs.
+local function leap(passenger: Model, to: Vector3, done: () -> ())
+	local root = passenger.PrimaryPart
+	root.Anchored = true
+	for _, d in ipairs(passenger:GetDescendants()) do
+		if d:IsA("WeldConstraint") and d.Name == "ShipWeld" then
+			d:Destroy()
+		end
+	end
+	passenger.Parent = shipFolder
+	passenger:SetAttribute("Leaping", true)
+	local from = passenger:GetPivot().Position
+	local dest = to + Vector3.new(0, 3.05 * (passenger:GetAttribute("Scale") or 1), 0)
+	local turn = CFrame.lookAt(from, Vector3.new(dest.X, from.Y, dest.Z)).Rotation
+	task.spawn(function()
+		local start = os.clock()
+		while passenger.Parent do
+			local k = math.min(1, (os.clock() - start) / Raids.LEAP_TIME)
+			passenger:PivotTo(CFrame.new(from:Lerp(dest, k) + Vector3.new(0, Raids.LEAP_HEIGHT * 4 * k * (1 - k), 0)) * turn)
+			if k >= 1 then
+				break
+			end
+			task.wait()
+		end
+		S.CombatService.broadcastVFX({ kind = "thud", pos = to })
+		passenger:Destroy()
+		done()
+	end)
 end
 
 local function launchShips(r)
@@ -465,17 +529,14 @@ local function launchShips(r)
 		table.insert(r.ships, ship)
 	end
 	board(r, 1)
-	for i, ship in ipairs(r.ships) do
-		local landing = Raids.Landings[i]
-		row(ship, landing.fromX, landing.shipX, 0, SHIP_SIDE, Raids.SHIP_ROW_TIME)
-	end
+	rowAll(r, true, Raids.SHIP_ROW_TIME)
 end
 
 local function sailAway(ships)
 	for i, ship in ipairs(ships) do
 		local landing = Raids.Landings[i]
 		if landing and ship.Parent then
-			row(ship, landing.shipX, landing.fromX, SHIP_SIDE, 0, 25, function()
+			rowTo(ship, landing.fromX, 0, 25, function()
 				ship:Destroy()
 			end)
 		else
@@ -776,15 +837,7 @@ local function onRaiderDeath(e)
 	end
 end
 
-local function spawnRaider(r, typeId: string, landing, opts)
-	local pos = landing.shore
-	for _ = 1, 10 do
-		local try = landing.shore + Vector3.new(math.random(-8, 8), 0, math.random(-5, 3))
-		if S.EnemyService.isGoodSpawn(try) then
-			pos = try
-			break
-		end
-	end
+local function spawnRaider(r, typeId: string, pos: Vector3, opts)
 	opts = opts or {}
 	opts.raid = true
 	opts.leash = 5000
@@ -800,9 +853,9 @@ local function spawnRaider(r, typeId: string, landing, opts)
 	return e
 end
 
-local function spawnCaptain(r, landing)
+local function spawnCaptain(r, pos: Vector3)
 	local c = Raids.Captain
-	return spawnRaider(r, c.base, landing, {
+	return spawnRaider(r, c.base, pos, {
 		level = math.min(Game.LEVEL_CAP, r.level + 2),
 		displayName = c.name,
 		scale = c.scale,
@@ -813,34 +866,82 @@ local function spawnCaptain(r, landing)
 	})
 end
 
--- The raiders hop off the ships one after another; then the next wave climbs aboard.
-local function spawnWave(r, index: number)
-	local list = waveList(r, index)
+-- The wave on deck leaps ashore one viking after another. Returns how long that takes.
+local function unload(r, index: number): number
+	local list = r.waveList or waveList(r, index)
+	r.waveList = nil
 	r.wave = index
-	r.left += #list -- counted now, so the raid can't be won while some are still hopping off
+	r.nextWaveAt = nil
+	r.left += #list -- counted now, so the raid can't be won while some are still jumping
 	r.total += #list
 	setAttributes()
+	if index > 1 then
+		notifyAll(string.format("Wave %d of %d is coming ashore!", index, #r.tier.waves), Color3.fromRGB(255, 170, 90), "⛵")
+	end
+	local passengers = {}
+	for _, ship in ipairs(r.ships) do
+		for _, child in ipairs(ship:GetChildren()) do
+			if child.Name == "Passenger" then
+				passengers[child:GetAttribute("Order")] = child
+			end
+		end
+	end
 	for k, typeId in ipairs(list) do
 		task.delay((k - 1) * Raids.HOP_GAP, function()
 			if raid ~= r then
 				return
 			end
-			local s = (k % #Raids.Landings) + 1
-			disembark(r.ships[s])
-			if typeId == "leader" then
-				spawnCaptain(r, Raids.Landings[s])
+			local landing = Raids.Landings[shipFor(k)]
+			local spot = shoreSpot(landing)
+			local function arrive()
+				if raid ~= r then
+					return
+				end
+				if typeId == "leader" then
+					spawnCaptain(r, spot)
+				else
+					spawnRaider(r, typeId, spot)
+				end
+			end
+			local passenger = passengers[k]
+			if passenger and passenger.Parent then
+				leap(passenger, spot, arrive)
 			else
-				spawnRaider(r, typeId, Raids.Landings[s])
+				arrive() -- more raiders than room on deck: they wade in
 			end
 		end)
 	end
-	task.delay(#list * Raids.HOP_GAP + 1, function()
-		if raid == r and index < #r.tier.waves then
-			board(r, index + 1)
+	return #list * Raids.HOP_GAP + Raids.LEAP_TIME
+end
+
+-- The waves: the ships run aground and the vikings on deck leap ashore; then the ships row back
+-- upriver, take the next wave aboard, and return with it WAVE_GAP after the previous landing.
+local function runWaves(r)
+	for index = 1, #r.tier.waves do
+		if index > 1 then
+			local landAt = r.landedAt + Raids.WAVE_GAP * (index - 1)
+			r.nextWaveAt = landAt
+			setAttributes()
+			rowAll(r, false, Raids.SHIP_OUT_TIME)
+			task.wait(Raids.SHIP_OUT_TIME)
+			if raid ~= r then
+				return
+			end
+			board(r, index)
+			task.wait(math.max(0, landAt - Raids.SHIP_ROW_TIME - now()))
+			if raid ~= r then
+				return
+			end
+			rowAll(r, true, Raids.SHIP_ROW_TIME)
+			task.wait(Raids.SHIP_ROW_TIME)
+			if raid ~= r then
+				return
+			end
 		end
-	end)
-	if index > 1 then
-		notifyAll(string.format("Wave %d of %d is coming ashore!", index, #r.tier.waves), Color3.fromRGB(255, 170, 90), "⛵")
+		task.wait(unload(r, index) + 0.5)
+		if raid ~= r then
+			return
+		end
 	end
 end
 
@@ -919,16 +1020,10 @@ local function land(r)
 		return
 	end
 	r.phase = "fighting"
+	r.landedAt = now()
 	S.CivilianService.setRaid(true)
-	spawnWave(r, 1)
-	for i = 2, #r.tier.waves do
-		task.delay(Raids.WAVE_GAP * (i - 1), function()
-			if raid == r then
-				spawnWave(r, i)
-			end
-		end)
-	end
 	setAttributes()
+	task.spawn(runWaves, r)
 end
 
 -- Start a raid now (nightfall roll, or an admin). Returns ok, message.

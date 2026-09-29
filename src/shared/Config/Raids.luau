@@ -112,8 +112,11 @@ Raids.Landings = {
 }
 Raids.ENTRY_NODE = "N4"
 Raids.SHIP_ROW_TIME = 18 -- seconds the longships take to row in (inside the WARNING)
-Raids.PASSENGERS = 5 -- vikings standing on each ship's deck (the next wave, waiting to hop ashore)
-Raids.HOP_GAP = 0.35 -- seconds between raiders jumping ashore
+Raids.PASSENGERS = 10 -- room on each ship's deck (the wave rides in standing up, then leaps ashore)
+Raids.HOP_GAP = 0.45 -- seconds between raiders leaping ashore
+Raids.LEAP_TIME = 0.8 -- seconds a leap from the deck to the beach takes
+Raids.LEAP_HEIGHT = 9 -- studs above the straight line at the top of the leap
+Raids.SHIP_OUT_TIME = 12 -- seconds to row back upriver for the next wave (it returns in SHIP_ROW_TIME)
 
 -- If it's time for a raid while a world boss is on its way or being fought, the raid waits for
 -- it (as long as at least RAID_MIN_NIGHT seconds of night are left). Bosses wait for raids too.

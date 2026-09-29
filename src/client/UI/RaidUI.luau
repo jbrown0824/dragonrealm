@@ -80,10 +80,13 @@ function RaidUI.update()
 	elseif phase == "fighting" then
 		local left = workspace:GetAttribute("RaidLeft") or 0
 		local dawn = Util.formatTime((workspace:GetAttribute("RaidEndsAt") or now) - now)
+		local wave = workspace:GetAttribute("RaidWave") or 1
+		local nextAt = workspace:GetAttribute("RaidNextWaveAt")
+		local waveText = nextAt and string.format("wave %d in %s", wave + 1, Util.formatTime(nextAt - now))
+			or string.format("wave %d/%d", wave, workspace:GetAttribute("RaidWaves") or 1)
 		title.Text = "⚔️ Viking raid!"
-		info.Text = string.format("<b>%d</b> raider%s left  •  wave %d/%d  •  🏚️ %d/%d  •  dawn in %s",
-			left, left == 1 and "" or "s",
-			workspace:GetAttribute("RaidWave") or 1, workspace:GetAttribute("RaidWaves") or 1,
+		info.Text = string.format("<b>%d</b> raider%s left  •  %s  •  🏚️ %d/%d  •  dawn in %s",
+			left, left == 1 and "" or "s", waveText,
 			workspace:GetAttribute("HousesBurned") or 0, workspace:GetAttribute("RaidMaxBurned") or 5,
 			dawn)
 		short = string.format("⚔️ Raid: %d left  •  dawn %s", left, dawn)

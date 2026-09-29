@@ -3,7 +3,8 @@
 --            gliding when falling, flapping in flight, jaw + frill when breathing fire, blinking,
 --            walking with knees, a pulsing ember core, sprawled flat when knocked out or dead),
 --            blended smoothly between states
---   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers)
+--   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers); raiders
+--            riding a longship (tag VikingPassenger) cheer with their arms up, and tuck in to leap
 --   animals: trotting legs, head bob and tail wag (AnimalBuilder rigs)
 
 local CollectionService = game:GetService("CollectionService")
@@ -44,7 +45,7 @@ local function register(model: Instance, kind: string)
 		end
 		rig.root = root
 	end)
-	if kind == "viking" or kind == "animal" then
+	if kind == "viking" or kind == "animal" or kind == "passenger" then
 		model:GetAttributeChangedSignal("Swing"):Connect(function()
 			rig.swingAt = os.clock()
 		end)
@@ -96,7 +97,27 @@ local function animateDragon(model: Model, rig, now: number, dt: number)
 	end
 end
 
+local function animatePassenger(model: Model, rig, now: number)
+	local t = now + rig.phase
+	if model:GetAttribute("Leaping") then
+		set(rig, "ArmR", CFrame.Angles(2.9, 0, 0))
+		set(rig, "ArmL", CFrame.Angles(2.9, 0, 0))
+		set(rig, "LegL", CFrame.Angles(0.9, 0, 0))
+		set(rig, "LegR", CFrame.Angles(0.6, 0, 0))
+		return
+	end
+	-- a battle cry on the way in: weapons pumping in the air
+	set(rig, "ArmR", CFrame.Angles(2.5 + math.sin(t * 5) * 0.4, 0, 0))
+	set(rig, "ArmL", CFrame.Angles(1.6 + math.sin(t * 5 + 1.3) * 0.5, 0, 0))
+	set(rig, "LegL", CFrame.Angles(math.max(0, math.sin(t * 2.5)) * 0.15, 0, 0))
+	set(rig, "LegR", CFrame.new())
+end
+
 local function animateViking(model: Model, rig, now: number)
+	if rig.kind == "passenger" then
+		animatePassenger(model, rig, now)
+		return
+	end
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.Health <= 0 then
 		return -- toppled over (EnemyService); keep the pose it fell in
@@ -170,6 +191,12 @@ function Animator.init(app)
 	end)
 	CollectionService:GetInstanceAddedSignal("Viking"):Connect(function(m)
 		register(m, "viking")
+	end)
+	for _, model in ipairs(CollectionService:GetTagged("VikingPassenger")) do
+		register(model, "passenger")
+	end
+	CollectionService:GetInstanceAddedSignal("VikingPassenger"):Connect(function(m)
+		register(m, "passenger")
 	end)
 	-- the sparring golem swings its throwing arm like a viking
 	local function maybeGolem(model)

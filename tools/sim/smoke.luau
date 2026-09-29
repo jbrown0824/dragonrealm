@@ -557,9 +557,17 @@ task.spawn(function()
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 	tp(p2, S.FarmService.getHomeCFrame(p2).Position)
 	task.wait(Raids.WARNING + 0.1)
-	check(workspace:GetAttribute("RaidPhase") == "fighting" and #S.RaidService.raiders() < (workspace:GetAttribute("RaidLeft") or 0), "they hop ashore one after another")
-	task.wait(4)
-	check(passengers() == 0 or passengers() <= Raids.PASSENGERS * #Raids.Landings, "the next wave climbs aboard")
+	check(workspace:GetAttribute("RaidPhase") == "fighting" and #S.RaidService.raiders() < (workspace:GetAttribute("RaidLeft") or 0), "they leap ashore one after another")
+	local wave1 = workspace:GetAttribute("RaidLeft") or 0
+	task.wait(wave1 * Raids.HOP_GAP + Raids.LEAP_TIME + 1)
+	check(#S.RaidService.raiders() == wave1 and passengers() == 0, "the whole wave is ashore, nobody left standing on deck (" .. #S.RaidService.raiders() .. "/" .. wave1 .. ", " .. passengers() .. " aboard)")
+	local ship1 = workspace.RaidShips:GetChildren()[1]
+	local moored = ship1 and ship1.PrimaryPart.Position
+	task.wait(3)
+	check(ship1 and (ship1.PrimaryPart.Position - moored).Magnitude > 10, "the longships row back out for the next wave")
+	check(workspace:GetAttribute("RaidNextWaveAt") ~= nil, "the raid bar knows when the next wave lands")
+	task.wait(Raids.SHIP_OUT_TIME)
+	check(passengers() > 0, "the next wave climbs aboard upriver")
 	local raiders = S.RaidService.raiders()
 	check(#raiders > 0 and raiders[1].raid, "raiders in town (" .. #raiders .. ")")
 	local r1 = raiders[1]
