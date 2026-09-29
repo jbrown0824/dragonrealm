@@ -95,9 +95,16 @@ local function buildTerrain()
 		terrainPath(road.a, road.b, road.width, Enum.Material[road.material])
 	end
 
-	-- Battle Zone floor and the training yard
+	-- Battle Zone floor and the training yard (the dummies, the ground in front of them where you
+	-- fight, and the sparring pen)
 	terrain:FillBlock(CFrame.new(0, -2, -265), Vector3.new(190, 4, 140), Enum.Material.Sand)
-	terrain:FillBlock(CFrame.new(100, -2, 176), Vector3.new(70, 4, 104), Enum.Material.Sand)
+	local tr = Zones.Training
+	local tx0, tx1, tz0, tz1 = tr.pen.min.X, tr.pen.max.X, tr.pen.min.Z, tr.pen.max.Z
+	for _, d in ipairs(tr.dummies) do
+		tx0, tx1, tz0 = math.min(tx0, d.X), math.max(tx1, d.X), math.min(tz0, d.Z - 18)
+	end
+	tx0, tx1, tz1 = tx0 - 6, tx1 + 6, tz1 + 6
+	terrain:FillBlock(CFrame.new((tx0 + tx1) / 2, -2, (tz0 + tz1) / 2), Vector3.new(tx1 - tx0, 4, tz1 - tz0), Enum.Material.Sand)
 	local range = Zones.Range
 	local rz0, rz1 = range.lanes[1] - range.laneHalf - 4, range.lanes[#range.lanes] + range.laneHalf + 4
 	terrain:FillBlock(CFrame.new((range.backstop + range.matX + 8) / 2, -2, (rz0 + rz1) / 2), Vector3.new(range.matX + 8 - range.backstop, 4, rz1 - rz0), Enum.Material.Sand)
@@ -361,7 +368,11 @@ local function buildTraining(parent: Instance)
 		local dummy = Props.dummy(f, pos, Vector3.new(0, 0, -1))
 		CollectionService:AddTag(dummy, "TrainingDummy")
 	end
-	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 130), Vector3.new(0, 5, 130)), "🎯 TRAINING DUMMIES\nHit one to see your DPS!", Vector2.new(13, 4))
+	-- signs face the main road, in the gaps between the houses (houses 4-5 and 5-6)
+	local signX = (Zones.Houses[4].pos.X + Zones.HouseSize.Z / 2 + tr.pen.min.X) / 2
+	local gap1 = (Zones.Houses[4].pos.Z + Zones.Houses[5].pos.Z) / 2
+	local gap2 = (Zones.Houses[5].pos.Z + Zones.Houses[6].pos.Z) / 2
+	Props.sign(f, CFrame.lookAt(Vector3.new(signX, 5, gap1), Vector3.new(0, 5, gap1)), "🎯 TRAINING DUMMIES\nHit one to see your DPS!", Vector2.new(13, 4))
 
 	-- Sparring pen: a fence with a red danger line inside. The golem throws at anyone in it.
 	local pen = tr.pen
@@ -389,7 +400,7 @@ local function buildTraining(parent: Instance)
 	end
 	local golem = Props.golem(f, tr.golem, Vector3.new(0, 0, -1))
 	CollectionService:AddTag(golem, "TrainingDummy")
-	Props.sign(f, CFrame.lookAt(Vector3.new(66, 5, 176), Vector3.new(0, 5, 176)), "🥊 SPARRING PEN\nThe golem throws back!", Vector2.new(11, 4), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
+	Props.sign(f, CFrame.lookAt(Vector3.new(signX, 5, gap2), Vector3.new(0, 5, gap2)), "🥊 SPARRING PEN\nThe golem throws back!", Vector2.new(11, 4), Color3.fromRGB(255, 200, 190), Color3.fromRGB(90, 30, 30))
 end
 
 -- Target practice range (Zones.Range, RangeService): a sandy field behind the houses on the
@@ -454,7 +465,7 @@ local function buildRange(parent: Instance)
 		prompt.Parent = mat
 	end
 	-- a big sign high on the backstop at the far end: you see it over the targets from the mats,
-	-- and from the main road through the gap between houses 2 and 3 (z 178-196). (It used to
+	-- and from the main road through the gap between houses 2 and 3 (z 174-200). (It used to
 	-- stand behind the mats, right between the practice camera and your dragon.)
 	local signZ = 187
 	Props.sign(f, CFrame.lookAt(Vector3.new(xBack - 2.6, 29, signZ), Vector3.new(0, 29, signZ)), "🏹 TARGET PRACTICE\nFireball the moving targets!", Vector2.new(16, 5))
@@ -495,8 +506,13 @@ local function buildTown(map: Folder)
 		model.Name = "House" .. i
 	end
 
-	-- Lamps along the main road
-	for z = 60, 200, 35 do
+	-- Lamps along the main road: one at the top of the street, then one in each gap between houses
+	-- (clear of the paths to their doors)
+	local mainLamps = { 64 }
+	for i = 1, 2 do
+		table.insert(mainLamps, (Zones.Houses[i].pos.Z + Zones.Houses[i + 1].pos.Z) / 2)
+	end
+	for _, z in ipairs(mainLamps) do
 		Props.lamp(town, Vector3.new(-12, 0, z))
 		Props.lamp(town, Vector3.new(12, 0, z))
 	end
@@ -505,9 +521,10 @@ local function buildTown(map: Folder)
 		Props.lamp(town, Vector3.new(11, 0, z))
 	end
 
-	-- Trees around the edges of town, leaving gaps for the paths out to the hunting grounds
+	-- Trees around the edges of town, leaving gaps for the paths out to the hunting grounds (and
+	-- room for the last houses on the main road)
 	for x = -265, 265, 24 do
-		if math.abs(x) > 64 then
+		if math.abs(x) > 76 then
 			Props.tree(town, Vector3.new(x + rng:NextNumber(-4, 4), 0, 236 + rng:NextNumber(-3, 3)), rng:NextNumber(0.8, 1.2), "oak")
 		end
 		if math.abs(x) > 110 then
@@ -516,8 +533,8 @@ local function buildTown(map: Folder)
 	end
 	for z = -330, 220, 26 do
 		if math.abs(z) > 16 then
-			Props.tree(town, Vector3.new(-268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
-			Props.tree(town, Vector3.new(268 + rng:NextNumber(-4, 4), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
+			Props.tree(town, Vector3.new(-273 + rng:NextNumber(-3, 3), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "pine" or "oak")
+			Props.tree(town, Vector3.new(273 + rng:NextNumber(-3, 3), 0, z), rng:NextNumber(0.8, 1.2), z % 2 == 0 and "oak" or "pine")
 		end
 	end
 	for _, p in ipairs({ Vector3.new(-80, 0, 60), Vector3.new(-100, 0, -80), Vector3.new(100, 0, -80), Vector3.new(118, 0, 60) }) do
