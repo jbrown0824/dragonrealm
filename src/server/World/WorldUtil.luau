@@ -1,4 +1,4 @@
--- Small helpers shared by WorldBuilder, Camps and Wilds.
+-- Small helpers shared by WorldBuilder, Camps and Wilds (and a couple used by services).
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -70,6 +70,28 @@ function WorldUtil.flatDistToSegment(p: Vector3, a: Vector3, b: Vector3): number
 	local len2 = ab:Dot(ab)
 	local t = len2 > 0 and math.clamp(ap:Dot(ab) / len2, 0, 1) or 0
 	return (ap - ab * t).Magnitude
+end
+
+-- Lay a dragon (built by DragonBuilder) down on its belly where it stands: knocked out, or dead.
+-- The root is anchored and lowered so the belly rests on the ground at groundY; clients sprawl
+-- its legs, neck and wings (DragonRig's "downed" pose). standDragon puts it back on its feet
+-- (`height` = root height above the ground when standing).
+local function flatLook(root: BasePart): Vector3
+	local look = root.CFrame.LookVector
+	look = Vector3.new(look.X, 0, look.Z)
+	return look.Magnitude > 0.1 and look.Unit or Vector3.new(0, 0, -1)
+end
+
+function WorldUtil.layDragon(model: Model, root: BasePart, groundY: number)
+	root.Anchored = true
+	local pos = Vector3.new(root.Position.X, groundY + root.Size.Y / 2 + 0.2, root.Position.Z)
+	model:PivotTo(CFrame.lookAt(pos, pos + flatLook(root)))
+end
+
+function WorldUtil.standDragon(model: Model, root: BasePart, height: number, groundY: number)
+	local pos = Vector3.new(root.Position.X, groundY + height, root.Position.Z)
+	model:PivotTo(CFrame.lookAt(pos, pos + flatLook(root)))
+	root.Anchored = false
 end
 
 return WorldUtil

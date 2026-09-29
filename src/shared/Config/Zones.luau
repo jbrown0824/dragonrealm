@@ -261,6 +261,14 @@ Zones.TownWalk = {
 	houseLinks = { "N2", "N3", "N4", "N2", "N3", "N4", "S3", "S2", "W2", "E3" },
 }
 
+-- How night raiders (RaidService) get to dragons at home: from the TownWalk node `from`, along
+-- `via` to the side road, down the road (x = roadX) to the lair, and in through the gap in its
+-- front fence (Zones.lairGate). walk_check.py keeps these walks clear.
+Zones.LairApproach = {
+	west = { from = "W1", via = { Vector3.new(-100, 0, -8), Vector3.new(-137, 0, -8) }, roadX = -137 },
+	east = { from = "E1", via = { Vector3.new(100, 0, -8), Vector3.new(137, 0, -8) }, roadX = 137 },
+}
+
 -- Player bases: 4 down each side of town, fronts facing the road in the middle.
 -- BaseSize: X = depth (along facing), Z = width.
 Zones.BaseSize = Vector3.new(88, 0, 92)
@@ -270,6 +278,24 @@ for i, z in ipairs({ -165, -55, 55, 165 }) do
 end
 for i, z in ipairs({ -165, -55, 55, 165 }) do
 	table.insert(Zones.Bases, { index = i + 4, center = Vector3.new(192, 0, z), facing = Vector3.new(-1, 0, 0) })
+end
+
+-- Just inside the gap in a lair's front fence.
+function Zones.lairGate(base): Vector3
+	return base.center + base.facing * (Zones.BaseSize.X / 2 - 8)
+end
+
+-- The lair a point is in, if any.
+function Zones.baseAt(pos: Vector3)
+	for _, base in ipairs(Zones.Bases) do
+		local d = pos - base.center
+		local along = math.abs(d.X * base.facing.X + d.Z * base.facing.Z)
+		local across = math.abs(d.X * base.facing.Z - d.Z * base.facing.X)
+		if along <= Zones.BaseSize.X / 2 and across <= Zones.BaseSize.Z / 2 then
+			return base
+		end
+	end
+	return nil
 end
 
 local function inArea(area, pos: Vector3): boolean

@@ -34,11 +34,12 @@ task.spawn(function()
 	gui.Parent = me
 	SIM_LOCAL_PLAYER = me
 	Players.LocalPlayer = me
-	-- the default Roblox camera follows your character
+	-- the default Roblox camera follows your character, keeping whatever direction it points in
 	game:GetService("RunService").RenderStepped:Connect(function()
 		local r = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
 		if r then
-			workspace.CurrentCamera.CFrame = CFrame.lookAt(r.Position + Vector3.new(0, 12, 25), r.Position)
+			local camera = workspace.CurrentCamera
+			camera.CFrame = CFrame.lookAt(r.Position - camera.CFrame.LookVector * 27, r.Position)
 		end
 	end)
 	me.Parent = Players
@@ -472,8 +473,28 @@ task.spawn(function()
 	task.wait(1)
 	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
 	check(raidBar and raidBar.Visible, "the raid bar shows")
-	task.wait(Raids.WARNING + 1)
+	local minimize = raidBar:FindFirstChild("Minimize", true)
+	check(minimize ~= nil, "the raid bar has a minimize button")
+	if minimize then
+		minimize.Activated:Fire()
+	end
+	task.wait(0.4)
+	local raidPill = Windows.guis.HUD:FindFirstChild("RaidPill")
+	check(raidPill and raidPill.Visible and not raidBar.Visible, "the raid bar minimizes to a pill")
+	if raidPill then
+		raidPill.Activated:Fire()
+	end
+	task.wait(0.4)
+	check(raidBar.Visible and not raidPill.Visible, "the pill opens the raid bar again")
+	task.wait(Raids.WARNING + 3)
 	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders landed")
+	-- a knocked-out villager sprawls on the ground (the Animator poses it)
+	local villager = S.CivilianService.villagers()[1]
+	for _ = 1, Raids.VILLAGER_HITS do
+		S.CivilianService.hurt(villager)
+	end
+	task.wait(0.5)
+	check(villager.model:GetAttribute("KnockedOut") == true, "a villager is knocked out")
 	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
 	task.wait(0.5)
 	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
@@ -493,13 +514,32 @@ task.spawn(function()
 	Remotes.event("OpenPanel"):FireClient(me, "Range")
 	task.wait(0.2)
 	check(Windows.isOpen("Range"), "OpenPanel Range")
+	me.CameraMaxZoomDistance = 160
 	click(Windows.registry.Range.frame, "Start AFK")
+	task.wait(0.1)
+	local RangeInfo = require(__proxy("Shared/Config/Range"))
+	check(me.CameraMaxZoomDistance == RangeInfo.CAMERA_ZOOM, "starting practice pulls the camera in")
+	check(workspace.CurrentCamera.CFrame.LookVector.X < -0.5, "and points it down the lane")
 	task.wait(0.5)
+	check(me.CameraMaxZoomDistance == Game.CAMERA_MAX_ZOOM, "then lets the player zoom again")
 	check(me:GetAttribute("RangeMode") == "afk" and not Windows.isOpen("Range"), "AFK practice starts from the window")
+	local logAfk = #REMOTE_LOG
 	local rangePanel = Windows.guis.HUD:FindFirstChild("RangePanel")
 	check(rangePanel and rangePanel.Visible, "the practice panel shows")
 	task.wait(6)
 	check((casts.Fireball or 0) >= 1, "AFK practice fires by itself (" .. tostring(casts.Fireball) .. ")")
+	local xpNumbers = 0
+	for i = logAfk + 1, #REMOTE_LOG do
+		local entry = REMOTE_LOG[i]
+		if entry.remote == "DamageNumber" and entry.player == me then
+			for _, n in ipairs(entry.args[1]) do
+				if n.kind == "xp" then
+					xpNumbers += 1
+				end
+			end
+		end
+	end
+	check(xpNumbers >= 1, "AFK hits show rising +XP (" .. xpNumbers .. ")")
 	local target = CollectionService:GetTagged("PracticeTarget")[1]
 	if target then
 		local RangeUtil = require(__proxy("Shared/RangeUtil"))

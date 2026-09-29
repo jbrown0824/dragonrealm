@@ -1,13 +1,19 @@
 -- Night raids on Dragon Town (Config/Raids). At nightfall DayNightService fires `nightfall` and
 -- there's a Raids.CHANCE of a raid (always one after Raids.PITY_NIGHTS quiet nights in a row).
 --
--- A raid: the war horn sounds and longships row down the river (Raids.WARNING), then waves of
--- vikings come ashore below town. They're ordinary EnemyService vikings flagged `raid` (so they
--- can fight inside town) with an `objective`: Torchbearers walk the villagers' street graph
--- (Zones.TownWalk, via CivilianService) to a house door and set it alight; everyone else roams
--- the streets looking for a fight. Villagers come out and puff fire at them (CivilianService).
+-- A raid: the war horn sounds and longships row down the river (Raids.WARNING) with the first
+-- wave standing on deck, then the vikings hop ashore below town one after another. The size of
+-- the raid follows the strongest dragon online (Raids.Tiers), so new players get a gentler one.
+-- Raiders are ordinary EnemyService vikings flagged `raid` (so they can fight inside town) with
+-- an `objective` (see "raider brains"): Torchbearers walk the villagers' street graph
+-- (Zones.TownWalk, via CivilianService) to a house door and set it alight; the rest go after
+-- villagers (knocking them out for a while) and dragons all over town, even at home in their
+-- lairs. Villagers come out and puff fire at them (CivilianService).
 --
--- A burning house burns down after Raids.BURN_TIME unless a dragon holds E at its door. Beat
+-- A raid never starts while a world boss is on its way or being fought: it waits for the boss
+-- (BossService likewise waits for a raid to finish before sounding its warning).
+--
+-- A burning house burns down after the tier's burnTime unless a dragon holds E at its door. Beat
 -- every raider before dawn to win: everyone who hit a raider or put out a fire gets the
 -- rewards. Lose (dawn, or Raids.MAX_BURNED houses gone) and ShopService closes every vendor
 -- for a while. Burned houses are rebuilt Raids.REBUILD seconds after the raid either way.
@@ -26,7 +32,10 @@ local Zones = require(Shared.Config.Zones)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
+local Enemies = require(Shared.Config.Enemies)
+
 local Props = require(script.Parent.Parent.World.Props)
+local VikingBuilder = require(script.Parent.Parent.World.VikingBuilder)
 
 local RaidService = {}
 local S
@@ -34,6 +43,7 @@ local S
 local raid = nil -- the raid in progress (see RaidService.start)
 local raidCounter = 0
 local quietNights = 0
+local pendingRaid = false -- rolled a raid while a boss was busy: it starts once the boss is done
 local houses = {} -- [index] = { model, state = "ok" | "burning" | "burned", burnsAt, fx, original, rebuildAt }
 local shipFolder: Folder
 local riverSamples = {}
@@ -42,6 +52,7 @@ local endRaid: (won: boolean, reason: string?) -> () -- below; burning a house d
 
 local STREET_GOALS = { "PN", "PNE", "PE", "PSE", "PS", "PSW", "PW", "PNW", "N1", "N2", "N3", "E1", "E2", "W1", "S1" }
 local CHAR = Color3.fromRGB(38, 32, 30)
+local SHIP_SIDE = 9 -- a landed longship sits this far from the middle of the river, toward town
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -80,7 +91,7 @@ local function setAttributes()
 	workspace:SetAttribute("RaidEndsAt", r and r.endsAt or nil)
 	workspace:SetAttribute("RaidLeft", r and r.left or nil)
 	workspace:SetAttribute("RaidWave", r and r.wave or nil)
-	workspace:SetAttribute("RaidWaves", r and #Raids.Waves or nil)
+	workspace:SetAttribute("RaidWaves", r and #r.tier.waves or nil)
 	workspace:SetAttribute("HousesBurned", r and r.burned or nil)
 	workspace:SetAttribute("RaidMaxBurned", Raids.MAX_BURNED)
 end
@@ -227,12 +238,13 @@ function RaidService.ignite(index: number): boolean
 	if not h or h.state ~= "ok" then
 		return false
 	end
+	local burnTime = (raid and raid.tier or Raids.Tiers[#Raids.Tiers]).burnTime
 	h.state = "burning"
-	h.burnsAt = now() + Raids.BURN_TIME
+	h.burnsAt = now() + burnTime
 	h.model:SetAttribute("Fire", "burning")
 	h.model:SetAttribute("BurnsAt", h.burnsAt)
 	addFx(index, true)
-	notifyAll(string.format("A house is on fire! Hold E at its door to put it out (%ds).", Raids.BURN_TIME), Color3.fromRGB(255, 150, 70), "🔥")
+	notifyAll(string.format("A house is on fire! Hold E at its door to put it out (%ds).", burnTime), Color3.fromRGB(255, 150, 70), "🔥")
 	return true
 end
 
@@ -325,25 +337,27 @@ local function riverZ(x: number): number
 	return 276
 end
 
-local function shipCF(x: number, heading: number): CFrame
-	local pos = Vector3.new(x, Zones.WATER_LEVEL, riverZ(x))
-	local ahead = Vector3.new(x + heading * 3, Zones.WATER_LEVEL, riverZ(x + heading * 3))
+-- A ship on the river at x, `side` studs toward the town bank from the middle of the river.
+local function shipCF(x: number, heading: number, side: number): CFrame
+	local pos = Vector3.new(x, Zones.WATER_LEVEL, riverZ(x) - side)
+	local ahead = Vector3.new(x + heading * 3, Zones.WATER_LEVEL, riverZ(x + heading * 3) - side)
 	return CFrame.lookAt(pos, ahead)
 end
 
--- Row a ship from x `a` to x `b` along the river over `seconds`, then call done.
-local function row(ship: Model, a: number, b: number, seconds: number, done: (() -> ())?)
+-- Row a ship from x `a` to x `b` along the river over `seconds` (drifting from `sideA` to
+-- `sideB` toward the bank), then call done.
+local function row(ship: Model, a: number, b: number, sideA: number, sideB: number, seconds: number, done: (() -> ())?)
 	task.spawn(function()
 		local heading = b > a and 1 or -1
 		local start = os.clock()
 		while ship.Parent do
 			local k = math.min(1, (os.clock() - start) / seconds)
 			local e = 1 - (1 - k) * (1 - k) -- slow down as they run aground
-			ship:PivotTo(shipCF(a + (b - a) * e, heading))
+			ship:PivotTo(shipCF(a + (b - a) * e, heading, sideA + (sideB - sideA) * e))
 			if k >= 1 then
 				break
 			end
-			task.wait(0.1)
+			task.wait() -- every frame: only the keel moves (everything else is welded to it)
 		end
 		if done then
 			done()
@@ -351,11 +365,95 @@ local function row(ship: Model, a: number, b: number, seconds: number, done: (()
 	end)
 end
 
+-- Weld every part to the keel, so moving the ship moves (and replicates) one part, not ~110.
+local function weldTo(model: Model, anchor: BasePart)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			if d ~= anchor then
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = anchor
+				weld.Part1 = d
+				weld.Parent = d
+				d.Massless = true
+				d.Anchored = false
+			end
+		end
+	end
+end
+
+-- Who comes ashore in a wave, in order ("leader" = the Raid Captain).
+local function waveList(r, index: number): { string }
+	local wave = r.tier.waves[index]
+	local list = {}
+	for typeId, count in pairs(wave) do
+		if typeId ~= "leader" then
+			for _ = 1, math.max(1, math.floor(count * r.scale + 0.5)) do
+				table.insert(list, typeId)
+			end
+		end
+	end
+	table.sort(list)
+	for i = #list, 2, -1 do -- mix them up a little
+		local j = math.random(1, i)
+		list[i], list[j] = list[j], list[i]
+	end
+	if wave.leader then
+		table.insert(list, "leader")
+	end
+	return list
+end
+
+-- Vikings standing on each deck: the next wave, waiting to hop ashore. Just for show (no
+-- Humanoid); the real raiders spawn on the beach as these jump off.
+local function board(r, index: number)
+	local list = waveList(r, index)
+	for s, ship in ipairs(r.ships) do
+		local keel = ship.PrimaryPart
+		if keel and ship.Parent then
+			local mine = {}
+			for k, typeId in ipairs(list) do
+				if k % #r.ships == s - 1 then
+					table.insert(mine, typeId)
+				end
+			end
+			local count = math.min(Raids.PASSENGERS, #mine)
+			local frame = keel.CFrame * CFrame.new(0, 2.4, 0) -- the ship's own frame at the waterline
+			for i = 1, count do
+				local typeId = mine[i]
+				local def = typeId == "leader" and Enemies.Vikings[Raids.Captain.base] or Enemies.Vikings[typeId]
+				local look = typeId == "leader" and Raids.Captain.look or def.look
+				local scale = typeId == "leader" and Raids.Captain.scale or def.scale
+				local model = VikingBuilder.build(look, scale, "Passenger")
+				local along = count > 1 and (-9 + 18 * (i - 1) / (count - 1)) or 0
+				local deck = (frame * CFrame.new(i % 2 == 0 and 1.2 or -1.2, 0.6, along)).Position
+				local pos = deck + Vector3.new(0, 3.05 * scale, 0)
+				model:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(0, 0, -1)))
+				weldTo(model, keel)
+				model.Parent = ship
+			end
+		end
+	end
+end
+
+-- A passenger jumps off the ship (with a splash); returns where it was.
+local function disembark(ship: Model?): Vector3?
+	local passenger = ship and ship:FindFirstChild("Passenger")
+	if not passenger then
+		return nil
+	end
+	local pos = passenger:GetPivot().Position
+	passenger:Destroy()
+	S.CombatService.broadcastVFX({ kind = "splash", pos = Vector3.new(pos.X, Zones.WATER_LEVEL, pos.Z - 6), big = false })
+	return pos
+end
+
 local function launchShips(r)
 	for _, landing in ipairs(Raids.Landings) do
 		local heading = landing.shipX > landing.fromX and 1 or -1
-		local ship = Props.longship(shipFolder, shipCF(landing.fromX, heading))
-		-- weld the whole ship to its keel, so rowing moves (and replicates) one part, not ~110
+		local ship = Props.longship(shipFolder, shipCF(landing.fromX, heading, 0))
 		local keel = nil
 		for _, d in ipairs(ship:GetDescendants()) do
 			if d:IsA("BasePart") and (not keel or d.Size.Z > keel.Size.Z) then
@@ -363,23 +461,13 @@ local function launchShips(r)
 			end
 		end
 		ship.PrimaryPart = keel
-		for _, d in ipairs(ship:GetDescendants()) do
-			if d:IsA("BasePart") then
-				d.CanCollide = false
-				d.CanQuery = false
-				d.CanTouch = false
-				if d ~= keel then
-					local weld = Instance.new("WeldConstraint")
-					weld.Part0 = keel
-					weld.Part1 = d
-					weld.Parent = d
-					d.Massless = true
-					d.Anchored = false
-				end
-			end
-		end
+		weldTo(ship, keel)
 		table.insert(r.ships, ship)
-		row(ship, landing.fromX, landing.shipX, Raids.SHIP_ROW_TIME)
+	end
+	board(r, 1)
+	for i, ship in ipairs(r.ships) do
+		local landing = Raids.Landings[i]
+		row(ship, landing.fromX, landing.shipX, 0, SHIP_SIDE, Raids.SHIP_ROW_TIME)
 	end
 end
 
@@ -387,7 +475,7 @@ local function sailAway(ships)
 	for i, ship in ipairs(ships) do
 		local landing = Raids.Landings[i]
 		if landing and ship.Parent then
-			row(ship, landing.shipX, landing.fromX, 25, function()
+			row(ship, landing.shipX, landing.fromX, SHIP_SIDE, 0, 25, function()
 				ship:Destroy()
 			end)
 		else
@@ -397,58 +485,175 @@ local function sailAway(ships)
 end
 
 ---------------------------------------------------------------- raider brains
+-- Every raider has a goal it works on whenever there's no dragon to fight (EnemyService calls
+-- `objective`):
+--   house     (Torchbearers) walk to a house's door and set it alight
+--   villager  walk up to a villager and hit them until they're knocked out
+--   dragon    walk to a dragon, even one at home in its lair; once close, the fight AI takes over
+--   roam      stroll to a street corner looking for trouble
+-- Goals spread out: at most Raids.CROWD raiders on one dragon (EnemyService.raidersOn counts
+-- `hunting`), two on one villager, one Torchbearer per house while there's a choice. Fighters
+-- pick someone new every Raids.RETARGET seconds or so.
 
--- The nearest standing house (not already someone else's target, if there's a choice).
+local function hunters(kind: string, who, except): number
+	local n = 0
+	for other in pairs(raid.raiders) do
+		if other ~= except and not other.dead and other.goal and other.goal.kind == kind and other.goal.who == who then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- The nearest standing house (not already another Torchbearer's, if there's a choice).
 local function pickHouse(e): number?
-	local best, bestDist, bestTaken = nil, math.huge, true
+	local best, bestScore = nil, math.huge
 	for index, h in pairs(houses) do
 		if h.state == "ok" then
-			local taken = false
-			for other in pairs(raid.raiders) do
-				if other ~= e and not other.dead and other.house == index then
-					taken = true
-				end
-			end
-			local d = flat(e.root.Position, Zones.houseDoor(Zones.Houses[index])) + math.random() * 20
-			if (bestTaken and not taken) or (taken == bestTaken and d < bestDist) then
-				best, bestDist, bestTaken = index, d, taken
+			local score = hunters("house", index, e) * 500 + flat(e.root.Position, Zones.houseDoor(Zones.Houses[index])) + math.random() * 20
+			if score < bestScore then
+				best, bestScore = index, score
 			end
 		end
 	end
 	return best
 end
 
-local function planRoute(e, t: number)
-	local start = S.CivilianService.nearestNode(e.root.Position, true)
-	local goal = nil
-	e.house = nil
-	if e.role == "torch" then
-		e.house = pickHouse(e)
-		if e.house then
-			goal = "Door" .. e.house
+local function pickVillager(e)
+	local best, bestScore = nil, math.huge
+	for _, v in ipairs(S.CivilianService.villagers()) do
+		if v.model.Parent and not v.knockedOut then
+			local n = hunters("villager", v, e)
+			if n < 2 then
+				local score = n * 200 + flat(e.root.Position, v.root.Position) + math.random() * 60
+				if score < bestScore then
+					best, bestScore = v, score
+				end
+			end
 		end
 	end
-	goal = goal or STREET_GOALS[math.random(1, #STREET_GOALS)]
+	return best
+end
+
+-- A dragon on its feet somewhere in town (home in its lair counts).
+local function huntable(player: Player): BasePart?
+	local character, humanoid, root = S.PlayerService.getCharacter(player)
+	if not character or humanoid.Health <= 0 or character:GetAttribute("Flying") or character:GetAttribute("Stealthed") then
+		return nil
+	end
+	if S.BossService.isInFight(player) or not Zones.isIn("Town", root.Position) then
+		return nil
+	end
+	return root
+end
+
+local function pickDragon(e): Player?
+	local best, bestScore = nil, math.huge
+	for _, player in ipairs(Players:GetPlayers()) do
+		local root = huntable(player)
+		if root then
+			local n = S.EnemyService.raidersOn(player, e)
+			if n < Raids.CROWD then
+				local score = n * 150 + flat(e.root.Position, root.Position) * 0.5 + math.random() * 80
+				if score < bestScore then
+					best, bestScore = player, score
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function pickGoal(e, t: number)
+	e.goal = nil
+	e.hunting = nil
+	e.route = nil
+	if e.role == "torch" then
+		local index = pickHouse(e)
+		if index then
+			e.goal = { kind = "house", who = index }
+		end
+	end
+	if not e.goal then
+		local v = math.random() < Raids.VILLAGER_VICTIM_CHANCE and pickVillager(e) or nil
+		local p = not v and pickDragon(e) or nil
+		if not v and not p then
+			v = pickVillager(e)
+		end
+		if v then
+			e.goal = { kind = "villager", who = v }
+		elseif p then
+			e.goal = { kind = "dragon", who = p }
+			e.hunting = p
+		else
+			e.goal = { kind = "roam", who = STREET_GOALS[math.random(1, #STREET_GOALS)] }
+		end
+	end
+	e.goalUntil = t + Raids.RETARGET * (0.7 + math.random() * 0.6)
+end
+
+-- Where the goal is right now (nil once it's done: house burning, villager down, dragon gone).
+local function goalPos(e): Vector3?
+	local g = e.goal
+	if g.kind == "house" then
+		local h = houses[g.who]
+		return h and h.state == "ok" and Zones.houseDoor(Zones.Houses[g.who]) or nil
+	elseif g.kind == "villager" then
+		local v = g.who
+		return (v.model.Parent and not v.knockedOut) and v.root.Position or nil
+	elseif g.kind == "dragon" then
+		local root = huntable(g.who)
+		return root and root.Position or nil
+	end
+	return S.CivilianService.nodePos(g.who)
+end
+
+-- Street nodes from here to near `pos`, plus the side road and the gate for a dragon at home.
+local function planRoute(e, pos: Vector3, t: number)
+	local start = S.CivilianService.nearestNode(e.root.Position, true)
+	local base = Zones.baseAt(pos)
+	local approach = base and Zones.LairApproach[base.center.X < 0 and "west" or "east"]
+	local goalNode = approach and approach.from or S.CivilianService.nearestNode(pos)
 	local route = { S.CivilianService.nodePos(start) }
-	for _, name in ipairs(S.CivilianService.route(start, goal)) do
+	for _, name in ipairs(S.CivilianService.route(start, goalNode)) do
 		table.insert(route, S.CivilianService.nodePos(name))
+	end
+	if approach then
+		for _, p in ipairs(approach.via) do
+			table.insert(route, p)
+		end
+		table.insert(route, Vector3.new(approach.roadX, 0, base.center.Z))
+		table.insert(route, Zones.lairGate(base))
 	end
 	e.route = route
 	e.legStart = t
 end
 
-local function arrive(e, t: number)
-	local h = e.house and houses[e.house]
-	if e.role == "torch" and h and h.state == "ok" then
-		e.torchUntil = t + Raids.TORCH_TIME
-		e.model:SetAttribute("Swing", os.clock())
-		local door = Zones.Houses[e.house].pos
-		local here = e.root.Position
-		e.root.CFrame = CFrame.lookAt(here, Vector3.new(door.X, here.Y, door.Z))
-	else
-		e.idleUntil = t + 2 + math.random() * 3
-		e.route = nil
+local function face(e, pos: Vector3)
+	local here = e.root.Position
+	if flat(here, pos) > 0.5 then
+		e.root.CFrame = CFrame.lookAt(here, Vector3.new(pos.X, here.Y, pos.Z))
 	end
+end
+
+local function reach(e): number
+	return (e.def.attackRange or 6) + 4 + e.scale
+end
+
+-- A raider's axe on a villager.
+local function hitVillager(e, v, t: number)
+	e.humanoid:MoveTo(e.root.Position)
+	face(e, v.root.Position)
+	if t < e.nextAttack then
+		return
+	end
+	e.nextAttack = t + (e.def.attackCooldown or 1.5)
+	e.model:SetAttribute("Swing", os.clock())
+	task.delay(0.3, function()
+		if not e.dead and v.model.Parent and flat(e.root.Position, v.root.Position) <= reach(e) + 2 then
+			S.CivilianService.hurt(v)
+		end
+	end)
 end
 
 -- EnemyService calls this whenever a raider has no dragon to fight. Returns true if it moved.
@@ -467,11 +672,8 @@ local function objective(e, t: number): boolean
 		humanoid:MoveTo(e.root.Position)
 		if t >= e.torchUntil then
 			e.torchUntil = nil
-			if e.house then
-				RaidService.ignite(e.house)
-			end
-			e.house = nil
-			e.route = nil
+			RaidService.ignite(e.goal.who)
+			e.goal = nil
 		end
 		return true
 	end
@@ -479,31 +681,81 @@ local function objective(e, t: number): boolean
 		humanoid:MoveTo(e.root.Position)
 		return true
 	end
-	if not e.route or #e.route == 0 then
-		planRoute(e, t)
+	if not e.goal or (e.goal.kind ~= "house" and t >= e.goalUntil) then
+		pickGoal(e, t)
 	end
-	local goal = e.route[1]
-	if not goal then
-		return false
+	local dest = goalPos(e)
+	if not dest then
+		pickGoal(e, t)
+		dest = goalPos(e)
+		if not dest then
+			return false
+		end
 	end
-	local dist = flat(e.root.Position, goal)
-	if dist < 4 then
+	local g = e.goal
+	local here = e.root.Position
+	local dist = flat(here, dest)
+	if g.kind == "villager" and dist <= reach(e) then
+		hitVillager(e, g.who, t)
+		return true
+	end
+	if (g.kind == "villager" or g.kind == "dragon") and (dist <= 30 or g.direct) then
+		-- close (or at the end of the streets): straight at them. Give up on someone we can't
+		-- get any closer to.
+		e.route = nil
+		if dist < (g.best or math.huge) - 2 then
+			g.best = dist
+			g.progressAt = t
+		end
+		if t - (g.progressAt or t) > 6 then
+			pickGoal(e, t)
+			return true
+		end
+		if t - (e.lastPush or 0) > 0.5 then
+			e.lastPush = t
+			humanoid:MoveTo(dest)
+		end
+		return true
+	end
+	if not e.route then
+		planRoute(e, dest, t)
+	end
+	local step = e.route[1]
+	if not step then
+		-- end of the road
+		e.route = nil
+		if g.kind == "house" then
+			local h = houses[g.who]
+			if h and h.state == "ok" then
+				e.torchUntil = t + Raids.TORCH_TIME
+				e.model:SetAttribute("Swing", os.clock())
+				face(e, Zones.Houses[g.who].pos)
+			else
+				e.goal = nil
+			end
+		elseif g.kind == "roam" then
+			e.idleUntil = t + 2 + math.random() * 3
+			e.goal = nil
+		else
+			g.direct = true
+		end
+		return true
+	end
+	local stepDist = flat(here, step)
+	if stepDist < 4 then
 		table.remove(e.route, 1)
 		e.legStart = t
-		if #e.route == 0 then
-			arrive(e, t)
-		end
 		return true
 	end
 	-- Humanoid:MoveTo gives up after 8 seconds, so keep nudging it, and hop past anything that
 	-- has held a raider up for too long (a lamp post, a crowd of vikings).
 	if t - (e.lastPush or 0) > 2 then
 		e.lastPush = t
-		humanoid:MoveTo(goal)
+		humanoid:MoveTo(step)
 	end
-	if t - e.legStart > dist / math.max(6, e.baseSpeed) + 8 then
+	if t - e.legStart > stepDist / math.max(6, e.baseSpeed) + 8 then
 		local lift = humanoid.HipHeight + e.root.Size.Y / 2 + 0.5
-		e.model:PivotTo(CFrame.new(goal + Vector3.new(0, lift, 0)) * e.root.CFrame.Rotation)
+		e.model:PivotTo(CFrame.new(step + Vector3.new(0, lift, 0)) * e.root.CFrame.Rotation)
 		e.legStart = t
 	end
 	return true
@@ -519,7 +771,7 @@ local function onRaiderDeath(e)
 	end
 	r.left = math.max(0, r.left - 1)
 	setAttributes()
-	if r.wave >= #Raids.Waves and r.left == 0 then
+	if r.wave >= #r.tier.waves and r.left == 0 then
 		endRaid(true)
 	end
 end
@@ -542,46 +794,53 @@ local function spawnRaider(r, typeId: string, landing, opts)
 	if e then
 		e.role = typeId == "Torchbearer" and "torch" or "fighter"
 		r.raiders[e] = true
-		r.left += 1
-		r.total += 1
+	else
+		r.left = math.max(0, r.left - 1)
 	end
 	return e
 end
 
+local function spawnCaptain(r, landing)
+	local c = Raids.Captain
+	return spawnRaider(r, c.base, landing, {
+		level = math.min(Game.LEVEL_CAP, r.level + 2),
+		displayName = c.name,
+		scale = c.scale,
+		look = c.look,
+		healthMult = r.tier.captainHealth + c.healthPerPlayer * (r.players - 1),
+		damageMult = c.damageMult,
+		slam = c.slam,
+	})
+end
+
+-- The raiders hop off the ships one after another; then the next wave climbs aboard.
 local function spawnWave(r, index: number)
-	local wave = Raids.Waves[index]
+	local list = waveList(r, index)
 	r.wave = index
-	local k = 0
-	local types = {}
-	for typeId, count in pairs(wave) do
-		if typeId ~= "leader" then
-			table.insert(types, { typeId, count })
-		end
-	end
-	table.sort(types, function(a, b)
-		return a[1] < b[1]
-	end)
-	for _, entry in ipairs(types) do
-		for _ = 1, math.max(1, math.floor(entry[2] * r.scale + 0.5)) do
-			k += 1
-			spawnRaider(r, entry[1], Raids.Landings[(k % #Raids.Landings) + 1])
-		end
-	end
-	if wave.leader then
-		local c = Raids.Captain
-		spawnRaider(r, c.base, Raids.Landings[1], {
-			level = math.min(Game.LEVEL_CAP, r.level + 2),
-			displayName = c.name,
-			scale = c.scale,
-			look = c.look,
-			healthMult = c.healthMult + c.healthPerPlayer * (r.players - 1),
-			damageMult = c.damageMult,
-			slam = c.slam,
-		})
-	end
+	r.left += #list -- counted now, so the raid can't be won while some are still hopping off
+	r.total += #list
 	setAttributes()
+	for k, typeId in ipairs(list) do
+		task.delay((k - 1) * Raids.HOP_GAP, function()
+			if raid ~= r then
+				return
+			end
+			local s = (k % #Raids.Landings) + 1
+			disembark(r.ships[s])
+			if typeId == "leader" then
+				spawnCaptain(r, Raids.Landings[s])
+			else
+				spawnRaider(r, typeId, Raids.Landings[s])
+			end
+		end)
+	end
+	task.delay(#list * Raids.HOP_GAP + 1, function()
+		if raid == r and index < #r.tier.waves then
+			board(r, index + 1)
+		end
+	end)
 	if index > 1 then
-		notifyAll(string.format("Wave %d of %d is coming ashore!", index, #Raids.Waves), Color3.fromRGB(255, 170, 90), "⛵")
+		notifyAll(string.format("Wave %d of %d is coming ashore!", index, #r.tier.waves), Color3.fromRGB(255, 170, 90), "⛵")
 	end
 end
 
@@ -662,7 +921,7 @@ local function land(r)
 	r.phase = "fighting"
 	S.CivilianService.setRaid(true)
 	spawnWave(r, 1)
-	for i = 2, #Raids.Waves do
+	for i = 2, #r.tier.waves do
 		task.delay(Raids.WAVE_GAP * (i - 1), function()
 			if raid == r then
 				spawnWave(r, i)
@@ -681,10 +940,13 @@ function RaidService.begin(): (boolean, string)
 	if #list == 0 then
 		return false, "Nobody is here to defend the town."
 	end
-	local levels = 0
+	local levels, top = 0, 1
 	for _, player in ipairs(list) do
-		levels += S.PlayerService.getProfile(player).level
+		local level = S.PlayerService.getProfile(player).level
+		levels += level
+		top = math.max(top, level)
 	end
+	local tier = Raids.tierFor(top)
 	raidCounter += 1
 	local t = now()
 	local r = {
@@ -692,7 +954,8 @@ function RaidService.begin(): (boolean, string)
 		phase = "incoming",
 		landsAt = t + Raids.WARNING,
 		endsAt = t + (S.DayNightService.isNight() and S.DayNightService.untilChange() or Game.NIGHT_SECONDS),
-		level = math.clamp(math.floor(levels / #list + 0.5) - Raids.LEVEL_BELOW, Raids.LEVEL_RANGE[1], Raids.LEVEL_RANGE[2]),
+		tier = tier,
+		level = math.clamp(math.floor(levels / #list + 0.5) - tier.levelBelow, Raids.LEVEL_RANGE[1], Raids.LEVEL_RANGE[2]),
 		players = #list,
 		scale = math.min(Raids.MAX_SCALE, 1 + Raids.EXTRA_PER_PLAYER * (#list - 1)),
 		wave = 0,
@@ -705,6 +968,7 @@ function RaidService.begin(): (boolean, string)
 	}
 	raid = r
 	quietNights = 0
+	pendingRaid = false
 	setAttributes()
 	launchShips(r)
 	broadcast("⚔️ VIKING RAID!", "Longships on the river! Fly home and defend Dragon Town!", Color3.fromRGB(255, 120, 60), 7)
@@ -783,10 +1047,18 @@ local function onNightfall()
 		return -- empty servers don't count toward the guarantee
 	end
 	if quietNights >= Raids.PITY_NIGHTS or math.random() < Raids.CHANCE then
-		RaidService.begin()
+		if S.BossService.isBusy() then
+			pendingRaid = true -- after the boss (see the loop below)
+		else
+			RaidService.begin()
+		end
 	else
 		quietNights += 1
 	end
+end
+
+function RaidService.isPending(): boolean
+	return pendingRaid
 end
 
 function RaidService.quietNights(): number
@@ -812,6 +1084,7 @@ function RaidService.start()
 	setAttributes()
 	S.DayNightService.nightfall:Connect(onNightfall)
 	S.DayNightService.daybreak:Connect(function()
+		pendingRaid = false
 		if raid then
 			endRaid(false, "dawn")
 		end
@@ -832,6 +1105,12 @@ function RaidService.start()
 		end
 		if raid and t >= raid.endsAt then
 			endRaid(false, "dawn")
+		end
+		if pendingRaid and not raid and not S.BossService.isBusy() then
+			pendingRaid = false
+			if S.DayNightService.isNight() and S.DayNightService.untilChange() >= Raids.RAID_MIN_NIGHT then
+				RaidService.begin()
+			end
 		end
 	end
 end

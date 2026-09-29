@@ -22,6 +22,8 @@ local Tuning = require(Shared.Tuning)
 local DragonBuilder = require(Shared.DragonBuilder)
 local Remotes = require(Shared.Remotes)
 
+local WorldUtil = require(script.Parent.Parent.World.WorldUtil)
+
 local PlayerService = {}
 local S -- all services
 
@@ -385,6 +387,10 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 	end)
 
 	humanoid.Died:Connect(function()
+		-- down on its belly where it fell, until the respawn (clients sprawl it: DragonRig "downed")
+		pcall(function()
+			WorldUtil.layDragon(model, root, S.EnemyService.groundAt(root.Position, 2).Y)
+		end)
 		S.BossService.onPlayerDied(player)
 		S.SurvivalService.onDied(player)
 		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
@@ -426,20 +432,22 @@ local function gainParagon(player: Player, profile)
 	updateNametag(player)
 end
 
-function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
+-- Returns the XP actually gained (after XP bonuses and the 2x XP pass).
+function PlayerService.addXP(player: Player, amount: number, raw: boolean?): number
 	local profile = PlayerService.getProfile(player)
 	local st = state[player]
 	if not profile or not st or amount <= 0 then
-		return
+		return 0
 	end
 	if not raw and st.stats then
 		amount = amount * (1 + st.stats.xpPct / 100) * Tuning.global("xp") * S.StoreService.xpMultiplier(player)
 	end
-	profile.xp += math.floor(amount)
+	local gained = math.floor(amount)
+	profile.xp += gained
 	if profile.level >= Game.LEVEL_CAP then
 		gainParagon(player, profile)
 		PlayerService.markDirty(player)
-		return
+		return gained
 	end
 
 	local startLevel = profile.level
@@ -454,10 +462,10 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		if humanoid then
 			humanoid.Health = humanoid.MaxHealth
 		end
-		local gained = profile.level - startLevel
+		local levels = profile.level - startLevel
 		Remotes.event("Announce"):FireClient(player, {
 			title = "LEVEL UP!",
-			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, gained, gained > 1 and "s" or "",
+			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, levels, levels > 1 and "s" or "",
 				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or ""),
 			color = Color3.fromRGB(255, 215, 80),
 			duration = 4,
@@ -477,6 +485,7 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?)
 		end
 	end
 	PlayerService.markDirty(player)
+	return gained
 end
 
 function PlayerService.addGold(player: Player, amount: number, applyBonus: boolean?): number

@@ -1,7 +1,8 @@
 -- Procedural animation, run on each client by setting Motor6D.Transform:
 --   dragons: poses from Shared/DragonRig (folded wings at rest, hard wing beats when jumping,
 --            gliding when falling, flapping in flight, jaw + frill when breathing fire, blinking,
---            walking with knees, a pulsing ember core), blended smoothly between states
+--            walking with knees, a pulsing ember core, sprawled flat when knocked out or dead),
+--            blended smoothly between states
 --   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers)
 --   animals: trotting legs, head bob and tail wag (AnimalBuilder rigs)
 
@@ -65,9 +66,12 @@ local function animateDragon(model: Model, rig, now: number, dt: number)
 	local vel = root.AssemblyLinearVelocity
 	local t = now + rig.phase
 	local breathing = App ~= nil and App.VFX.isBreathing(model)
+	local humanoid = rig.humanoid or model:FindFirstChildOfClass("Humanoid")
+	rig.humanoid = humanoid
+	local downed = model:GetAttribute("KnockedOut") == true or (humanoid ~= nil and humanoid.Health <= 0)
 	local pose = DragonRig.pose(rig.info, {
 		t = t,
-		mode = DragonRig.modeFor(model:GetAttribute("Flying") == true, vel.Y),
+		mode = DragonRig.modeFor(model:GetAttribute("Flying") == true, vel.Y, downed),
 		vy = vel.Y,
 		speed = Vector3.new(vel.X, 0, vel.Z).Magnitude,
 		breathing = breathing,
@@ -93,6 +97,10 @@ local function animateDragon(model: Model, rig, now: number, dt: number)
 end
 
 local function animateViking(model: Model, rig, now: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health <= 0 then
+		return -- toppled over (EnemyService); keep the pose it fell in
+	end
 	local root = rig.root
 	local vel = root.AssemblyLinearVelocity
 	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude

@@ -10,7 +10,10 @@
 -- Vikings with def.alarm (Hornblowers) in a camp with `alarm = true` blow a horn when they spot
 -- a dragon; if they finish, every viking in the camp hunts that dragon for a while.
 -- Raiders (opts.raid, RaidService) fight inside town, where vikings normally can't touch you, and
--- follow opts.objective(e, t) (march, torch a house...) whenever no dragon is in reach.
+-- follow opts.objective(e, t) (march, torch a house, hunt a villager...) whenever no dragon is in
+-- reach. They give up on dragons that fly high or far away, and only Raids.CROWD of them go after
+-- the same dragon, so a raid spreads out over the town instead of trailing one dragon around.
+-- Killed vikings topple over (away from the killer), lie there a moment, then vanish in a puff.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -20,6 +23,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local Enemies = require(Shared.Config.Enemies)
+local Raids = require(Shared.Config.Raids)
 local Zones = require(Shared.Config.Zones)
 local Tuning = require(Shared.Tuning)
 local Remotes = require(Shared.Remotes)
@@ -263,6 +267,12 @@ local function targetRoot(e, player: Player)
 		if area and area.safe and not e.raid then
 			return nil
 		end
+		if e.raid then
+			local d = root.Position - e.root.Position
+			if Vector3.new(d.X, 0, d.Z).Magnitude > Raids.CHASE_RANGE then
+				return nil -- flew off: back to the raid
+			end
+		end
 		if (root.Position - e.spawnPos).Magnitude > e.leash + 40 then
 			return nil
 		end
@@ -476,6 +486,37 @@ local function reward(player: Player, e)
 	end
 end
 
+-- Tip a body over onto its back (or away from `from`), pivoting on its feet, over a moment.
+-- The root is anchored and the rest hangs off it by joints, so only one part moves.
+local function topple(e, from: Vector3?)
+	local model, root = e.model, e.root
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = false
+			p.CanQuery = false
+		end
+	end
+	root.Anchored = true
+	local start = model:GetPivot()
+	local feet = start.Position - Vector3.new(0, e.humanoid.HipHeight + root.Size.Y / 2, 0)
+	local dir = from and (start.Position - from) or -start.LookVector
+	dir = Vector3.new(dir.X, 0, dir.Z)
+	if dir.Magnitude < 0.1 then
+		dir = -start.LookVector
+	end
+	local axis = Vector3.yAxis:Cross(dir.Unit) -- turning about this tips the head toward `dir`
+	task.spawn(function()
+		for i = 1, 8 do
+			task.wait(0.04)
+			if not model.Parent then
+				return
+			end
+			local angle = math.rad(84) * (i / 8) ^ 2 -- speeding up as it falls
+			model:PivotTo(CFrame.new(feet) * CFrame.fromAxisAngle(axis, angle) * CFrame.new(-feet) * start)
+		end
+	end)
+end
+
 function EnemyService.kill(e, killer: Player?)
 	if e.dead or e.dummy then
 		return
@@ -483,13 +524,13 @@ function EnemyService.kill(e, killer: Player?)
 	e.dead = true
 	e.model:SetAttribute("Blowing", nil)
 	if not e.keepBody then
-		-- Let the body tumble onto the ground instead of sinking through it when the joints break.
-		for _, p in ipairs(e.model:GetDescendants()) do
-			if p:IsA("BasePart") then
-				p.CanCollide = true
-				p.Massless = false
-			end
+		e.humanoid.BreakJointsOnDeath = false
+		local from = nil
+		if killer then
+			local _, _, killerRoot = S.PlayerService.getCharacter(killer)
+			from = killerRoot and killerRoot.Position
 		end
+		topple(e, from)
 	end
 	e.humanoid.Health = 0
 	S.CombatService.clearStatus(e.model)
@@ -509,8 +550,8 @@ function EnemyService.kill(e, killer: Player?)
 		end
 	end
 	if not e.keepBody then
-		S.CombatService.broadcastVFX({ kind = "enemyDeath", pos = e.root.Position })
 		task.delay(3, function()
+			S.CombatService.broadcastVFX({ kind = "enemyDeath", pos = e.root.Position })
 			enemies[e.model] = nil
 			e.model:Destroy()
 		end)
@@ -665,6 +706,37 @@ local function finishHorn(e)
 	end
 end
 
+-- A raider chasing a dragon that already has Raids.CROWD raiders closer to it than this one (and
+-- isn't right next to it) lets it go and gets on with the raid, so they don't trail around in a pack.
+local function crowdedOut(e, player: Player, troot: BasePart): boolean
+	local function dist(other): number
+		local d = troot.Position - other.root.Position
+		return Vector3.new(d.X, 0, d.Z).Magnitude
+	end
+	local mine = dist(e)
+	if mine < 12 then
+		return false
+	end
+	local closer = 0
+	for _, other in pairs(enemies) do
+		if other ~= e and other.raid and not other.dead and other.target == player and dist(other) < mine then
+			closer += 1
+		end
+	end
+	return closer >= Raids.CROWD
+end
+
+-- How many raiders (other than `except`) are after this dragon right now.
+function EnemyService.raidersOn(player: Player, except): number
+	local n = 0
+	for _, other in pairs(enemies) do
+		if other ~= except and other.raid and not other.dead and (other.target == player or other.hunting == player) then
+			n += 1
+		end
+	end
+	return n
+end
+
 local function findTarget(e)
 	local best, bestDist = nil, math.huge
 	local range = e.aggroRange
@@ -677,7 +749,11 @@ local function findTarget(e)
 			local offset = root.Position - e.root.Position
 			local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
 			if flat <= range and math.abs(offset.Y) <= 70 and flat < bestDist then
-				best, bestDist = player, flat
+				-- raiders leave a dragon that already has a crowd on it to the others (unless it's
+				-- right in their face)
+				if not e.raid or flat < 12 or EnemyService.raidersOn(player, e) < Raids.CROWD then
+					best, bestDist = player, flat
+				end
 			end
 		end
 	end
@@ -785,12 +861,31 @@ local function think(e, t: number, dt: number)
 	end
 
 	local troot = e.target and targetRoot(e, e.target)
+	if troot and e.raid and crowdedOut(e, e.target, troot) then
+		troot = nil
+	end
 	if not troot then
 		e.target = nil
 		if behavior == "aggressive" then
 			e.target = findTarget(e)
 		end
 		troot = e.target and targetRoot(e, e.target)
+	end
+
+	if troot and e.raid and troot.Position.Y - root.Position.Y > Raids.FLYER_HEIGHT then
+		-- A dragon flying overhead: throw an axe at it if we can, and otherwise carry on raiding.
+		local def = e.def
+		local offset = troot.Position - root.Position
+		if def.throwCooldown and t >= e.nextThrow and offset.Magnitude <= def.throwRange then
+			e.nextThrow = t + def.throwCooldown * (0.8 + math.random() * 0.4)
+			face(e, troot.Position)
+			EnemyService.throwAt(e, e.target, troot, e.damage * def.throwDamage, def.look.weapon == "hammer" and "hammer" or "axe")
+		end
+		if e.objective and e.objective(e, t) then
+			return
+		end
+		humanoid:MoveTo(root.Position)
+		return
 	end
 
 	if troot then

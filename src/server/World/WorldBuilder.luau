@@ -659,7 +659,8 @@ local function buildBases(map: Folder)
 			end
 		end
 
-		local sign = Props.sign(model, cf * CFrame.new(0, 5, -hd - 1), "🏠 Empty Lair", Vector2.new(14, 3.6))
+		-- hung high over the gap in the fence, so dragons (and night raiders) walk in under it
+		local sign = Props.sign(model, cf * CFrame.new(0, 5, -hd - 1), "🏠 Empty Lair", Vector2.new(14, 3.6), nil, nil, 8)
 		sign.Name = "Sign"
 
 		buildBotDock(model, cf * CFrame.new(-hw + 11, 0, -hd + 11))

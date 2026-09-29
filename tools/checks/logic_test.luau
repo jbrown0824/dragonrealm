@@ -657,15 +657,40 @@ end
 ---------------------------------------------------------------- night raids
 do
 	check(Raids.CHANCE > 0 and Raids.CHANCE <= 1 and Raids.PITY_NIGHTS >= 1, "raid chance and pity")
-	check(Raids.WARNING + Raids.WAVE_GAP * (#Raids.Waves - 1) < Game.NIGHT_SECONDS - 60, "every wave lands with time to fight before dawn")
 	check(Raids.MAX_BURNED <= #Zones.Houses, "the village can burn")
-	for i, wave in ipairs(Raids.Waves) do
-		for typeId, count in pairs(wave) do
-			if typeId ~= "leader" then
-				check(Enemies.Vikings[typeId] ~= nil and count > 0, "raid wave " .. i .. " viking " .. tostring(typeId))
+	local lastMax, lastRaiders = 0, 0
+	for t, tier in ipairs(Raids.Tiers) do
+		check(tier.maxLevel > lastMax, "raid tier " .. t .. " covers higher levels than the one before")
+		lastMax = tier.maxLevel
+		check(#tier.waves == Raids.WAVES, "raid tier " .. t .. " has " .. Raids.WAVES .. " waves")
+		check(Raids.WARNING + Raids.WAVE_GAP * (#tier.waves - 1) < Game.NIGHT_SECONDS - 60, "raid tier " .. t .. ": every wave lands with time to fight before dawn")
+		check(tier.burnTime > 0 and tier.captainHealth > 0 and tier.levelBelow >= 0, "raid tier " .. t .. " numbers")
+		local raiders, leaders = 0, 0
+		for i, wave in ipairs(tier.waves) do
+			for typeId, count in pairs(wave) do
+				if typeId == "leader" then
+					leaders += 1
+				else
+					raiders += count
+					check(Enemies.Vikings[typeId] ~= nil and count > 0, "raid tier " .. t .. " wave " .. i .. " viking " .. tostring(typeId))
+				end
 			end
 		end
+		check(leaders == 1, "raid tier " .. t .. " has one Raid Captain")
+		check(raiders >= lastRaiders, "raid tier " .. t .. " is no smaller than the gentler one")
+		lastRaiders = raiders
 	end
+	check(lastMax == math.huge, "the last raid tier covers every level")
+	check(Raids.tierFor(1) == Raids.Tiers[1] and Raids.tierFor(30) == Raids.Tiers[#Raids.Tiers], "raid tier by level")
+	check(Raids.CROWD >= 1 and Raids.CHASE_RANGE > 20 and Raids.FLYER_HEIGHT > 5, "raider chase limits")
+	check(Raids.VILLAGER_HITS >= 1 and Raids.VILLAGER_KNOCKOUT > 0, "villager knockouts")
+	for _, approach in pairs(Zones.LairApproach) do
+		check(Zones.TownWalk.nodes[approach.from] ~= nil, "lair approach starts on the street graph")
+	end
+	for _, base in ipairs(Zones.Bases) do
+		check(Zones.baseAt(base.center) == base and Zones.baseAt(Zones.lairGate(base)) == base, "lair " .. base.index .. " contains its own gate")
+	end
+	check(Zones.baseAt(Vector3.new(0, 0, 0)) == nil, "the plaza is nobody's lair")
 	check(Enemies.Vikings[Raids.Captain.base] ~= nil, "raid captain base type")
 	check(Enemies.Vikings.Torchbearer ~= nil and Enemies.Vikings.Torchbearer.look.weapon == "torch", "torchbearers carry torches")
 	check(Zones.TownWalk.nodes[Raids.ENTRY_NODE] ~= nil, "raid entry node exists")
@@ -697,6 +722,13 @@ do
 		end
 	end
 	check(Range.AFK.xpPerMinute * 60 < Range.Levels[#Range.Levels].xp * 10, "AFK practice is slower than playing")
+	check(Range.afkXpPerHit(100) >= 1 and Range.afkXpPerHit(8000) > Range.afkXpPerHit(1000), "AFK XP per hit grows with the level, never 0")
+	check(Range.SPLASH >= Range.PROJECTILE_RADIUS, "a practice fireball that touches a target knocks it down")
+	local lastSize = math.huge
+	for i, def in ipairs(Range.Levels) do
+		check(def.size <= lastSize, "range level " .. i .. " targets are no bigger than the level before")
+		lastSize = def.size
+	end
 	-- targets stay in their lane and in front of the backstop
 	for _, pattern in pairs({ "slide", "bob", "zigzag", "sprint", "float" }) do
 		local amp = R.laneHalf

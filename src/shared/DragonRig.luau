@@ -23,9 +23,12 @@ function DragonRig.info(model)
 	}
 end
 
--- mode: "ground" | "jump" (rising, not flying) | "fall" (dropping, not flying) | "fly"
-function DragonRig.modeFor(flying: boolean, vy: number): string
-	if flying then
+-- mode: "ground" | "jump" (rising, not flying) | "fall" (dropping, not flying) | "fly" |
+-- "downed" (knocked out or dead: the server lays the body on its belly, see WorldUtil.layDragon)
+function DragonRig.modeFor(flying: boolean, vy: number, downed: boolean?): string
+	if downed then
+		return "downed"
+	elseif flying then
 		return "fly"
 	elseif vy > 3 then
 		return "jump"
@@ -35,8 +38,44 @@ function DragonRig.modeFor(flying: boolean, vy: number): string
 	return "ground"
 end
 
+-- Knocked out cold: sprawled flat with its legs splayed out to the sides, neck and head resting
+-- on the ground turned to one side, wings drooping open, tail limp in a curve and eyes shut.
+local function downedPose(info)
+	local out = {}
+	local s = info.scale
+	out.BodyJoint = CFrame.new()
+	for i = 1, info.neck do
+		out["Neck" .. i] = A(-0.16, 0.22 / info.neck, 0)
+	end
+	out.Head = A(-0.12, 0.25, 0.25)
+	out.Jaw = A(-0.15, 0, 0)
+	out.LidL = CFrame.new(0, -0.3 * s, 0)
+	out.LidR = CFrame.new(0, -0.3 * s, 0)
+	if info.frill then
+		out.Frill = A(1.25, 0, 0)
+	end
+	out.WingR = A(0, -0.3, 0) * A(0, 0, -0.1)
+	out.WingL = A(0, 0.3, 0) * A(0, 0, 0.1)
+	out.WingR2 = A(0, -0.25, 0) * A(0, 0, -0.3)
+	out.WingL2 = A(0, 0.25, 0) * A(0, 0, 0.3)
+	for i = 1, info.tail do
+		out["Tail" .. i] = A(0.02, 0.16, 0)
+	end
+	local legKeys = info.legs == 2 and { "BL", "BR" } or { "FL", "FR", "BL", "BR" }
+	for _, key in ipairs(legKeys) do
+		local front = key:sub(1, 1) == "F"
+		local side = key:sub(2, 2) == "R" and 1 or -1 -- right legs splay toward +X
+		out["Leg" .. key] = A(0, 0, side * 1.25) * A(front and -0.5 or 0.5, 0, 0)
+		out["Knee" .. key] = A(front and -0.3 or 0.3, 0, 0)
+	end
+	return out
+end
+
 -- state: { t = seconds (add a per-dragon offset), mode, vy, speed, breathing, blink }
 function DragonRig.pose(info, st)
+	if st.mode == "downed" then
+		return downedPose(info)
+	end
 	local out = {}
 	local t = st.t
 	local s = info.scale

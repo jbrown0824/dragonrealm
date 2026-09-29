@@ -423,7 +423,8 @@ local function stepProjectiles(dt: number)
 		for _, target in ipairs(CombatService.collectTargets(proj.ctx.player)) do
 			local p = closestPointOnSegment(from, to, target.root.Position)
 			local d = (p - target.root.Position).Magnitude
-			if d <= proj.hitRadius + target.radius then
+			local hitRadius = target.practice and math.min(proj.hitRadius, Range.PROJECTILE_RADIUS) or proj.hitRadius
+			if d <= hitRadius + target.radius then
 				local along = (p - from).Magnitude
 				if along < bestDist then
 					bestDist = along

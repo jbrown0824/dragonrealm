@@ -32,3 +32,20 @@ local Raids = require(__proxy("Shared/Config/Raids"))
 for i, landing in ipairs(Raids.Landings) do
 	out(landing.shore, W.nodes[Raids.ENTRY_NODE], 0, "RaidLanding" .. i .. "-" .. Raids.ENTRY_NODE)
 end
+-- ...and their way to dragons at home in their lairs (Zones.LairApproach).
+for side, approach in pairs(Zones.LairApproach) do
+	local path = { W.nodes[approach.from] }
+	for _, p in ipairs(approach.via) do
+		table.insert(path, p)
+	end
+	for k = 1, #path - 1 do
+		out(path[k], path[k + 1], 0, "Lair-" .. side .. "-" .. k)
+	end
+	for _, base in ipairs(Zones.Bases) do
+		if (base.center.X < 0) == (side == "west") then
+			local road = Vector3.new(approach.roadX, 0, base.center.Z)
+			out(path[#path], road, 0, "Lair-" .. side .. "-road" .. base.index)
+			out(road, Zones.lairGate(base), 0, "Lair-gate" .. base.index)
+		end
+	end
+end

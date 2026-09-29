@@ -1,7 +1,8 @@
 -- Target practice (RangeService). The window at a lane's firing mat (pick a level or AFK
 -- practice), the session panel while you shoot (targets hit, time left, Stop), and the targets
 -- themselves: this client moves every PracticeTarget from its attributes (shared/RangeUtil), so
--- they glide smoothly with nothing streamed. In AFK mode it also aims and fires for you.
+-- they glide smoothly with nothing streamed. In AFK mode it also aims and fires for you. When a
+-- session starts, the camera swings round behind you looking down the lane (Range.CAMERA_ZOOM).
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -9,6 +10,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Game = require(Shared.Config.Game)
+local Zones = require(Shared.Config.Zones)
 local RangeInfo = require(Shared.Config.Range)
 local RangeUtil = require(Shared.RangeUtil)
 local Util = require(Shared.Util)
@@ -83,7 +86,7 @@ function Range.refresh()
 		Text = string.format("Stand on a firing mat. <b>Left click or Q</b> fires Fireball (%.1fs cooldown); other abilities rest while you practice. Walk off the mat to stop.", RangeInfo.FIREBALL_COOLDOWN),
 		Parent = list,
 	})
-	row(1, "😴", "AFK practice", string.format("Fires by itself at slow targets. About %d%% of a level every 10 minutes.", math.floor(RangeInfo.AFK.xpPerMinute * 1000 + 0.5)),
+	row(1, "😴", "AFK practice", string.format("Fires by itself; XP for every target it hits (about %d%% of a level in 10 min).", math.floor(RangeInfo.AFK.xpPerMinute * 1000 + 0.5)),
 		Color3.fromRGB(150, 200, 255), "Start AFK", Color3.fromRGB(70, 110, 170), true, function()
 			send("afk")
 		end)
@@ -104,8 +107,10 @@ end
 local function placePanel()
 	if App.Windows.mobile then
 		local raidBar = App.Windows.guis.HUD:FindFirstChild("RaidBar")
+		local raidPill = App.Windows.guis.HUD:FindFirstChild("RaidPill")
+		local lift = (raidBar and raidBar.Visible) and -72 or ((raidPill and raidPill.Visible) and -48 or -8)
 		panel.AnchorPoint = Vector2.new(0, 1)
-		panel.Position = UDim2.new(0, 130, 1, (raidBar and raidBar.Visible) and -72 or -8)
+		panel.Position = UDim2.new(0, 130, 1, lift)
 		panel.Size = UDim2.fromOffset(372, 58)
 	else
 		panel.AnchorPoint = Vector2.new(0.5, 1)
@@ -124,7 +129,7 @@ local function updatePanel()
 	placePanel()
 	if s.mode == "afk" then
 		panelTitle.Text = "😴 AFK practice"
-		panelInfo.Text = string.format("Targets hit: <b>%d</b>  •  XP every %ds while you stay on the mat", s.hits, RangeInfo.AFK.tick)
+		panelInfo.Text = string.format("Targets hit: <b>%d</b>  •  XP for every hit while you stay on the mat", s.hits)
 	else
 		local left = math.max(0, (s.endsAt or 0) - workspace:GetServerTimeNow())
 		panelTitle.Text = string.format("🎯 Level %d: %s", s.level, s.name)
@@ -226,6 +231,31 @@ local function watch(model: Instance)
 	end
 end
 
+-- Swing the camera round behind the dragon, looking down the lane at the targets. The camera
+-- keeps pointing wherever it's pointed; the zoom is set by pinning the min and max for a moment.
+function Range.frameLane()
+	local camera = workspace.CurrentCamera
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not camera or not root then
+		return
+	end
+	local R = Zones.Range
+	local field = Vector3.new((R.near + R.far) / 2, 8, root.Position.Z)
+	local look = Vector3.new(field.X - root.Position.X, 0, field.Z - root.Position.Z)
+	look = look.Magnitude > 0.1 and look.Unit or Vector3.new(-1, 0, 0)
+	local focus = root.Position + Vector3.new(0, 4, 0)
+	local zoom = RangeInfo.CAMERA_ZOOM
+	camera.CFrame = CFrame.lookAt(focus - look * zoom + Vector3.new(0, zoom * 0.35, 0), focus + look * 20)
+	App.Movement.faceToward(field, 0.8)
+	player.CameraMinZoomDistance = zoom
+	player.CameraMaxZoomDistance = zoom
+	task.delay(0.5, function()
+		player.CameraMinZoomDistance = Game.CAMERA_MIN_ZOOM
+		player.CameraMaxZoomDistance = Game.CAMERA_MAX_ZOOM
+	end)
+end
+
 function Range.open()
 	App.Windows.open("Range")
 end
@@ -266,8 +296,14 @@ function Range.init(app)
 		watch(model)
 	end
 	CollectionService:GetInstanceAddedSignal("PracticeTarget"):Connect(watch)
+	local wasPracticing = false
 	player:GetAttributeChangedSignal("RangeMode"):Connect(function()
 		nextAuto = os.clock() + 1
+		local practicing = player:GetAttribute("RangeMode") ~= nil
+		if practicing and not wasPracticing then
+			Range.frameLane()
+		end
+		wasPracticing = practicing
 		updatePanel()
 		App.HUD.refresh()
 	end)

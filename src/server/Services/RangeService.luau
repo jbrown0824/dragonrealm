@@ -9,7 +9,8 @@
 --
 -- While practicing the player attribute "RangeMode" ("level" / "afk") tells CombatService and the
 -- client that only Fireball works, on a shorter cooldown (and left click fires it too). Walking
--- off the mat, dying, a raid coming ashore or leaving ends the session.
+-- off the mat, dying, a raid coming ashore or leaving ends the session. AFK practice pays a
+-- little XP per target knocked down (Range.afkXpPerHit), shown as a rising "+XP" number.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -198,9 +199,12 @@ local function finish(s, cleared: boolean?, reason: string?)
 		if first then
 			profile.rangeLevel = s.level
 		end
-		local xp = math.floor(xpUnit(profile) * s.def.xp * (first and 1 or Range.REPLAY_XP))
-		S.PlayerService.addXP(s.player, xp)
+		local xp = S.PlayerService.addXP(s.player, xpUnit(profile) * s.def.xp * (first and 1 or Range.REPLAY_XP))
 		S.PlayerService.markDirty(s.player)
+		local _, _, root = S.PlayerService.getCharacter(s.player)
+		if root then
+			S.CombatService.queueNumber(s.player, root.Position + Vector3.new(0, 8, 0), xp, "xp")
+		end
 		result.xp = xp
 		result.first = first
 	end
@@ -259,7 +263,7 @@ local function begin(player: Player, mode: string, level: number?): (boolean, st
 		hits = 0,
 		needed = def.needed or 0,
 		endsAt = def.time and (t + def.time) or nil,
-		nextXp = t + Range.AFK.tick,
+		nextPaidHit = 0,
 		targets = {},
 		nextId = 0,
 	}
@@ -285,7 +289,18 @@ function RangeService.onHit(player: Player, id: number)
 	local points = t.gold and 2 or 1
 	s.hits += points
 	S.CombatService.broadcastVFX({ kind = "pop", pos = pos, big = t.gold, color = t.gold and Color3.fromRGB(255, 205, 60) or Color3.fromRGB(255, 120, 90) })
-	S.CombatService.queueNumber(player, pos + Vector3.new(0, t.size / 2 + 1, 0), points, "target")
+	if s.mode == "afk" then
+		-- AFK pays per target, no faster than the auto-fire could (so mashing Q isn't a shortcut)
+		local clock = now()
+		local profile = S.PlayerService.getProfile(player)
+		if profile and clock >= s.nextPaidHit then
+			s.nextPaidHit = clock + Range.AFK.fireEvery * 0.8
+			local gained = S.PlayerService.addXP(player, Range.afkXpPerHit(xpUnit(profile)))
+			S.CombatService.queueNumber(player, pos + Vector3.new(0, t.size / 2 + 1, 0), gained, "xp")
+		end
+	else
+		S.CombatService.queueNumber(player, pos + Vector3.new(0, t.size / 2 + 1, 0), points, "target")
+	end
 	if s.mode == "level" and s.hits >= s.needed then
 		finish(s, true)
 		return
@@ -331,13 +346,6 @@ local function tick()
 				if RangeUtil.expired(target, t) then
 					removeTarget(s, id)
 					spawnTarget(s)
-				end
-			end
-			if s.mode == "afk" and t >= s.nextXp then
-				s.nextXp = t + Range.AFK.tick
-				local profile = S.PlayerService.getProfile(player)
-				if profile then
-					S.PlayerService.addXP(player, xpUnit(profile) * Range.AFK.xpPerMinute * Range.AFK.tick / 60)
 				end
 			end
 		end

@@ -36,6 +36,7 @@ local NUMBER_STYLES = {
 	thorns = { color = Color3.fromRGB(200, 120, 255), size = 22 },
 	gold = { color = Color3.fromRGB(255, 210, 60), size = 22, prefix = "+", suffix = " 💰" },
 	target = { color = Color3.fromRGB(255, 225, 90), size = 32, prefix = "+", suffix = " 🎯" },
+	xp = { color = Color3.fromRGB(190, 140, 255), size = 28, prefix = "+", suffix = " XP" },
 }
 
 function Notifications.toast(text: string, color: Color3?, icon: string?)

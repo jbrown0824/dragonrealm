@@ -403,9 +403,11 @@ task.spawn(function()
 	check(vet.plots[2].stage >= 1, "revived plant keeps growing")
 
 	step("death + respawn")
-	local _, hum2 = S.PlayerService.getCharacter(p1)
+	local _, hum2, deadRoot = S.PlayerService.getCharacter(p1)
 	S.SurvivalService.setHunger(p1, 0)
 	hum2.Health = 0
+	task.wait(0.2)
+	check(deadRoot.Anchored, "a fallen dragon lies down where it fell")
 	task.wait(Game.RESPAWN_TIME + 1)
 	check(rootOf(p1) ~= nil, "respawned")
 	check(profile.hunger >= Game.HUNGER_AFTER_DEATH - 1, "respawn hunger floor (" .. profile.hunger .. ")")
@@ -540,13 +542,69 @@ task.spawn(function()
 	invoke("AdminAction", p1, "god", { on = true, userId = 102 })
 	check(workspace:GetAttribute("RaidPhase") == "incoming", "longships incoming")
 	check(#workspace.RaidShips:GetChildren() == #Raids.Landings, "longships on the river")
+	local function passengers()
+		local n = 0
+		for _, ship in ipairs(workspace.RaidShips:GetChildren()) do
+			for _, child in ipairs(ship:GetChildren()) do
+				if child.Name == "Passenger" then
+					n += 1
+				end
+			end
+		end
+		return n
+	end
+	check(passengers() > 0, "the raiders ride in on the longships (" .. passengers() .. ")")
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 	tp(p2, S.FarmService.getHomeCFrame(p2).Position)
-	task.wait(Raids.WARNING + 1)
-	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders came ashore")
+	task.wait(Raids.WARNING + 0.1)
+	check(workspace:GetAttribute("RaidPhase") == "fighting" and #S.RaidService.raiders() < (workspace:GetAttribute("RaidLeft") or 0), "they hop ashore one after another")
+	task.wait(4)
+	check(passengers() == 0 or passengers() <= Raids.PASSENGERS * #Raids.Landings, "the next wave climbs aboard")
 	local raiders = S.RaidService.raiders()
 	check(#raiders > 0 and raiders[1].raid, "raiders in town (" .. #raiders .. ")")
-	check(raiders[1] and S.EnemyService.targetRoot(raiders[1], p1) ~= nil, "raiders can fight dragons inside town")
+	local r1 = raiders[1]
+	tp(p1, r1.root.Position + Vector3.new(10, 5, 0))
+	task.wait(0.2)
+	check(S.EnemyService.targetRoot(r1, p1) ~= nil, "raiders can fight dragons inside town")
+	tp(p1, r1.root.Position + Vector3.new(Raids.CHASE_RANGE + 20, 5, 0))
+	task.wait(0.2)
+	check(S.EnemyService.targetRoot(r1, p1) == nil, "raiders give up on a dragon that gets away")
+	-- a dragon on the beach with every raider nearby: only a few go after it, the rest find others
+	tp(p1, Vector3.new(0, 5, 247))
+	task.wait(3)
+	local onMe = 0
+	for _, e in ipairs(S.RaidService.raiders()) do
+		local d = e.root.Position - rootOf(p1).Position
+		if e.target == p1 and Vector3.new(d.X, 0, d.Z).Magnitude >= 12 then
+			onMe += 1
+		end
+	end
+	check(onMe <= Raids.CROWD, "at most " .. Raids.CROWD .. " raiders pile onto one dragon (" .. onMe .. ")")
+	local goals = {}
+	for _, e in ipairs(S.RaidService.raiders()) do
+		if e.goal then
+			goals[e.goal.kind] = true
+		end
+	end
+	check(goals.house ~= nil, "torchbearers head for the houses")
+	check(goals.villager ~= nil or goals.dragon ~= nil, "fighters pick their own victims")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+	-- villagers can be knocked out, and get back up
+	local victim = S.CivilianService.villagers()[1]
+	for _ = 1, Raids.VILLAGER_HITS do
+		S.CivilianService.hurt(victim)
+	end
+	check(victim.knockedOut and victim.model:GetAttribute("KnockedOut") == true and victim.root.Anchored, "a villager hit enough times is knocked out")
+	check(S.RaidService.isActive(), "the raid goes on")
+	task.wait(Raids.VILLAGER_KNOCKOUT + 1)
+	check(not victim.knockedOut and not victim.root.Anchored, "knocked-out villagers get back up")
+	-- a beaten raider topples over before it vanishes
+	local faller = S.RaidService.raiders()[1]
+	if faller then
+		S.CombatService.damageEnemy(p1, faller, 1e9, false)
+		task.wait(1)
+		check(faller.root.Anchored and faller.root.CFrame.UpVector.Y < 0.5, "a beaten viking falls over (up " .. faller.root.CFrame.UpVector.Y .. ")")
+	end
 	task.wait(2)
 	local defending = 0
 	for _, v in ipairs(S.CivilianService.villagers()) do
@@ -608,7 +666,7 @@ task.spawn(function()
 			table.insert(torched, i)
 		end
 	end
-	task.wait(Raids.BURN_TIME + 1)
+	task.wait(Raids.Tiers[#Raids.Tiers].burnTime + 1)
 	check(not S.RaidService.isActive(), "the raid is lost when " .. Raids.MAX_BURNED .. " houses burn")
 	check(S.RaidService.houseState(torched[1]) == "burned", "burned houses stay burned for a while")
 	check(S.ShopService.closedMessage() ~= nil and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops close after a lost raid")
@@ -619,6 +677,17 @@ task.spawn(function()
 	task.wait(math.max(Raids.SHOPS_CLOSED, Raids.REBUILD) + 1)
 	check(S.ShopService.closedMessage() == nil and workspace:GetAttribute("ShopsClosedUntil") == nil, "the shops reopen")
 	check(S.RaidService.houseState(torched[1]) == "ok", "burned houses are rebuilt")
+	step("raids wait for bosses")
+	S.DayNightService.setHour(8)
+	task.wait(0.6)
+	check(invoke("AdminAction", p1, "bossNow", { seconds = 10 }), "a boss warning")
+	Raids.CHANCE = 1
+	S.DayNightService.setHour(19)
+	task.wait(0.6)
+	check(not S.RaidService.isActive() and S.RaidService.isPending(), "a raid rolled during a boss warning waits")
+	task.wait(14) -- nobody queued, so the boss moves on
+	check(S.RaidService.isActive(), "the raid starts once the boss is gone")
+	S.RaidService.stop(true)
 	Raids.CHANCE = chance
 	S.DayNightService.setHour(9)
 	invoke("AdminAction", p1, "god", { on = false })
@@ -655,8 +724,14 @@ task.spawn(function()
 	check(p1:GetAttribute("RangeMode") == nil and #S.RangeService.targetsFor(p1) == 0, "the session ended")
 	check(invoke("RangeAction", p1, "afk"), "start AFK practice")
 	local score1 = xpScore()
-	task.wait(Range.AFK.tick + 1)
-	check(xpScore() > score1, "AFK practice trickles in XP")
+	for shot = 1, 8 do
+		local targets = S.RangeService.targetsFor(p1)
+		if targets[1] then
+			fire("CastAbility", p1, "Fireball", targets[1].root.Position, "afk" .. shot)
+		end
+		task.wait(0.7)
+	end
+	check(xpScore() > score1, "AFK practice pays XP for the targets it hits")
 	tp(p1, mat + Vector3.new(60, 0, 0))
 	task.wait(0.5)
 	check(p1:GetAttribute("RangeMode") == nil, "walking off the mat ends practice")

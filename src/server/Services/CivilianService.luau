@@ -7,7 +7,9 @@
 -- bump into players.
 --
 -- During a night raid (RaidService) they drop what they're doing, come out of their houses and
--- puff little bursts of fire at the nearest raider. They're brave but weak, and can't be hurt.
+-- puff little bursts of fire at the nearest raider. They're brave but weak: a few axe hits
+-- (Raids.VILLAGER_HITS) knock one out, sprawled on the ground with its eyes shut (the model
+-- attribute "KnockedOut" tells clients to pose it) until it gets back up.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +20,8 @@ local Raids = require(Shared.Config.Raids)
 local Zones = require(Shared.Config.Zones)
 local DragonBuilder = require(Shared.DragonBuilder)
 
+local WorldUtil = require(script.Parent.Parent.World.WorldUtil)
+
 local CivilianService = {}
 local S
 
@@ -25,7 +29,7 @@ local folder: Folder
 local graph = {} -- [node] = { neighbor nodes }
 local positions = {} -- [node] = Vector3 (ground level)
 local streetNodes = {} -- nodes a villager may stroll to
-local villagers = {} -- list of { def, model, humanoid, root, node, pauseUntil, height, inside?, defending? }
+local villagers = {} -- list of { def, model, humanoid, root, node, pauseUntil, height, role, inside?, defending?, hits?, knockedOut? }
 local raiding = false
 
 
@@ -105,9 +109,9 @@ local function flatDistance(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
 end
 
--- A raid just started and this villager hasn't noticed yet: drop the errand.
+-- A raid just started and this villager hasn't noticed yet: drop the errand. (Or it's out cold.)
 local function called(v): boolean
-	return raiding and not v.defending
+	return (raiding and not v.defending) or v.knockedOut == true
 end
 
 local function waitWhileChatting(v)
@@ -212,7 +216,9 @@ local function defend(v)
 	local shouted = false
 	while raiding and v.model.Parent do
 		local e = S.RaidService.nearestRaider(v.root.Position)
-		if not e then
+		if v.knockedOut then
+			task.wait(0.5)
+		elseif not e then
 			goToNode(v, "PN")
 			rest(v, { 1, 2 })
 		else
@@ -247,6 +253,49 @@ local function defend(v)
 	end
 	v.defending = false
 	v.node = CivilianService.nearestNode(v.root.Position, true)
+end
+
+---------------------------------------------------------------- knocked out
+
+local function groundY(v): number
+	return S.EnemyService.groundAt(v.root.Position, 4).Y
+end
+
+local function getUp(v)
+	if not v.knockedOut or not v.model.Parent then
+		return
+	end
+	v.knockedOut = false
+	v.hits = 0
+	v.model:SetAttribute("KnockedOut", nil)
+	v.role.Text = "Villager"
+	WorldUtil.standDragon(v.model, v.root, v.height, groundY(v))
+	v.node = CivilianService.nearestNode(v.root.Position, true)
+	CivilianService.say(v, "I'm okay!")
+end
+
+local function knockOut(v)
+	v.knockedOut = true
+	v.model:SetAttribute("KnockedOut", true)
+	v.role.Text = "💫 Knocked out"
+	v.humanoid:MoveTo(v.root.Position)
+	WorldUtil.layDragon(v.model, v.root, groundY(v))
+	task.delay(Raids.VILLAGER_KNOCKOUT, function()
+		getUp(v)
+	end)
+end
+
+-- A raider's axe hit a villager.
+function CivilianService.hurt(v)
+	if v.knockedOut or not v.model.Parent then
+		return
+	end
+	v.hits = (v.hits or 0) + 1
+	if v.hits >= Raids.VILLAGER_HITS then
+		knockOut(v)
+	elseif math.random() < 0.5 then
+		CivilianService.say(v, Raids.VILLAGER_HURT_LINES[math.random(1, #Raids.VILLAGER_HURT_LINES)])
+	end
 end
 
 function CivilianService.setRaid(on: boolean)
@@ -284,7 +333,9 @@ local function live(v)
 	task.wait(math.random() * 4)
 	while v.model.Parent do
 		local ok, err = pcall(function()
-			if raiding then
+			if v.knockedOut then
+				task.wait(0.5)
+			elseif raiding then
 				defend(v)
 			elseif math.random() < Civilians.HOME_CHANCE then
 				local index = math.random() < 0.7 and v.def.home or math.random(1, #Zones.Houses)
@@ -330,9 +381,14 @@ local function nametag(model: Model, def)
 	role.Text = "Villager"
 	role.Parent = gui
 	gui.Parent = model.PrimaryPart
+	return role
 end
 
 local function chat(v, player: Player)
+	if v.knockedOut then
+		S.PlayerService.notify(player, v.def.name .. " is out cold! They'll be back on their feet soon.", Color3.fromRGB(255, 240, 200), "💫")
+		return
+	end
 	local _, _, root = S.PlayerService.getCharacter(player)
 	if root then
 		local here = v.root.Position
@@ -369,7 +425,7 @@ local function spawnVillager(def, startNode: string)
 	local height = hipHeight + root.Size.Y / 2 + 0.3
 	model:PivotTo(CFrame.new(positions[startNode] + Vector3.new(0, height, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	model:SetAttribute("CivilianId", def.id)
-	nametag(model, def)
+	local role = nametag(model, def)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Chat"
 	prompt.ObjectText = def.name
@@ -384,7 +440,7 @@ local function spawnVillager(def, startNode: string)
 	end)
 	CollectionService:AddTag(model, "Civilian")
 	CollectionService:AddTag(model, "Dragon")
-	local v = { def = def, model = model, humanoid = humanoid, root = root, node = startNode, pauseUntil = 0, height = height }
+	local v = { def = def, model = model, humanoid = humanoid, root = root, node = startNode, pauseUntil = 0, height = height, role = role }
 	prompt.Triggered:Connect(function(player)
 		chat(v, player)
 	end)
