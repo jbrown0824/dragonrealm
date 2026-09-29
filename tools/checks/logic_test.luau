@@ -427,7 +427,7 @@ end
 for _, eggId in ipairs(Pets.EggOrder) do
 	local egg = Pets.Eggs[eggId]
 	for rarity, w in pairs(egg.weights) do
-		check(w > 0 and #Pets.speciesOfRarity(rarity) > 0, eggId .. " has " .. rarity .. " species")
+		check(w > 0 and #Pets.speciesFor(eggId, rarity) > 0, eggId .. " has " .. rarity .. " species")
 	end
 end
 check(Game.petSlots(1) == 1 and Game.petSlots(10) == 2 and Game.petSlots(30) == 3, "pet slots by level")
@@ -611,7 +611,61 @@ do
 			check(Pets.Eggs[eggId] ~= nil, key .. " egg exists")
 		end
 	end
-	check(#Pets.speciesOfRarity("Secret") == 3, "three Secret pets")
+	check(#Pets.speciesFor("SecretEgg", "Secret") == 3, "the Secret Egg hatches three Secret pets")
+	local mythicSecret = Pets.speciesFor("MythicEgg", "Secret")
+	check(#mythicSecret == 1 and mythicSecret[1] == "AuroraSerpent", "the Mythic Egg's Secret is the Aurora Serpent")
+	check(not table.find(Pets.speciesFor("SecretEgg", "Secret"), "AuroraSerpent"), "the Aurora Serpent only comes from Mythic Eggs")
+	for id, sp in pairs(Pets.Species) do
+		check(sp.egg == nil or Pets.Eggs[sp.egg] ~= nil, id .. " is tied to a real egg")
+	end
+	-- the Mythic Egg: Epic and up, a 1% Secret, sold for Robux (cheaper than the Secret Egg) and found free
+	local mythic = Pets.Eggs.MythicEgg
+	local mythicTotal = 0
+	for _, w in pairs(mythic.weights) do
+		mythicTotal += w
+	end
+	check(not mythic.weights.Common and not mythic.weights.Uncommon and not mythic.weights.Rare, "Mythic Eggs never hatch below Epic")
+	check(math.abs(mythic.weights.Secret / mythicTotal - 0.01) < 1e-6, "Mythic Eggs have a 1% Secret")
+	check(StoreInfo.Products[mythic.store] ~= nil and StoreInfo.Products[mythic.store].eggs.MythicEgg == 1, "the Mythic Egg is in the Store")
+	check(StoreInfo.Products.MythicEgg.robux < StoreInfo.Products.SecretEgg.robux, "the Mythic Egg costs less than the Secret Egg")
+	check(mythic.desc:find("free") ~= nil and StoreInfo.Products.MythicEgg.desc:find("free") ~= nil, "the Mythic Egg says free players can find it too")
+	for _, eggId in ipairs(Pets.EggOrder) do
+		local egg = Pets.Eggs[eggId]
+		check(egg.store == nil or StoreInfo.Products[egg.store] ~= nil, eggId .. " store product exists")
+	end
+	-- passes
+	for _, passId in ipairs(StoreInfo.PassOrder) do
+		local pass = StoreInfo.Passes[passId]
+		check(pass ~= nil and pass.robux > 0 and pass.desc ~= nil, "store pass " .. passId)
+	end
+	check(StoreInfo.FLIGHT_MULT > 1 and StoreInfo.WAYFINDER_COOLDOWN > 0, "handy pass numbers")
+	-- places (the world map list and Wayfinder teleports)
+	local placeIds = {}
+	local B = Zones.WorldBounds
+	for _, place in ipairs(Zones.places()) do
+		check(not placeIds[place.id], "place ids are unique: " .. place.id)
+		placeIds[place.id] = true
+		if place.id ~= "home" then
+			check(place.pos ~= nil and place.drop ~= nil, "place " .. place.id .. " has a spot")
+			check(place.drop.X > B.min.X and place.drop.X < B.max.X and place.drop.Z > B.min.Z and place.drop.Z < B.max.Z, "place " .. place.id .. " is on the map")
+		end
+	end
+	-- nobody gets teleported into a lake
+	for _, place in ipairs(Zones.places()) do
+		for _, lake in ipairs(Zones.Lakes) do
+			for _, lobe in ipairs(lake.lobes) do
+				local c = lake.center + Vector3.new(lobe[1], 0, lobe[2])
+				if place.drop then
+					check(Vector3.new(place.drop.X - c.X, 0, place.drop.Z - c.Z).Magnitude > lobe[3] + 4, "place " .. place.id .. " isn't in " .. lake.id)
+				end
+			end
+		end
+	end
+	for _, camp in ipairs(Zones.Camps) do
+		local drop = Zones.getPlace("camp:" .. camp.id).drop
+		check((drop - camp.center).Magnitude > camp.radius, "Wayfinder sets you down outside " .. camp.id)
+	end
+	check(Zones.getPlace("home") ~= nil and Zones.getPlace("nowhere") == nil, "place lookup")
 	check(StoreInfo.goldFor(20, 30) > StoreInfo.goldFor(20, 1) * 5, "gold packs grow with level")
 	for eggId in pairs(Shops.Eggs) do
 		check(Pets.Eggs[eggId] and Pets.Eggs[eggId].price ~= nil, "the hatchery only stocks eggs with a price: " .. eggId)
@@ -658,6 +712,15 @@ end
 do
 	check(Raids.CHANCE > 0 and Raids.CHANCE <= 1 and Raids.PITY_NIGHTS >= 1, "raid chance and pity")
 	check(Raids.MAX_BURNED <= #Zones.Houses, "the village can burn")
+	-- villagers and quest givers help more when few dragons are online, and can finish stragglers
+	local d1, f1 = Raids.villagerHelp(1)
+	local d2, f2 = Raids.villagerHelp(2)
+	local d3, f3 = Raids.villagerHelp(3)
+	check(d1 > d2 and d2 > d3 and d3 == 1, "villager fire hits harder with fewer dragons online")
+	check(f1 < f2 and f2 < f3 and f3 == Raids.VILLAGER_FINISH_AFTER, "villagers finish raiders sooner with fewer dragons online")
+	check(Raids.villagerHelp(0) == d1 and Raids.villagerHelp(12) == 1, "villager help for an empty or full server")
+	check(f3 < Game.NIGHT_SECONDS / 2, "a straggler can be finished by the villagers well before dawn")
+	check(Raids.ELDER_DAMAGE > Raids.VILLAGER_DAMAGE and Raids.ELDER_RANGE > Raids.VILLAGER_RANGE, "quest givers hit harder and reach further than villagers")
 	local lastMax, lastRaiders = 0, 0
 	for t, tier in ipairs(Raids.Tiers) do
 		check(tier.maxLevel > lastMax, "raid tier " .. t .. " covers higher levels than the one before")
@@ -759,6 +822,18 @@ do
 		end
 	end
 	check(RangeUtil.expired({ born = 0, life = 2 }, 2.5) and not RangeUtil.expired({ born = 0 }, 99), "popups vanish, others don't")
+	-- the practice camera (CAMERA_ZOOM behind the mat, looking down the lane) has open air around
+	-- it: a house wall there made Roblox pull the camera in
+	local camX = R.matX + Range.CAMERA_ZOOM
+	for _, house in ipairs(Zones.Houses) do
+		local halfX = house.facing.X ~= 0 and Zones.HouseSize.Z / 2 or Zones.HouseSize.X / 2
+		local halfZ = house.facing.X ~= 0 and Zones.HouseSize.X / 2 or Zones.HouseSize.Z / 2
+		for _, z in ipairs(R.lanes) do
+			local dx = math.max(0, math.abs(camX - house.pos.X) - halfX)
+			local dz = math.max(0, math.abs(z - house.pos.Z) - halfZ)
+			check(math.max(dx, dz) >= 6, "the practice camera on lane z " .. z .. " clears house at " .. house.pos.X .. ", " .. house.pos.Z)
+		end
+	end
 end
 
 ---------------------------------------------------------------- balance report

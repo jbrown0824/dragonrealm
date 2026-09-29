@@ -53,7 +53,7 @@ end
 local function rollSpecies(eggId: string): string?
 	local egg = Pets.Eggs[eggId]
 	local rarity = egg and Util.weightedPick(egg.weights)
-	local list = rarity and Pets.speciesOfRarity(rarity)
+	local list = rarity and Pets.speciesFor(eggId, rarity)
 	if not list or #list == 0 then
 		return nil
 	end

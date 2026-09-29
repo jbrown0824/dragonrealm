@@ -474,6 +474,33 @@ task.spawn(function()
 	check(not okQ or (Waypoint.get() and Waypoint.get().questId == "C1"), "tracking a quest sets its waypoint")
 	local mini = Windows.guis.HUD:FindFirstChild("Minimap")
 	check(mini ~= nil, "minimap exists")
+	-- the Wayfinder pass: a 🌀 beside every place on the map teleports you there
+	local mapFrame = Windows.registry.Map.frame
+	check(mapFrame:FindFirstChild("Teleport", true) == nil, "no teleport buttons without the Wayfinder pass")
+	Remotes.func("AdminAction"):InvokeServer("pass", { pass = "Wayfinder", on = true })
+	task.wait(4.5) -- (no teleporting straight out of a fight)
+	Windows.open("Map")
+	task.wait(0.3)
+	local hatchery = Zones.getPlace("shop:Hatchery")
+	local tpButton = nil
+	for _, d in ipairs(mapFrame:GetDescendants()) do
+		if d.Name == "Teleport" then
+			for _, sibling in ipairs(d.Parent:GetChildren()) do
+				if sibling ~= d and sibling.ClassName == "TextButton" and tostring(sibling.Text):find("Hatchery", 1, true) then
+					tpButton = d
+				end
+			end
+		end
+	end
+	check(tpButton ~= nil, "teleport buttons with the Wayfinder pass")
+	if tpButton then
+		tpButton.Activated:Fire()
+		task.wait(0.5)
+		local at = rootOf(me).Position
+		check(Vector3.new(at.X - hatchery.drop.X, 0, at.Z - hatchery.drop.Z).Magnitude < 4, "the 🌀 button teleports you to the Hatchery")
+		check(not Windows.isOpen("Map"), "... and closes the map")
+	end
+	Remotes.func("AdminAction"):InvokeServer("pass", { pass = "Wayfinder", on = false })
 
 	-- boss banner can be minimized to a pill and opened again
 	Remotes.func("AdminAction"):InvokeServer("bossNow", { seconds = 60 })
@@ -582,8 +609,22 @@ task.spawn(function()
 	end
 	task.wait(0.5)
 	check(villager.model:GetAttribute("KnockedOut") == true, "a villager is knocked out")
+	-- the quest givers show crossed swords while they fight, and their quests again afterwards
+	local function markerTexts(): { [string]: number }
+		local texts = {}
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			if child.Name == "QuestMarker" then
+				local label = child:FindFirstChildOfClass("TextLabel")
+				texts[label.Text] = (texts[label.Text] or 0) + 1
+			end
+		end
+		return texts
+	end
+	local during = markerTexts()
+	check(during["⚔️"] ~= nil and (during["!"] or 0) + (during["?"] or 0) == 0, "quest givers show swords during a raid")
 	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
 	task.wait(0.5)
+	check(markerTexts()["⚔️"] == nil, "the swords go away after the raid")
 	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
 	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
 	Remotes.func("AdminAction"):InvokeServer("rebuildHouses")

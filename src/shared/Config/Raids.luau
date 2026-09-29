@@ -79,13 +79,28 @@ Raids.TORCH_TIME = 3 -- seconds a Torchbearer stands at a door to set the house 
 Raids.DOUSE_HOLD = 2 -- hold E at the door this long to beat out the flames
 -- (a burning house burns down after the tier's burnTime unless someone puts it out)
 
--- Villagers join the fight: they puff small bursts of fire at raiders near them. They wear
--- raiders down but can't finish them (never below VILLAGER_FLOOR of their health), so a raid is
--- never won without dragons.
+-- Villagers join the fight: they puff small bursts of fire at raiders near them. A raider fresh
+-- off the boat can't be finished by villagers (their fire stops at VILLAGER_FLOOR of its health),
+-- but that floor wears away over VILLAGER_FINISH_AFTER seconds ashore, so the last straggler
+-- doesn't stand at 30% forever while the whole village breathes on him. With few dragons online
+-- (FewDragons, by how many are playing) the villagers hit harder and finish raiders sooner.
 Raids.VILLAGER_DAMAGE = 0.04 -- share of the raider's max health per puff
 Raids.VILLAGER_FLOOR = 0.3
+Raids.VILLAGER_FINISH_AFTER = 120
 Raids.VILLAGER_INTERVAL = 2.5
 Raids.VILLAGER_RANGE = 18
+Raids.FewDragons = {
+	[1] = { damage = 1.5, finish = 0.5 },
+	[2] = { damage = 1.25, finish = 0.75 },
+}
+-- The quest givers fight too, from their posts (they're too old to chase anyone): a stronger puff
+-- at any raider in reach, under the same wearing-away floor. They won't talk quests until the
+-- raid is over.
+Raids.ELDER_RANGE = 34
+Raids.ELDER_DAMAGE = 0.07
+Raids.ELDER_INTERVAL = 2.2
+Raids.ELDER_LINES = { "To arms, dragons!", "Not in MY town!", "Back to your boats!", "Have some fire!" }
+Raids.QUEST_BUSY = "Not now, the vikings are here! Come back after the raid."
 Raids.VILLAGER_LINES = { "For the village!", "Get out of our town!", "Not my garden!", "Shoo! Shoo!" }
 -- Raiders can knock villagers out: VILLAGER_HITS hits and they're down (sprawled, eyes shut) for
 -- VILLAGER_KNOCKOUT seconds, then they get back up and back into the fight.
@@ -122,5 +137,12 @@ Raids.SHIP_OUT_TIME = 12 -- seconds to row back upriver for the next wave (it re
 -- it (as long as at least RAID_MIN_NIGHT seconds of night are left). Bosses wait for raids too.
 Raids.RAID_MIN_NIGHT = 150
 Raids.BOSS_AFTER_RAID = 30 -- a boss warning due during a raid starts this long after it ends
+
+-- How much harder villager (and quest giver) fire hits, and how many seconds a raider has to be
+-- ashore before it can finish him, with `dragons` players in the server.
+function Raids.villagerHelp(dragons: number): (number, number)
+	local few = Raids.FewDragons[math.max(1, dragons)]
+	return few and few.damage or 1, Raids.VILLAGER_FINISH_AFTER * (few and few.finish or 1)
+end
 
 return Raids

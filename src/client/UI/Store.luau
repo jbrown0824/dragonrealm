@@ -1,5 +1,6 @@
 -- The 💎 Store window (Robux): the Starter Pack (for new dragons), boosts (a cheap Gold Rush and
--- the forever passes), gold packs sized to your level, the Secret Egg and a few extras. Buying
+-- the 2x passes), handy passes (flight time, never hungry, Wayfinder teleports), gold packs sized
+-- to your level, the Mythic and Secret Eggs and a few extras. Buying
 -- opens Roblox's own purchase prompt; StoreService grants the item when Roblox confirms. Items
 -- without an id yet (see Config/Store) can be tested for free in Studio.
 --
@@ -120,25 +121,41 @@ function Store.refresh()
 		frame.UIStroke.Thickness = 3
 	end
 
+	-- the forever passes: the 2x boosts, or the handy ones
+	local function passCards(handy: boolean)
+		for _, key in ipairs(StoreInfo.PassOrder) do
+			local pass = StoreInfo.Passes[key]
+			if (pass.handy == true) == handy then
+				card(nextOrder(), pass.icon, pass.name .. (handy and "" or " (forever)"), pass.desc, nil, pass.robux, p.passes and p.passes[key] == true, function()
+					Store.buy("pass", key)
+				end)
+			end
+		end
+	end
+
 	local function boostSection()
 		section(nextOrder(), "⚡ Boosts")
 		local rush = products.GoldRush
 		local left = goldRushLeft(p)
-		card(nextOrder(), rush.icon, rush.name, rush.desc,
+		local rushCard = card(nextOrder(), rush.icon, rush.name, rush.desc,
 			left and string.format("<font color=\"#6EDC6E\">Active: %s of play left.</font>", Util.formatTime(left)) or nil,
 			rush.robux, false, function()
 				Store.buy("product", "GoldRush")
 			end, left and 100 or nil)
-		for _, key in ipairs(StoreInfo.PassOrder) do
-			local pass = StoreInfo.Passes[key]
-			card(nextOrder(), pass.icon, pass.name .. " (forever)", pass.desc, nil, pass.robux, p.passes and p.passes[key] == true, function()
-				Store.buy("pass", key)
-			end)
+		if focus == "GoldRush" then
+			rushCard.UIStroke.Color = C.gold
+			rushCard.UIStroke.Thickness = 2.5
 		end
+		passCards(false)
+	end
+
+	local function handySection()
+		section(nextOrder(), "🧰 Handy (forever)")
+		passCards(true)
 	end
 
 	local function goldSection()
-		section(nextOrder(), "💰 Gold (sized to your level)")
+		section(nextOrder(), "💰 Gold")
 		for _, key in ipairs({ "GoldSmall", "GoldMedium", "GoldLarge" }) do
 			local product = products[key]
 			local frame = card(nextOrder(), product.icon, string.format("%s: %s gold", product.name, Util.formatNumber(gold[key] or 0)), product.desc, nil, product.robux, false, function()
@@ -151,11 +168,22 @@ function Store.refresh()
 		end
 	end
 
-	local function secretSection()
-		section(nextOrder(), "🔮 Secret nano dragons")
+	local function eggSection()
+		section(nextOrder(), "🥚 Eggs")
+		local mythic = products.MythicEgg
+		local odds = {}
+		local egg = PetInfo.Eggs.MythicEgg
+		for _, rarity in ipairs(PetInfo.RarityOrder) do
+			if egg.weights[rarity] then
+				table.insert(odds, string.format("<font color=\"%s\">%s %d%%</font>", Theme.colorHex(PetInfo.RarityColors[rarity]), rarity, egg.weights[rarity]))
+			end
+		end
+		card(nextOrder(), mythic.icon, mythic.name, mythic.desc, table.concat(odds, "   "), mythic.robux, false, function()
+			Store.buy("product", "MythicEgg")
+		end, 100)
 		local secret = products.SecretEgg
 		local lines = {}
-		for _, id in ipairs(PetInfo.speciesOfRarity("Secret")) do
+		for _, id in ipairs(PetInfo.speciesFor("SecretEgg", "Secret")) do
 			local species = PetInfo.get(id)
 			table.insert(lines, string.format("<font color=\"%s\">%s</font>: %s", Theme.colorHex(PetInfo.RarityColors.Secret), species.name, statText(species.stats)))
 		end
@@ -175,8 +203,8 @@ function Store.refresh()
 	end
 
 	-- opened from a "Get gold" button: the gold first
-	local sections = focus == "Gold" and { goldSection, boostSection, starterSection, secretSection, extrasSection }
-		or { starterSection, boostSection, goldSection, secretSection, extrasSection }
+	local sections = focus == "Gold" and { goldSection, boostSection, starterSection, eggSection, handySection, extrasSection }
+		or { starterSection, boostSection, goldSection, eggSection, handySection, extrasSection }
 	for _, build in ipairs(sections) do
 		build()
 	end
@@ -184,7 +212,7 @@ function Store.refresh()
 		Text = "Purchases are made with Robux through Roblox. Ask a grown-up before buying anything!", Parent = list })
 end
 
--- Open the Store. `productKey` "Gold" puts the gold packs first.
+-- Open the Store. `productKey` "Gold" puts the gold packs first; "GoldRush" outlines the Gold Rush.
 function Store.open(productKey: string?)
 	focus = productKey
 	App.Windows.open("Store")

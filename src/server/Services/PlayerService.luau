@@ -23,6 +23,8 @@ local DragonBuilder = require(Shared.DragonBuilder)
 local Remotes = require(Shared.Remotes)
 
 local WorldUtil = require(script.Parent.Parent.World.WorldUtil)
+local Props = require(script.Parent.Parent.World.Props)
+local StoreInfo = require(Shared.Config.Store)
 
 local PlayerService = {}
 local S -- all services
@@ -226,6 +228,7 @@ function PlayerService.recompute(player: Player)
 		end
 	end
 	st.stats = StatCalc.compute(profile.class, profile.level, equippedItems(profile), profile.talents, buffStats)
+	st.stats.stamina *= S.StoreService.flightMultiplier(player) -- the 2x Flight Time pass
 
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -805,6 +808,35 @@ local function onTeleportHome(player: Player)
 	return true
 end
 
+-- The Wayfinder pass (💎 Store): teleport to a place from the world map's list.
+local function onTeleportTo(player: Player, placeId)
+	local st = state[player]
+	local place = type(placeId) == "string" and Zones.getPlace(placeId)
+	if not st or not place or not PlayerService.getCharacter(player) then
+		return false, "You can't do that right now."
+	end
+	if not S.StoreService.hasPass(player, "Wayfinder") then
+		return false, "Teleporting needs the Wayfinder pass (💎 Store)."
+	end
+	if place.id == "home" then
+		return onTeleportHome(player)
+	end
+	if S.BossService.isInFight(player) then
+		return false, "You can't leave a boss fight!"
+	end
+	if now() < (st.wayfinderReadyAt or 0) then
+		return false, string.format("Wait %d more seconds.", math.ceil(st.wayfinderReadyAt - now()))
+	end
+	if now() - st.lastDamaged < 4 then
+		return false, "You can't teleport while in combat!"
+	end
+	local drop = place.drop
+	local ground = Props.groundY(drop.X, drop.Z)
+	st.wayfinderReadyAt = now() + StoreInfo.WAYFINDER_COOLDOWN
+	PlayerService.teleport(player, CFrame.new(drop.X, math.max(ground, Zones.WATER_LEVEL) + 8, drop.Z))
+	return true
+end
+
 ---------------------------------------------------------------- lifecycle
 
 local function onPlayerAdded(player: Player)
@@ -887,6 +919,7 @@ function PlayerService.start()
 		end
 	end)
 	Remotes.func("TeleportHome").OnServerInvoke = onTeleportHome
+	Remotes.func("TeleportTo").OnServerInvoke = onTeleportTo
 	Remotes.event("SetFlying").OnServerEvent:Connect(function(player, flying)
 		local character = player.Character
 		if character then

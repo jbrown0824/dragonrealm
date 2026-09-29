@@ -1,12 +1,14 @@
 -- Quests from the village dragons. Talking to a quest giver opens a dialog on the client;
 -- the client asks to accept or turn in, and this service checks the rules in QuestUtil.
 -- Other services report progress with QuestService.progress(player, type, target, amount).
+-- During a night raid the quest givers are busy fighting (RaidService) and don't talk quests.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Quests = require(Shared.Config.Quests)
+local Raids = require(Shared.Config.Raids)
 local Zones = require(Shared.Config.Zones)
 local QuestUtil = require(Shared.QuestUtil)
 local Remotes = require(Shared.Remotes)
@@ -62,6 +64,9 @@ local function onAccept(player: Player, questId)
 	if not profile or not quest then
 		return false, "Unknown quest."
 	end
+	if S.RaidService.isActive() then
+		return false, Raids.QUEST_BUSY
+	end
 	if not nearGiver(player, quest.giver) then
 		return false, "Talk to " .. Quests.Givers[quest.giver].name .. " to accept this quest."
 	end
@@ -97,6 +102,9 @@ local function onTurnIn(player: Player, questId)
 	local quest = type(questId) == "string" and Quests.byId[questId]
 	if not profile or not quest then
 		return false, "Unknown quest."
+	end
+	if S.RaidService.isActive() then
+		return false, Raids.QUEST_BUSY
 	end
 	if not nearGiver(player, quest.giver) then
 		return false, "Return to " .. Quests.Givers[quest.giver].name .. " to turn this in."
@@ -134,6 +142,10 @@ function QuestService.start()
 
 	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
 		prompt.Triggered:Connect(function(player)
+			if S.RaidService.isActive() then
+				S.PlayerService.notify(player, Raids.QUEST_BUSY, Color3.fromRGB(255, 150, 110), "⚔️")
+				return
+			end
 			Remotes.event("OpenQuestDialog"):FireClient(player, prompt:GetAttribute("GiverId"))
 		end)
 	end

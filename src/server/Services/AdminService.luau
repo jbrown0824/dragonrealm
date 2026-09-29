@@ -420,6 +420,7 @@ ACTIONS.pass = function(_, target, args)
 	end
 	local profile = S.PlayerService.getProfile(target)
 	profile.passes[args.pass] = args.on == true or nil
+	S.PlayerService.recompute(target) -- 2x Flight Time changes stats
 	return true, string.format("%s %s for %s (test).", StoreInfo.Passes[args.pass].name, args.on and "ON" or "off", target.DisplayName)
 end
 ACTIONS.product = function(_, target, args)

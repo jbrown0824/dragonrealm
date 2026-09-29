@@ -175,10 +175,10 @@ Zones.Training = {
 Zones.Range = {
 	lanes = { 146, 178, 210 }, -- z of each lane's middle
 	laneHalf = 12,
-	matX = -88,
-	near = -112,
-	far = -136,
-	backstop = -144,
+	matX = -92,
+	near = -116,
+	far = -140,
+	backstop = -148,
 }
 
 -- Town points of interest.
@@ -210,16 +210,17 @@ Zones.WarHorn = Vector3.new(28, 0, 74)
 
 -- Dragon houses you can walk into (Props.dragonHouse). `facing` points out of the front door.
 -- HouseSize: X = width (along the front), Y = wall height, Z = depth.
--- The main road's two rows stand 84 studs apart with 26-stud gaps between houses, so you can see
--- (and fly) between them during a raid; they used to be packed 18 studs apart.
+-- The main road's two rows face each other across a 72-stud street, with 26-stud gaps between
+-- houses, so you can see (and fly) between them during a raid (they used to be packed 18 studs
+-- apart). Their backs stay clear of the target practice camera behind the firing mats.
 Zones.HouseSize = Vector3.new(32, 18, 24)
 Zones.Houses = {
-	{ pos = Vector3.new(-54, 0, 100), facing = Vector3.new(1, 0, 0) },
-	{ pos = Vector3.new(-54, 0, 158), facing = Vector3.new(1, 0, 0) },
-	{ pos = Vector3.new(-54, 0, 216), facing = Vector3.new(1, 0, 0) },
-	{ pos = Vector3.new(54, 0, 100), facing = Vector3.new(-1, 0, 0) },
-	{ pos = Vector3.new(54, 0, 158), facing = Vector3.new(-1, 0, 0) },
-	{ pos = Vector3.new(54, 0, 216), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(-48, 0, 100), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(-48, 0, 158), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(-48, 0, 216), facing = Vector3.new(1, 0, 0) },
+	{ pos = Vector3.new(48, 0, 100), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(48, 0, 158), facing = Vector3.new(-1, 0, 0) },
+	{ pos = Vector3.new(48, 0, 216), facing = Vector3.new(-1, 0, 0) },
 	{ pos = Vector3.new(-72, 0, -152), facing = Vector3.new(1, 0, 0) },
 	{ pos = Vector3.new(108, 0, -132), facing = Vector3.new(-1, 0, 0) },
 	{ pos = Vector3.new(-112, 0, 98), facing = Vector3.new(0, 0, -1) },
@@ -284,6 +285,52 @@ for i, z in ipairs({ -165, -55, 55, 165 }) do
 end
 for i, z in ipairs({ -165, -55, 55, 165 }) do
 	table.insert(Zones.Bases, { index = i + 4, center = Vector3.new(baseX, 0, z), facing = Vector3.new(-1, 0, 0) })
+end
+
+-- Named places: the world map's list (click one for a waypoint) and where the Wayfinder pass
+-- teleports you. `pos` is what the map points at; `drop` is where a teleport sets you down (clear
+-- of statues and stalls; viking camps drop you at their edge on the town side). "home" is your
+-- lair, which only the game knows.
+local SHOP_ICONS = { Armory = "⚔️", Exchange = "💰", Forge = "🔨", Alchemist = "🧪", Hatchery = "🥚" }
+function Zones.places()
+	local range = Vector3.new(Zones.Range.matX, 0, Zones.Range.lanes[2])
+	local list = {
+		{ id = "home", label = "🏠 Your lair" },
+		{ id = "square", label = "🐉 Town square", pos = Vector3.new(0, 0, 0), drop = Vector3.new(0, 0, 30) },
+		{ id = "training", label = "🎯 Training grounds", pos = Zones.Training.dummies[2], drop = Zones.Training.dummies[2] - Vector3.new(0, 0, 20) },
+		{ id = "range", label = "🏹 Target practice", pos = range, drop = range + Vector3.new(8, 0, 0) },
+		{ id = "warhorn", label = "📯 War Horn (bosses)", pos = Zones.WarHorn, drop = Zones.WarHorn + Vector3.new(0, 0, -12) },
+	}
+	for _, shop in ipairs(Zones.Shops) do
+		table.insert(list, { id = "shop:" .. shop.id, label = (SHOP_ICONS[shop.id] or "🛒") .. " " .. shop.name, pos = shop.position, drop = shop.position + shop.facing.Unit * 14 })
+	end
+	local bz = Zones.getArea("BattleZone")
+	table.insert(list, { id = "battle", label = "🏟️ Battle Zone (PvP)", pos = Vector3.new((bz.min.X + bz.max.X) / 2, 0, (bz.min.Z + bz.max.Z) / 2) })
+	for _, ground in ipairs(Zones.HuntingGrounds) do
+		local a = Zones.getArea(ground.id)
+		-- teleports land just inside the edge nearest town (Elk Lake fills the middle of the meadows)
+		local center = (ground.min + ground.max) / 2
+		local edge = Vector3.new(math.clamp(0, ground.min.X, ground.max.X), 0, math.clamp(0, ground.min.Z, ground.max.Z))
+		table.insert(list, { id = "hunt:" .. ground.id, label = string.format("🦌 %s (Lv %d-%d)", a.name, ground.levels[1], ground.levels[2]),
+			pos = center, drop = edge + (center - edge).Unit * 20 })
+	end
+	for _, camp in ipairs(Zones.Camps) do
+		table.insert(list, { id = "camp:" .. camp.id, label = string.format("⚔️ %s (Lv %d-%d)", camp.name, camp.levels[1], camp.levels[2]),
+			pos = camp.center, drop = camp.center - Vector3.new(0, 0, camp.radius + 25) })
+	end
+	for _, place in ipairs(list) do
+		place.drop = place.drop or place.pos
+	end
+	return list
+end
+
+function Zones.getPlace(id: string)
+	for _, place in ipairs(Zones.places()) do
+		if place.id == id then
+			return place
+		end
+	end
+	return nil
 end
 
 -- Just inside the gap in a lair's front fence.

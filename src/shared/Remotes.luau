@@ -51,6 +51,7 @@ local FUNCTIONS = {
 	"LeaveBossFight",
 	"Transform",
 	"TeleportHome",
+	"TeleportTo", -- Wayfinder pass: a place id from Zones.places()
 	"BuyPotion",
 	"BuyEgg",
 	"HatchEgg",

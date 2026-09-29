@@ -10,6 +10,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local PetInfo = require(Shared.Config.Pets)
+local StoreInfo = require(Shared.Config.Store)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local DragonBuilder = require(Shared.DragonBuilder)
@@ -263,7 +264,7 @@ local function eggContents(eggId: string)
 	for _, rarity in ipairs(PetInfo.RarityOrder) do
 		local w = egg.weights[rarity]
 		if w then
-			local species = PetInfo.speciesOfRarity(rarity)
+			local species = PetInfo.speciesFor(eggId, rarity)
 			for _, id in ipairs(species) do
 				table.insert(list, { id = id, chance = w / total / #species * 100 })
 			end
@@ -306,13 +307,15 @@ local function refreshEggs(p)
 		local card = Theme.make("Frame", { Size = UDim2.new(1, -10, 0, 100 + (open and rows * 50 + 2 or 0)), BackgroundColor3 = C.panel2, LayoutOrder = i, Parent = eggsList })
 		Theme.corner(card, 10)
 		Theme.stroke(card, egg.color, 2, 0.3)
-		-- the buttons take the right side; the name and description get the rest
-		local right = math.max(250, (egg.price and 250 or 0) + (owned > 0 and 200 or 0))
+		-- the buy button takes the top right; the name and description get the rest. "Hatch yours"
+		-- sits on the bottom row beside "See every pet".
+		local sold = egg.price ~= nil or egg.store ~= nil
+		local right = 250
 		Theme.label({ Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(64, 70), TextSize = 48, TextXAlignment = Enum.TextXAlignment.Center, Text = egg.icon, Parent = card })
 		Theme.label({ Position = UDim2.fromOffset(78, 6), Size = UDim2.new(1, -78 - right, 0, 26), Font = Theme.Fonts.title, TextSize = 22, TextColor3 = egg.color, Text = egg.name, Parent = card })
 		Theme.label({ Position = UDim2.fromOffset(78, 33), Size = UDim2.new(1, -78 - right, 0, 32), TextSize = 12, Font = Theme.Fonts.body, TextColor3 = C.subtext, TextYAlignment = Enum.TextYAlignment.Top, Text = egg.desc, Parent = card })
 		-- the odds on one color-coded line, and a button for the full list of pets
-		Theme.label({ Position = UDim2.fromOffset(78, 72), Size = UDim2.new(1, -78 - 160, 0, 20), TextSize = 13, RichText = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, Text = oddsLine(egg), Parent = card })
+		Theme.label({ Position = UDim2.fromOffset(78, 72), Size = UDim2.new(1, -78 - (owned > 0 and 320 or 160), 0, 20), TextSize = 13, RichText = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, Text = oddsLine(egg), Parent = card })
 		Theme.button(open and "Hide pets" or "🔍 See every pet", C.panel3, function()
 			expanded[eggId] = not open or nil
 			Pets.refresh()
@@ -337,15 +340,24 @@ local function refreshEggs(p)
 			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 48), Size = UDim2.fromOffset(230, 16), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = left > 0 and C.good or C.bad, Text = nestFull and "Your nest is full!" or (left > 0 and string.format("%d in stock", left) or "Out of stock"), Parent = card })
 		end
+		if egg.store and not egg.price then
+			-- sold for Robux (the Mythic Egg also drops in the wild, and says so)
+			local product = StoreInfo.Products[egg.store]
+			Theme.button(string.format("💎 Buy one  R$ %d", product.robux), ROBUX_GREEN, function()
+				App.Store.buy("product", egg.store)
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 8), Size = UDim2.fromOffset(230, 38), TextSize = 16, Parent = card })
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 48), Size = UDim2.fromOffset(230, 16), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = C.subtext, Text = egg.robux and "only in the 💎 Store" or "or find one free in the wild", Parent = card })
+		end
 		if owned > 0 then
 			local hatch = Theme.button(string.format("🥚 Hatch yours (%d)", owned), Color3.fromRGB(200, 120, 60), function()
 				invoke("HatchEgg", eggId, function(pet)
 					selected = pet.uid
 					showHatch(pet)
 				end)
-			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, egg.price and -250 or -10, 0, 8), Size = UDim2.fromOffset(190, 38), TextSize = 15, Parent = card })
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -160, 0, 70), Size = UDim2.fromOffset(152, 24), TextSize = 13, Parent = card })
 			Theme.setButtonEnabled(hatch, not nestFull)
-		elseif not egg.price then
+		elseif not sold then
 			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
 		end
 		if not open then

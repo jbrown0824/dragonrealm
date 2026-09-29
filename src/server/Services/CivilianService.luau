@@ -304,14 +304,20 @@ end
 
 -- A speech bubble over a villager for a few seconds, for everyone nearby.
 function CivilianService.say(v, text: string)
-	local old = v.root:FindFirstChild("Speech")
+	CivilianService.speak(v.root, 7 * v.def.scale + 5.5, text)
+end
+
+-- A speech bubble `height` studs over `part` for a few seconds (villagers, and the quest givers
+-- during a raid).
+function CivilianService.speak(part: BasePart, height: number, text: string)
+	local old = part:FindFirstChild("Speech")
 	if old then
 		old:Destroy()
 	end
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Speech"
 	gui.Size = UDim2.fromOffset(190, 34)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 7 * v.def.scale + 5.5, 0)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, height, 0)
 	gui.MaxDistance = 90
 	gui.LightInfluence = 0
 	local bubble = Instance.new("TextLabel")
@@ -325,7 +331,7 @@ function CivilianService.say(v, text: string)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 10)
 	corner.Parent = bubble
-	gui.Parent = v.root
+	gui.Parent = part
 	game:GetService("Debris"):AddItem(gui, 3)
 end
 

@@ -8,7 +8,10 @@
 -- an `objective` (see "raider brains"): Torchbearers walk the villagers' street graph
 -- (Zones.TownWalk, via CivilianService) to a house door and set it alight; the rest go after
 -- villagers (knocking them out for a while) and dragons all over town, even at home in their
--- lairs. Villagers come out and puff fire at them (CivilianService).
+-- lairs. Villagers come out and puff fire at them (CivilianService), and the quest givers breathe
+-- fire at any raider that comes near their posts (and won't talk quests until it's over). Their
+-- fire can't finish a raider fresh off the boat, but that wears off the longer it's ashore, and
+-- it all hits harder when only one or two dragons are online (Raids.villagerHelp).
 --
 -- A raid never starts while a world boss is on its way or being fought: it waits for the boss
 -- (BossService likewise waits for a raid to finish before sounding its warning).
@@ -34,6 +37,7 @@ local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
 local Enemies = require(Shared.Config.Enemies)
+local Quests = require(Shared.Config.Quests)
 
 local Props = require(script.Parent.Parent.World.Props)
 local VikingBuilder = require(script.Parent.Parent.World.VikingBuilder)
@@ -50,6 +54,7 @@ local shipFolder: Folder
 local riverSamples = {}
 
 local endRaid: (won: boolean, reason: string?) -> () -- below; burning a house down can end the raid
+local giversFight: (r: any) -> () -- below; the quest givers fight once the raiders land
 
 local STREET_GOALS = { "PN", "PNE", "PE", "PSE", "PS", "PSW", "PW", "PNW", "N1", "N2", "N3", "E1", "E2", "W1", "S1" }
 local CHAR = Color3.fromRGB(38, 32, 30)
@@ -846,6 +851,7 @@ local function spawnRaider(r, typeId: string, pos: Vector3, opts)
 	local e = S.EnemyService.spawn(typeId, opts.level or r.level, pos, opts)
 	if e then
 		e.role = typeId == "Torchbearer" and "torch" or "fighter"
+		e.landedAt = now()
 		r.raiders[e] = true
 	else
 		r.left = math.max(0, r.left - 1)
@@ -1024,6 +1030,7 @@ local function land(r)
 	S.CivilianService.setRaid(true)
 	setAttributes()
 	task.spawn(runWaves, r)
+	task.spawn(giversFight, r)
 end
 
 -- Start a raid now (nightfall roll, or an admin). Returns ok, message.
@@ -1117,23 +1124,75 @@ function RaidService.nearestRaider(pos: Vector3)
 	return best
 end
 
--- A villager's little puff of fire.
-function RaidService.villagerPuff(v, e)
+-- How low villager and quest giver fire can take this raider: Raids.VILLAGER_FLOOR of its health
+-- when it lands, wearing away to nothing the longer it's been ashore.
+function RaidService.villagerFloor(e): number
+	local _, finishAfter = Raids.villagerHelp(#defenders())
+	local age = now() - (e.landedAt or now())
+	return Raids.VILLAGER_FLOOR * math.clamp(1 - age / finishAfter, 0, 1)
+end
+
+-- A puff of fire from a villager or a quest giver (`model`, breathing like a `classId` dragon)
+-- at a raider: `share` of its max health, boosted when few dragons are online.
+local function puff(model: Model, classId: string, e, share: number)
 	if e.dead or not e.model.Parent then
 		return
 	end
-	local head = v.model:FindFirstChild("Head")
+	local head = model:FindFirstChild("Head")
 	local mouth = head and head:FindFirstChild("Mouth")
-	local from = mouth and mouth.WorldPosition or v.root.Position
+	local from = mouth and mouth.WorldPosition or model:GetPivot().Position
 	local dir = e.root.Position - from
 	if dir.Magnitude < 0.1 then
 		return
 	end
-	S.CombatService.broadcastVFX({ kind = "breath", character = v.model, dir = dir.Unit, classId = v.def.plan, duration = 0.7 })
+	S.CombatService.broadcastVFX({ kind = "breath", character = model, dir = dir.Unit, classId = classId, duration = 0.7 })
+	local boost = Raids.villagerHelp(#defenders())
 	local max = e.humanoid.MaxHealth
-	local amount = math.min(max * Raids.VILLAGER_DAMAGE, e.humanoid.Health - max * Raids.VILLAGER_FLOOR)
-	if amount >= 1 then
+	local floor = RaidService.villagerFloor(e)
+	local amount = math.min(max * share * boost, e.humanoid.Health - max * floor)
+	if amount >= 1 or (floor <= 0 and amount > 0) then
 		S.CombatService.damageEnemy(nil, e, amount, false)
+	end
+end
+
+-- A villager's little puff of fire.
+function RaidService.villagerPuff(v, e)
+	puff(v.model, v.def.plan, e, Raids.VILLAGER_DAMAGE)
+end
+
+---------------------------------------------------------------- quest givers join in
+
+-- The quest givers stay at their posts and breathe fire at the nearest raider in reach, turning
+-- to face it (and back to face the plaza once the raid is over).
+giversFight = function(r)
+	local homes = {} -- [model] = where it faced before the raid
+	local nextPuff = {}
+	while raid == r do
+		if r.phase == "fighting" then
+			for _, model in ipairs(CollectionService:GetTagged("QuestGiver")) do
+				local root = model.PrimaryPart
+				local giver = Quests.Givers[model:GetAttribute("GiverId") or ""]
+				if root and giver and os.clock() >= (nextPuff[model] or 0) then
+					local e = RaidService.nearestRaider(root.Position)
+					if e and flat(root.Position, e.root.Position) <= Raids.ELDER_RANGE then
+						nextPuff[model] = os.clock() + Raids.ELDER_INTERVAL * (0.85 + math.random() * 0.3)
+						local pivot = model:GetPivot()
+						if not homes[model] then
+							homes[model] = pivot
+							S.CivilianService.speak(root, 15, Raids.ELDER_LINES[math.random(1, #Raids.ELDER_LINES)]) -- (over its name and marker)
+						end
+						model:PivotTo(CFrame.lookAt(pivot.Position, Vector3.new(e.root.Position.X, pivot.Position.Y, e.root.Position.Z)))
+						puff(model, giver.look, e, Raids.ELDER_DAMAGE)
+					end
+				end
+			end
+		end
+		task.wait(0.3)
+	end
+	for model, pivot in pairs(homes) do
+		if model.Parent then
+			model:PivotTo(pivot)
+		end
 	end
 end
 

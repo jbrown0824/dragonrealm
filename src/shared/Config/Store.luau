@@ -1,7 +1,7 @@
 -- The 💎 Store: Robux game passes and developer products (StoreService, UI/Store).
 --
 -- SETUP, once per game, in the Creator Dashboard (create.roblox.com > your game > Monetization):
---   1. Create the two Game Passes below and paste each one's id into `assetId`.
+--   1. Create the Game Passes below and paste each one's id into `assetId`.
 --   2. Create a Developer Product for each entry in Products and paste its id into `productId`.
 --   3. Set their prices to the `robux` shown here (the Store shows these numbers; Roblox charges
 --      whatever the dashboard says, so keep them the same).
@@ -14,15 +14,24 @@ Store.STARTER_MAX_LEVEL = 10 -- the Starter Pack is offered, and advertised on s
 Store.GOLD_RUSH_BONUS = 1 -- +100% gold while a Gold Rush lasts (added to the 2x Gold pass: 3x with both)
 Store.GOLD_RUSH_MAX_MINUTES = 300 -- a Gold Rush can't stack past this much time
 
-Store.PassOrder = { "DoubleXP", "DoubleGold" }
+-- Passes are forever. `handy` ones are quality-of-life (the Store lists them in their own section).
+Store.WAYFINDER_COOLDOWN = 20 -- seconds between Wayfinder teleports
+Store.FLIGHT_MULT = 2 -- 2x Flight Time: this many times your flight stamina
+Store.PassOrder = { "DoubleXP", "DoubleGold", "DoubleFlight", "NeverHungry", "Wayfinder" }
 Store.Passes = {
 	DoubleXP = { assetId = 0, name = "2x XP", icon = "📘", robux = 199,
 		desc = "Double XP from everything, forever. Level up (and earn Paragon levels) twice as fast." },
 	DoubleGold = { assetId = 0, name = "2x Gold", icon = "💰", robux = 199,
 		desc = "Double the gold you earn from vikings, quests, chests, harvests and battles, forever." },
+	DoubleFlight = { assetId = 0, name = "2x Flight Time", icon = "🦅", robux = 99, handy = true,
+		desc = "Twice the flight stamina, so you stay in the air twice as long. Stacks with Wing Tonic and pets." },
+	NeverHungry = { assetId = 0, name = "Never Hungry", icon = "🍖", robux = 79, handy = true,
+		desc = "Your dragon is always full: no hunger to watch and never slowed by Hungry or Starving." },
+	Wayfinder = { assetId = 0, name = "Wayfinder", icon = "🧭", robux = 149, handy = true,
+		desc = "Teleport to any place on the world map (M) with the 🌀 button next to it. Not in combat or boss fights; a short cooldown between jumps." },
 }
 
-Store.ProductOrder = { "StarterPack", "GoldRush", "GoldSmall", "GoldMedium", "GoldLarge", "SecretEgg", "TreatBag", "Restock" }
+Store.ProductOrder = { "StarterPack", "GoldRush", "GoldSmall", "GoldMedium", "GoldLarge", "MythicEgg", "SecretEgg", "TreatBag", "Restock" }
 Store.Products = {
 	-- the cheap one: a short boost you feel right away (its clock only runs while you play)
 	GoldRush = { productId = 0, name = "Gold Rush", icon = "💸", robux = 9, goldRushMinutes = 30,
@@ -36,6 +45,8 @@ Store.Products = {
 		desc = "About 1.5 hours of adventuring's worth of gold." },
 	GoldLarge = { productId = 0, name = "Dragon's Hoard", icon = "💰", robux = 399, goldMinutes = 500,
 		desc = "About 8 hours of adventuring's worth of gold." },
+	MythicEgg = { productId = 0, name = "Mythic Egg", icon = "🌟", robux = 49, eggs = { MythicEgg = 1 },
+		desc = "Always an Epic or Legendary nano dragon, with a 1% chance of the Aurora Serpent. Also found free on champions, bosses and camp chests." },
 	SecretEgg = { productId = 0, name = "Secret Egg", icon = "🔮", robux = 149, eggs = { SecretEgg = 1 },
 		desc = "Hatches one of three Secret nano dragons you can't get anywhere else." },
 	TreatBag = { productId = 0, name = "Bag of Treats", icon = "🍬", robux = 29, treats = 40,

@@ -51,8 +51,12 @@ task.spawn(function()
 	Remotes.func("ChooseClass"):InvokeServer("Stormwing")
 	mod("UI/ClassSelect").hide()
 	task.wait(1)
-	Remotes.event("TutorialStep"):FireServer(-1)
+	Remotes.event("TutorialStep"):FireServer(-1) -- (finished: pays the tutorial egg)
 	task.wait(1)
+	click(gui, "Skip tour") -- and close the tour panel, so the HUD shots show what's under it
+	task.wait(0.2)
+	click(gui, "Really skip?")
+	task.wait(0.5)
 	-- a brand-new dragon: the Starter Pack button (with its Robux price) and a Gold Rush running
 	S.PlayerService.getProfile(me).goldRushLeft = 1500
 	S.PlayerService.markDirty(me)

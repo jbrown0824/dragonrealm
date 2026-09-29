@@ -488,6 +488,38 @@ task.spawn(function()
 	end
 	local okSecret, secretPet = invoke("HatchEgg", p1, "SecretEgg")
 	check(okSecret and require(__proxy("Shared/Config/Pets")).get(secretPet.species).rarity == "Secret", "the secret egg hatches a Secret pet")
+	check(okSecret and secretPet.species ~= "AuroraSerpent", "the Secret Egg never hatches the Mythic Egg's Aurora Serpent")
+	-- the Mythic Egg: sold for Robux too, and never hatches below Epic
+	local mythicBefore = profile.eggs.MythicEgg or 0
+	check(invoke("StudioPurchase", p1, "product", "MythicEgg") and profile.eggs.MythicEgg == mythicBefore + 1, "a Mythic Egg from the Store")
+	while #profile.pets >= Game.PET_LIMIT do
+		table.remove(profile.pets)
+	end
+	local okMythicBuy, boughtPet = invoke("HatchEgg", p1, "MythicEgg")
+	local boughtRarity = okMythicBuy and require(__proxy("Shared/Config/Pets")).get(boughtPet.species).rarity
+	check(boughtRarity == "Epic" or boughtRarity == "Legendary" or boughtRarity == "Secret", "Mythic Eggs hatch Epic or better (" .. tostring(boughtRarity) .. ")")
+	-- handy passes: 2x Flight Time, Never Hungry, Wayfinder
+	local stamina0 = S.PlayerService.getStats(p1).stamina
+	check(invoke("StudioPurchase", p1, "pass", "DoubleFlight"), "2x Flight Time bought")
+	check(math.abs(S.PlayerService.getStats(p1).stamina - stamina0 * StoreInfo.FLIGHT_MULT) < 0.01, "2x Flight Time doubles flight stamina")
+	check(invoke("StudioPurchase", p1, "pass", "NeverHungry"), "Never Hungry bought")
+	profile.hunger = 40
+	task.wait(1.5)
+	check(profile.hunger == Game.HUNGER_MAX, "Never Hungry keeps you full")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+	task.wait(5)
+	local okTp, whyTp = invoke("TeleportTo", p1, "square")
+	check(not okTp and tostring(whyTp):find("Wayfinder") ~= nil, "teleporting needs the Wayfinder pass")
+	check(invoke("StudioPurchase", p1, "pass", "Wayfinder"), "Wayfinder bought")
+	local campDrop = Zones.getPlace("camp:RaiderCamp").drop
+	check(invoke("TeleportTo", p1, "camp:RaiderCamp"), "Wayfinder teleports to a camp")
+	local at = rootOf(p1).Position
+	check(Vector3.new(at.X - campDrop.X, 0, at.Z - campDrop.Z).Magnitude < 3, "... to the edge of it (" .. math.floor(at.X) .. ", " .. math.floor(at.Z) .. ")")
+	check(not invoke("TeleportTo", p1, "range"), "Wayfinder has a cooldown")
+	check(not invoke("TeleportTo", p1, "nowhere"), "unknown places are refused")
+	task.wait(StoreInfo.WAYFINDER_COOLDOWN + 1)
+	check(invoke("TeleportTo", p1, "range"), "Wayfinder works again after the cooldown")
+	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 
 	step("admin: paragon, pets, collection, store")
 	local function admin(action, args)
@@ -635,6 +667,46 @@ task.spawn(function()
 		end
 	end
 	check(defending > 0, "villagers come out to fight (" .. defending .. ")")
+	-- the quest givers are busy: no quests during a raid
+	local someQuest = require(__proxy("Shared/Config/Quests")).List[1].id
+	local okQuest, whyQuest = invoke("AcceptQuest", p1, someQuest)
+	check(not okQuest and whyQuest == Raids.QUEST_BUSY, "no quests during a raid (" .. tostring(whyQuest) .. ")")
+	-- ...because they're breathing fire at raiders who come near their posts
+	local elder = nil
+	for _, model in ipairs(game:GetService("CollectionService"):GetTagged("QuestGiver")) do
+		if model:GetAttribute("GiverId") == "Elder" then
+			elder = model
+		end
+	end
+	local near = S.RaidService.raiders()[1]
+	if elder and near then
+		local look0 = elder:GetPivot().LookVector
+		local post = Zones.QuestGivers.Elder.position
+		near.root.CFrame = CFrame.new(post + Vector3.new(0, 3, -12))
+		local hp = near.humanoid.Health
+		task.wait(0.8)
+		check(near.dead or near.humanoid.Health < hp, "the Elder breathes fire at a raider near its post")
+		check(elder:GetPivot().LookVector:Dot(look0) < 0.999, "the Elder turns to face the raider")
+	end
+	-- villager fire can't finish a raider fresh off the boat, but can once it's been ashore a while
+	local villager = S.CivilianService.villagers()[2]
+	local fresh, old = S.RaidService.raiders()[1], S.RaidService.raiders()[2]
+	if villager and fresh and old and fresh ~= old then
+		fresh.landedAt = workspace:GetServerTimeNow()
+		for _ = 1, 60 do
+			S.RaidService.villagerPuff(villager, fresh)
+		end
+		check(not fresh.dead and fresh.humanoid.Health >= fresh.humanoid.MaxHealth * Raids.VILLAGER_FLOOR * 0.95, "villagers alone can't finish a raider fresh off the boat")
+		old.landedAt = workspace:GetServerTimeNow() - Raids.VILLAGER_FINISH_AFTER - 1
+		check(S.RaidService.villagerFloor(old) == 0, "the floor wears away the longer a raider is ashore")
+		for _ = 1, 60 do
+			if old.dead then
+				break
+			end
+			S.RaidService.villagerPuff(villager, old)
+		end
+		check(old.dead, "villagers can finish a raider that's been ashore a while")
+	end
 	local lit = nil
 	for _ = 1, 90 do
 		task.wait(1)

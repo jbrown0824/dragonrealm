@@ -423,29 +423,6 @@ end
 
 ---------------------------------------------------------------- full map
 
-local function placesList()
-	local list = {
-		{ "🏠 Your lair", nil, "home" },
-		{ "🐉 Town square", Vector3.new(0, 0, 0) },
-		{ "🎯 Training grounds", Zones.Training.dummies[2] },
-		{ "🏹 Target practice", Vector3.new(Zones.Range.matX, 0, Zones.Range.lanes[2]) },
-		{ "📯 War Horn (bosses)", Zones.WarHorn },
-	}
-	for _, shop in ipairs(Zones.Shops) do
-		table.insert(list, { ({ Armory = "⚔️ ", Exchange = "💰 ", Forge = "🔨 ", Alchemist = "🧪 ", Hatchery = "🥚 " })[shop.id] .. shop.name, shop.position })
-	end
-	local bzArea = Zones.getArea("BattleZone")
-	table.insert(list, { "🏟️ Battle Zone (PvP)", (bzArea.min + bzArea.max) / 2 })
-	for _, area in ipairs(Zones.HuntingGrounds) do
-		local a = Zones.getArea(area.id)
-		table.insert(list, { string.format("🦌 %s (Lv %d-%d)", a.name, area.levels[1], area.levels[2]), (area.min + area.max) / 2 })
-	end
-	for _, camp in ipairs(Zones.Camps) do
-		table.insert(list, { string.format("⚔️ %s (Lv %d-%d)", camp.name, camp.levels[1], camp.levels[2]), camp.center })
-	end
-	return list
-end
-
 function Map.refreshList()
 	local p = App.State.profile
 	if not p or not big.list then
@@ -491,16 +468,36 @@ function Map.refreshList()
 	if not any then
 		Theme.label({ Size = UDim2.new(1, -8, 0, 20), LayoutOrder = nextOrder(), TextSize = 12, TextColor3 = C.subtext, Text = "No quests to track. Talk to a dragon with a ❗", Parent = big.list })
 	end
-	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 16, TextColor3 = C.accent, Text = "🧭 Places", Parent = big.list })
-	for _, place in ipairs(placesList()) do
-		Theme.button(place[1], C.panel3, function()
-			local pos = place[3] == "home" and App.Waypoint.homePosition() or place[2]
+	-- Places: click one for a waypoint. With the Wayfinder pass, the 🌀 beside it teleports you.
+	local wayfinder = p.passes and p.passes.Wayfinder == true
+	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 16, TextColor3 = C.accent, Text = wayfinder and "🧭 Places  (🌀 = teleport)" or "🧭 Places", Parent = big.list })
+	for _, place in ipairs(Zones.places()) do
+		local row = Theme.make("Frame", { Size = UDim2.new(1, -8, 0, 26), BackgroundTransparency = 1, LayoutOrder = nextOrder(), Parent = big.list })
+		Theme.button(place.label, C.panel3, function()
+			local pos = place.id == "home" and App.Waypoint.homePosition() or place.pos
 			if pos then
-				App.Waypoint.setPlace(pos, (place[1]:gsub("^%S+%s", "")))
+				App.Waypoint.setPlace(pos, (place.label:gsub("^%S+%s", "")))
 				Map.refreshList()
 			end
-		end, { Size = UDim2.new(1, -8, 0, 26), LayoutOrder = nextOrder(), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = big.list })
+		end, { Size = UDim2.new(1, wayfinder and -40 or 0, 1, 0), TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+		if wayfinder then
+			Theme.button("🌀", Color3.fromRGB(70, 90, 170), function()
+				Map.teleport(place.id)
+			end, { Name = "Teleport", AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 36, 1, 0), TextSize = 14, Parent = row })
+		end
 	end
+end
+
+-- Wayfinder pass: jump to a place (the server checks the pass, combat and the cooldown).
+function Map.teleport(placeId: string)
+	task.spawn(function()
+		local ok, message = Remotes.func("TeleportTo"):InvokeServer(placeId)
+		if ok then
+			App.Windows.close("Map")
+		elseif message then
+			App.Windows.notify(message, C.bad, "🧭")
+		end
+	end)
 end
 
 local function buildBig()

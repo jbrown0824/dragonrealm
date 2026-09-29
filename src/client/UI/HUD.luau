@@ -33,7 +33,7 @@ local tooltip
 local tracker
 local skillBadge, petBadge
 local mobile = {}
-local starterAd
+local starterAd, rushAd
 
 -- Mouse = breath, Q = fireball, 1 = your dragon's own ability, 2-5 = your skill tree loadout.
 local SLOT_KEYS = { "Mouse", "Q", "1", "2", "3", "4", "5" }
@@ -453,38 +453,47 @@ local function buildTopBar()
 	end
 end
 
--- A "Starter Pack" button under the player card until you buy it or reach Store.STARTER_MAX_LEVEL.
--- Its green price tag says up front that it costs Robux.
-local function buildStarterAd()
-	starterAd = Theme.button("🎁 Starter Pack", Color3.fromRGB(200, 90, 40), function()
-		App.Store.open("StarterPack")
+-- One small Robux offer under the player card, with its price on it so it's clear it costs Robux:
+-- the Starter Pack until you buy it or reach Store.STARTER_MAX_LEVEL (it pulses gently), then the
+-- 9 R$ Gold Rush (calmer, no pulse). Clicking opens the Store; nothing pops up by itself.
+local function offerButton(name: string, text: string, color: Color3, width: number, productKey: string)
+	local button = Theme.button(text, color, function()
+		App.Store.open(productKey)
 	end, {
-		Name = "StarterAd",
+		Name = name,
 		Position = UDim2.fromOffset(12, 132),
-		Size = UDim2.fromOffset(230, 40),
+		Size = UDim2.fromOffset(width, 40),
 		TextSize = 18,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Font = Theme.Fonts.title,
 		Visible = false,
 		Parent = root,
 	})
-	Theme.make("UIPadding", { PaddingLeft = UDim.new(0, 12), Parent = starterAd })
-	Theme.stroke(starterAd, Color3.fromRGB(255, 230, 120), 2.5, 0)
+	Theme.make("UIPadding", { PaddingLeft = UDim.new(0, 12), Parent = button })
 	local tag = Theme.label({
 		Name = "Price",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -6, 0.5, 0),
-		Size = UDim2.fromOffset(64, 28),
+		Size = UDim2.fromOffset(58, 28),
 		BackgroundTransparency = 0,
 		BackgroundColor3 = Color3.fromRGB(40, 150, 70),
 		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = "R$ " .. StoreInfo.Products.StarterPack.robux,
+		Text = "R$ " .. StoreInfo.Products[productKey].robux,
 		ZIndex = 2,
-		Parent = starterAd,
+		Parent = button,
 	})
 	Theme.corner(tag, 8)
-	-- a gentle pulse so it gets noticed
+	return button
+end
+
+local function buildStarterAd()
+	starterAd = offerButton("StarterAd", "🎁 Starter Pack", Color3.fromRGB(200, 90, 40), 230, "StarterPack")
+	Theme.stroke(starterAd, Color3.fromRGB(255, 230, 120), 2.5, 0)
+	rushAd = offerButton("GoldRushAd", "💸 Gold Rush", Color3.fromRGB(120, 95, 35), 200, "GoldRush")
+	rushAd.TextSize = 17
+	Theme.stroke(rushAd, Color3.fromRGB(255, 215, 90), 1.5, 0.4)
+	-- a gentle pulse so the Starter Pack gets noticed
 	task.spawn(function()
 		local t = 0
 		while true do
@@ -571,6 +580,7 @@ local function mobileLayout()
 	tracker.Position = UDim2.fromOffset(12, 104)
 	tracker.Size = UDim2.fromOffset(270, 0)
 	starterAd.Position = UDim2.fromOffset(128, 196)
+	rushAd.Position = UDim2.fromOffset(128, 196)
 	tooltip.Visible = false
 end
 
@@ -736,6 +746,7 @@ local function refresh()
 	local class = Classes.get(p.class)
 	card.class.Text = class and string.format("Lv %d%s %s", p.level, (p.paragon or 0) > 0 and (" 💫" .. p.paragon) or "", class.name) or "Choose your dragon!"
 	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL
+	rushAd.Visible = class ~= nil and not starterAd.Visible
 	card.icon.Text = class and ({ Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" })[class.id] or "🐉"
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)
 	card.glory.Text = "⚔️ " .. Util.formatNumber(p.glory)
