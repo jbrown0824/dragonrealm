@@ -7,7 +7,7 @@
 --   World:   start a boss, respawn camps, refill chests, restock or close the shops, set the
 --            time of day, start or end a night raid, burn and rebuild houses, jump into a dungeon
 --   Balance: live multipliers for ability damage/cooldowns, skill values, global rates, the
---            lifesteal / regen caps and each dungeon, plus "Print changes" to copy the new
+--            lifesteal / regen caps, the level gap and each dungeon, plus "Print changes" to copy the new
 --            numbers into the Config files
 
 local Players = game:GetService("Players")
@@ -26,6 +26,7 @@ local StoreInfo = require(Shared.Config.Store)
 local Dungeons = require(Shared.Config.Dungeons)
 local Zones = require(Shared.Config.Zones)
 local Tuning = require(Shared.Tuning)
+local StatCalc = require(Shared.StatCalc)
 local TalentUtil = require(Shared.TalentUtil)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
@@ -431,6 +432,18 @@ function Admin.refreshBalance()
 	for _, key in ipairs(Tuning.CAP_KEYS) do
 		local v = Tuning.global(key)
 		stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS[key], v, string.format("%s%% → %s%%%s", Util.fmt(capBase[key]), Util.fmt(Util.round(capBase[key] * v, 2)), key:find("egen") and " of max health /s" or ""), function(x)
+			act("tuneGlobal", { key = key, value = x }, true)
+		end)
+	end
+
+	header(balanceList, nextOrder(), "📶 Level gap (damage vs lower / higher levels)")
+	local gapField = { levelGapLinear = "linear", levelGapCurve = "curve", levelGapCap = "cap" }
+	for _, key in ipairs(Tuning.LEVEL_GAP_KEYS) do
+		local examples = {}
+		for _, d in ipairs({ 2, 5, 10, 15 }) do
+			table.insert(examples, string.format("+%d: x%s", d, Util.fmt(Util.round(StatCalc.levelGap(d), 2))))
+		end
+		stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS[key], Tuning.global(key), string.format("%s = %s  (%s)", gapField[key], Util.fmt(Util.round(Game.LEVEL_GAP[gapField[key]] * Tuning.global(key), 4)), table.concat(examples, ", ")), function(x)
 			act("tuneGlobal", { key = key, value = x }, true)
 		end)
 	end

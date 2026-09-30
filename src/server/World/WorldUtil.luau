@@ -115,6 +115,19 @@ function WorldUtil.questGiver(parent: Instance, giverId: string, at: Vector3, fa
 end
 
 -- Distance from p to the segment a-b, ignoring height.
+-- Let an anchored enemy go again (after a pose, a leap, a throne): unanchored, with the server
+-- keeping its physics. Unanchoring hands an assembly back to automatic network ownership, so the
+-- nearest player's client would simulate it (Haldor stood up sunk into the floor that way).
+function WorldUtil.release(root: BasePart, humanoid: Humanoid?)
+	root.Anchored = false
+	pcall(function()
+		root:SetNetworkOwner(nil)
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end)
+end
+
 function WorldUtil.flatDistToSegment(p: Vector3, a: Vector3, b: Vector3): number
 	local ab = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
 	local ap = Vector3.new(p.X - a.X, 0, p.Z - a.Z)

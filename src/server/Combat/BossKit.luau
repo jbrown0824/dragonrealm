@@ -35,6 +35,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Dungeons = require(ReplicatedStorage:WaitForChild("Shared").Config.Dungeons)
+local WorldUtil = require(script.Parent.Parent.World.WorldUtil)
 
 local BossKit = {}
 
@@ -90,7 +91,8 @@ end
 
 local function damage(brain, player: Player, amount: number)
 	brain.boss.lastCombat = os.clock()
-	return brain.S.CombatService.damagePlayer(player, amount, { sourceLevel = brain.level })
+	-- (world bosses spawn above the group's level: no level gap in the arena)
+	return brain.S.CombatService.damagePlayer(player, amount, { sourceLevel = brain.level, noLevelGap = brain.boss.arena or nil })
 end
 
 local function hitOf(brain, cfg): number
@@ -148,7 +150,7 @@ local function glide(brain, time: number, steps: number, at: (number) -> Vector3
 		end
 	end
 	if root.Parent then
-		root.Anchored = false
+		WorldUtil.release(root)
 	end
 end
 
@@ -359,8 +361,9 @@ MOVE.Harpoon = function(brain, cfg, _, victim)
 	local from = root.Position + Vector3.new(0, 2 * boss.scale, 0)
 	local to = victim.root.Position
 	local travel = (to - from).Magnitude / HARPOON_SPEED
+	local reel = Dungeons.REEL_TIME
 	face(brain, to)
-	brain.holdUntil = os.clock() + travel
+	brain.holdUntil = os.clock() + travel + reel
 	boss.model:SetAttribute("Throw", os.clock())
 	vfx(brain, { kind = "throw", from = from, to = to, time = travel, style = "chain" })
 	local amount = hitOf(brain, cfg)
@@ -372,15 +375,29 @@ MOVE.Harpoon = function(brain, cfg, _, victim)
 		if not character then
 			return
 		end
+		-- hooked: the chain goes taut and the dragon is dragged in (its own client moves it, so it
+		-- slides the whole way; everyone sees the chain between them)
 		local away = flat(vroot.Position - root.Position)
 		away = away.Magnitude > 1 and away.Unit or root.CFrame.LookVector
 		local spot = brain.ground(inRoom(brain, root.Position + away * (8 + 4 * boss.scale), 6))
-		damage(brain, victim.player, amount)
-		brain.S.PlayerService.teleport(victim.player, CFrame.lookAt(spot + Vector3.new(0, 5, 0), Vector3.new(root.Position.X, spot.Y + 5, root.Position.Z)))
-		vfx(brain, { kind = "harpooned", userId = victim.player.UserId, from = from, to = spot + Vector3.new(0, 4, 0) })
-		brain.S.CombatService.applySlow(character, 40, 3)
+		vfx(brain, { kind = "harpooned", userId = victim.player.UserId, model = boss.model, from = from, to = spot + Vector3.new(0, 4, 0), time = reel })
+		task.delay(reel, function()
+			if boss.dead or brain.over() then
+				return
+			end
+			local c2, _, r2 = brain.S.PlayerService.getCharacter(victim.player)
+			if not c2 then
+				return
+			end
+			if flat(r2.Position - spot).Magnitude > 12 then
+				-- (didn't get dragged all the way: lag, or a client that ignored it)
+				brain.S.PlayerService.teleport(victim.player, CFrame.lookAt(spot + Vector3.new(0, 5, 0), Vector3.new(root.Position.X, spot.Y + 5, root.Position.Z)))
+			end
+			damage(brain, victim.player, amount)
+			brain.S.CombatService.applySlow(c2, 40, 3)
+		end)
 	end)
-	return travel + 0.6
+	return travel + reel + 0.4
 end
 
 -- Fire along a line across the room, through one of the dragons: telegraphed, then it burns.
@@ -678,7 +695,7 @@ function BossKit.reset(brain)
 	brain.startedAt = nil
 	table.clear(brain.nextMove)
 	if brain.boss.root.Parent then
-		brain.boss.root.Anchored = false
+		WorldUtil.release(brain.boss.root)
 	end
 end
 

@@ -46,9 +46,24 @@ local function dungeonClientScenario(me)
 		end
 		return false
 	end
+	-- the quest markers of a giver (every copy of it: a dungeon keeper stands outside and inside)
+	local function markersOf(giverId: string, within: Instance?)
+		local list = {}
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			local model = child.Name == "QuestMarker" and child.Adornee and child.Adornee.Parent
+			if model and model:GetAttribute("GiverId") == giverId and (not within or model:IsDescendantOf(within)) then
+				table.insert(list, child:FindFirstChildOfClass("TextLabel"))
+			end
+		end
+		return list
+	end
 	Remotes.func("AdminAction"):InvokeServer("setLevel", { level = 14 })
 	task.wait(1.5)
 	check(castleButton() ~= nil and not castleButton().Visible, "no 🏰 button before level 15")
+	-- Ylva's quest wants level 15: a grey ! over her until then
+	local ylvaMark = markersOf("Ylva")[1]
+	local grey = ylvaMark and ylvaMark.TextColor3
+	check(ylvaMark and ylvaMark.Text == "!" and math.abs(grey.R - grey.B) < 0.1 and grey.R < 0.7, "a grey ! over a quest you're not high enough level for (" .. tostring(ylvaMark and ylvaMark.Text) .. ")")
 	Remotes.func("AdminAction"):InvokeServer("setLevel", { level = 15 })
 	task.wait(6) -- (the unlock news comes after the level-up banner)
 	check(castleButton() and castleButton().Visible, "the 🏰 button appears at level 15")
@@ -88,6 +103,17 @@ local function dungeonClientScenario(me)
 	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
 	check(Lighting.ClockTime == 0 and Lighting.Ambient == DungeonInfo.List.Barrow.theme.ambient, "the cave's own light inside (no sun)")
 	check(hasText(Windows.guis.HUD, "The Draugr Barrow"), "the minimap shows the dungeon's name")
+	-- Ylva stands inside too, with her own marker
+	local runIn = S.DungeonService.runOf(me)
+	task.wait(0.5)
+	local inner = markersOf("Ylva", runIn.built.model)[1]
+	check(inner and inner.Text ~= "", "the keeper inside the dungeon has her quest marker too (" .. tostring(inner and inner.Text) .. ")")
+	-- no waypoint to anything outside the dungeon while you're in it
+	local Waypoint = mod("Controllers/Waypoint")
+	local clientProfile = mod("Controllers/State").profile
+	clientProfile.quests.active.C1 = 0
+	check(Waypoint.questTarget("C1") == nil, "in a dungeon the quest guide never points outside it")
+	clientProfile.quests.active.C1 = nil
 	-- the minimap draws the dungeon itself, and a click on it opens the dungeon's map
 	task.wait(0.5)
 	local minimap = Windows.guis.HUD:FindFirstChild("Minimap", true)
@@ -120,7 +146,21 @@ local function dungeonClientScenario(me)
 	task.wait(0.3)
 	local leg = seated and seated:FindFirstChild("LegL", true)
 	cam.CFrame = camBefore
+	local knee = seated and seated:FindFirstChild("KneeL", true)
 	check(leg and math.abs(leg.Transform.LookVector.Y) > 0.5, "Haldor sits on his throne, legs bent")
+	check(knee and math.abs(knee.Transform.LookVector.Y) > 0.5, "...at the knee, shins down")
+	-- on one knee (a second life's collapse): the right shin flat behind, the left foot forward
+	if seated then
+		local at = seated:GetPivot().Position
+		cam.CFrame = CFrame.lookAt(at + Vector3.new(0, 20, -120), at)
+		seated:SetAttribute("Pose", "kneel")
+		task.wait(0.3)
+		local kneeR, legL = seated:FindFirstChild("KneeR", true), seated:FindFirstChild("LegL", true)
+		check(kneeR and legL and math.abs(kneeR.Transform.LookVector.Y) > 0.9 and legL.Transform.LookVector.Y > 0.9, "kneeling: one knee down, the other foot forward")
+		seated:SetAttribute("Pose", "sit")
+		task.wait(0.2)
+		cam.CFrame = camBefore
+	end
 	-- the hidden hoard: a chest that shows open (and no prompt) once you've had your share
 	local run = S.DungeonService.runOf(me)
 	local hoardPrompt = run.built.chest:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -146,6 +186,13 @@ local function dungeonClientScenario(me)
 	me:SetAttribute("DungeonCleared", nil)
 	Movement.setVertical(0)
 	Movement.toggleFlight()
+	-- hooked by a harpoon: dragged along to the boss
+	Movement.reel(r.Position + Vector3.new(30, 0, 0), 0.5)
+	task.wait(0.1)
+	local lv2 = r:FindFirstChildOfClass("LinearVelocity")
+	check(lv2 and lv2.Enabled and lv2.VectorVelocity.X > 20, "reeled in by a harpoon: dragged toward the boss")
+	task.wait(0.6)
+	check(not lv2.Enabled, "...and let go at the end")
 	-- knocked out alone: the death screen offers a way out
 	local _, hum = S.PlayerService.getCharacter(me)
 	hum.Health = 0
@@ -156,6 +203,27 @@ local function dungeonClientScenario(me)
 	task.wait(1.5)
 	check(me:GetAttribute("InDungeon") == nil and me.Character ~= nil, "Leave dungeon takes you back out")
 	check(not death.Visible, "...and clears the death screen")
+
+	-- the quest guide: pick the quest it's following to turn it off (remembered), and back on
+	local sp = S.PlayerService.getProfile(me)
+	sp.quests.active.C1 = 0
+	clientProfile = mod("Controllers/State").profile
+	clientProfile.quests.active.C1 = 0
+	Waypoint.trackQuest("C1")
+	task.wait(0.3)
+	check(Waypoint.get() ~= nil and Waypoint.get().questId == "C1", "the guide follows a quest you pick")
+	Waypoint.trackQuest("C1")
+	task.wait(0.5)
+	check(not Waypoint.guiding() and Waypoint.get() == nil and sp.settings.questGuide == false, "picking it again turns the quest guide off (and it's remembered)")
+	Windows.open("Map")
+	task.wait(0.3)
+	check(hasText(Windows.registry.Map.frame, "Guide me to my quests"), "the map offers to turn it back on")
+	click(Windows.registry.Map.frame, "Guide me to my quests")
+	task.wait(0.5)
+	check(Waypoint.guiding() and sp.settings.questGuide == true, "...and it's back on")
+	Windows.close()
+	sp.quests.active.C1 = nil
+	mod("Controllers/State").profile.quests.active.C1 = nil
 
 	-- a friend invites you: a toast with Join; their ready check shows Enter on the pill
 	local buddy = addPlayer(301, "Pal")
@@ -438,6 +506,36 @@ task.spawn(function()
 		check(sparkly, "the golden pet sparkles")
 		mod("UI/Pets").refresh()
 		Windows.close("Pets")
+		-- in a boss fight the pets' nametags hide
+		me:SetAttribute("InBossFight", true)
+		task.wait(0.3)
+		local shown = 0
+		for _, m in ipairs(petFolder:GetChildren()) do
+			local tag = m.PrimaryPart and m.PrimaryPart:FindFirstChild("PetTag")
+			if tag and tag.Enabled then
+				shown += 1
+			end
+		end
+		check(shown == 0, "in a boss fight the pets' nametags hide")
+		me:SetAttribute("InBossFight", false)
+		-- knocked out: your pets settle on the ground beside you instead of flapping over you
+		local character = me.Character
+		local root = character.HumanoidRootPart
+		character:SetAttribute("KnockedOut", true)
+		task.wait(1)
+		local mine, low = 0, 0
+		for _, m in ipairs(petFolder:GetChildren()) do
+			local p = m.PrimaryPart and m.PrimaryPart.Position
+			if p and (Vector3.new(p.X, 0, p.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude < 25 then
+				mine += 1
+				if p.Y < root.Position.Y then
+					low += 1
+				end
+			end
+		end
+		check(mine >= 1 and low == mine, string.format("a knocked-out dragon's pets settle beside it (%d/%d)", low, mine))
+		character:SetAttribute("KnockedOut", nil)
+		task.wait(0.5)
 	end
 
 	-- camp chests are per dragon: the lid, treasure and prompt follow MY timer
@@ -812,10 +910,14 @@ task.spawn(function()
 	task.wait(0.5)
 	check(villager.model:GetAttribute("KnockedOut") == true, "a villager is knocked out")
 	-- the quest givers show crossed swords while they fight, and their quests again afterwards
+	local QuestsInfo = require(__proxy("Shared/Config/Quests"))
 	local function markerTexts(): { [string]: number }
+		-- (the village's givers: the dungeon keepers don't fight raids, so they keep their ❗)
 		local texts = {}
 		for _, child in ipairs(me.PlayerGui:GetChildren()) do
-			if child.Name == "QuestMarker" then
+			local model = child.Name == "QuestMarker" and child.Adornee and child.Adornee.Parent
+			local giver = model and QuestsInfo.Givers[model:GetAttribute("GiverId") or ""]
+			if child.Name == "QuestMarker" and not (giver and giver.dungeon) then
 				local label = child:FindFirstChildOfClass("TextLabel")
 				texts[label.Text] = (texts[label.Text] or 0) + 1
 			end

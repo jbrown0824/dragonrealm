@@ -473,16 +473,22 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?): num
 	end
 
 	if profile.level > startLevel then
+		local before = st.stats
 		PlayerService.recompute(player)
 		local _, humanoid = PlayerService.getCharacter(player)
 		if humanoid then
 			humanoid.Health = humanoid.MaxHealth
 		end
 		local levels = profile.level - startLevel
+		-- what the level gave you, so it feels like one
+		local gains = ""
+		if before and st.stats then
+			gains = string.format("\n+%d health  •  +%d attack", math.floor(st.stats.maxHealth - before.maxHealth + 0.5), math.floor(st.stats.attack - before.attack + 0.5))
+		end
 		Remotes.event("Announce"):FireClient(player, {
 			title = "LEVEL UP!",
-			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, levels, levels > 1 and "s" or "",
-				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or ""),
+			text = string.format("You are now level %d  •  +%d skill point%s%s%s", profile.level, levels, levels > 1 and "s" or "",
+				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or "", gains),
 			color = Color3.fromRGB(255, 215, 80),
 			duration = 4,
 		})
@@ -934,7 +940,7 @@ function PlayerService.start()
 	-- small per-player UI preferences (only known keys, only booleans)
 	Remotes.event("SetSetting").OnServerEvent:Connect(function(player, key, value)
 		local profile = PlayerService.getProfile(player)
-		if profile and key == "minimap" and type(value) == "boolean" then
+		if profile and (key == "minimap" or key == "questGuide") and type(value) == "boolean" then
 			profile.settings[key] = value
 			PlayerService.markDirty(player)
 		end

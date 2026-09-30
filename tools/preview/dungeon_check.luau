@@ -8,6 +8,11 @@
 --   * each monster, boss, the keeper, the provisions and the hoard stand out of the lava and can
 --     walk to the map; monsters of different packs start Dungeons.PACK_SPACING apart
 --   * every boss room has its doors, and every patrol route is walkable
+--   * a rune shield's guard spots (phases[].shield.spots) stand on the floor of the boss's room,
+--     out of the lava and off any ledge, with a straight walk from the room's middle
+--   * the "Way out" signs are up
+--   * each cave mouth out in the viking lands is open: no hill or rock across the doorway, the
+--     passage behind it, or the way up to it (the hill once buried it), and a hill behind it
 -- Prints a line per dungeon and "N dungeon problems" at the end. With DUNGEON_MAP = "<id>" set
 -- (prepend a line), it prints the floor map of that dungeon instead ("x z floorY material" rows,
 -- for dungeon_map.py).
@@ -240,8 +245,47 @@ local function check(def)
 			problem(spec.room .. " (a boss room) has no doors")
 		end
 	end
+	-- a rune shield's guards: fixed spots on the boss room's floor
+	for _, spec in ipairs({ def.miniBoss, def.boss }) do
+		local b = Dungeons.Bosses[spec.id]
+		local room = nil
+		for _, sp in ipairs(def.spaces) do
+			if sp.id == spec.room then
+				room = sp
+			end
+		end
+		for _, ph in ipairs(b.phases or {}) do
+			for k, spot in ipairs(ph.shield and ph.shield.spots or {}) do
+				local label = string.format("%s's guard spot %d", spec.id, k)
+				marker(label, spot)
+				if DungeonNav.inHazard(def, spot) then
+					problem(label .. " stands in lava")
+				end
+				for _, f in ipairs(def.features or {}) do
+					if f.kind == "ledge" and spot.X >= f.min.X - 4 and spot.X <= f.max.X + 4 and spot.Z >= f.min.Z - 4 and spot.Z <= f.max.Z + 4 then
+						problem(label .. " is on (or in) a ledge")
+					end
+				end
+				if not room or not DungeonNav.spaceHas(room, spot) then
+					problem(label .. " isn't in " .. spec.room)
+				elseif not DungeonNav.direct(def, Vector3.new(room.at.X, spot.Y, room.at.Z), spot) then
+					problem(label .. ": no straight walk from the middle of " .. spec.room)
+				end
+			end
+		end
+	end
+	-- the way out signs
+	local signs = 0
+	for _, d in ipairs(built.model:GetDescendants()) do
+		if d.Name == "WayOutSign" then
+			signs += 1
+		end
+	end
+	if signs == 0 then
+		problem("no Way out signs")
+	end
 	problems += #found
-	print(string.format("%s %-8s %d spaces, %d packs, %d map nodes, %d doors, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #def.spaces, #def.packs, #DungeonNav.graph(def).nodes, #(built.doors or {}), #found))
+	print(string.format("%s %-8s %d spaces, %d packs, %d map nodes, %d doors, %d way out signs, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #def.spaces, #def.packs, #DungeonNav.graph(def).nodes, #(built.doors or {}), signs, #found))
 	for _, msg in ipairs(found) do
 		print("     " .. msg)
 	end
@@ -250,6 +294,64 @@ end
 for _, id in ipairs(Dungeons.Order) do
 	if not DUNGEON_MAP or DUNGEON_MAP == id then
 		check(Dungeons.List[id])
+	end
+end
+
+-- The cave mouths out in the viking lands (on a flat patch of the world's ground block).
+local function checkEntrance(def)
+	local found = {}
+	local e = def.entrance
+	workspace.Terrain:FillBlock(CFrame.new(e.X, -8, e.Z), Vector3.new(240, 16, 240), Enum.Material.Grass)
+	local model = DungeonBuilder.entrance(folder, def)
+	TERRAIN_PREPARE() -- (index the new terrain edits)
+	local M = DungeonBuilder.MOUTH
+	local top = M.leg + M.radius
+	local face = def.entranceFacing.Unit
+	local base = Vector3.new(e.X, 0, e.Z)
+	local cf = CFrame.lookAt(base, base + face)
+	-- solid terrain across the doorway's height at a spot (in the mouth's frame)
+	local function blocked(dx: number, dz: number): boolean
+		local p = (cf * CFrame.new(dx, 0, dz)).Position
+		for _, iv in ipairs(solids(p.X, p.Z)) do
+			if iv[2] > base.Y + 1 and iv[1] < base.Y + top - 1 then
+				return true
+			end
+		end
+		return false
+	end
+	for _, dx in ipairs({ -(M.half - 2), 0, M.half - 2 }) do
+		for _, dz in ipairs({ -14, -8, -3, 2, 8, M.depth - 3 }) do
+			if blocked(dx, dz) then
+				table.insert(found, string.format("terrain in the %s at (%d, %d)", dz < 0 and "way up to the mouth" or "passage", dx, dz))
+			end
+		end
+	end
+	local behind = (cf * CFrame.new(0, 0, M.depth + 8)).Position
+	local hill = 0
+	for _, iv in ipairs(solids(behind.X, behind.Z)) do
+		hill = math.max(hill, iv[2])
+	end
+	if hill < base.Y + top then
+		table.insert(found, string.format("no hill behind the mouth (%.0f high)", hill - base.Y))
+	end
+	-- nothing solid standing in the way up to the doorway
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part.CanCollide then
+			local rel = cf:PointToObjectSpace(part.Position)
+			if math.abs(rel.X) < M.half and rel.Z < -3 and rel.Z > -14 and rel.Y < top then
+				table.insert(found, string.format("a part (%s) stands in front of the doorway", part.Name))
+			end
+		end
+	end
+	problems += #found
+	print(string.format("%s %-8s cave mouth, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #found))
+	for _, msg in ipairs(found) do
+		print("     " .. msg)
+	end
+end
+if not DUNGEON_MAP then
+	for _, id in ipairs(Dungeons.Order) do
+		checkEntrance(Dungeons.List[id])
 	end
 end
 if not DUNGEON_MAP then

@@ -47,6 +47,13 @@ Game.LIFESTEAL_CAP = 30
 Game.REGEN_CAP = 3
 Game.EXTRA_LIFESTEAL_CAP = 8
 Game.EXTRA_REGEN_CAP = 0.8
+
+-- Level gap: hitting something lower level than you hurts it more, something higher level less.
+-- With d = your level - theirs: d > 0 multiplies the damage by 1 + linear*d + curve*d^2 (mild for
+-- the first few levels, bigger past 10), at most `cap`; d < 0 divides by the same (at least
+-- `floor`). It works both ways (dragons hitting monsters, monsters hitting dragons), but not in
+-- PvP or the world boss arena. The admin Balance page tunes linear, curve and cap.
+Game.LEVEL_GAP = { linear = 0.02, curve = 0.004, cap = 2.5, floor = 0.4 }
 Game.DEFENSE_CONSTANT = 100 -- damage reduction = def / (def + DEFENSE_CONSTANT + 5 * attackerLevel)
 Game.MAX_DAMAGE_REDUCTION = 0.75
 Game.PVP_DAMAGE_MULT = 0.45 -- keeps battles in the Battle Zone from ending instantly

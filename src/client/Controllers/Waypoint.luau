@@ -1,8 +1,12 @@
 -- Waypoints: one destination at a time, shown as a floating pin with the distance, a glowing
 -- guide line from your dragon, and a pin on the minimap and the full map.
---   * By default it follows your current quest (where to go, then back to the quest giver).
---   * Picking a place on the map (or a quest to track) overrides that.
+--   * By default it follows your current quest (where to go, then back to the quest giver), but
+--     not trips into a dungeon: those only show once you pick that quest.
+--   * Picking a place on the map (or a quest to track) overrides that. Picking the quest it's
+--     already following turns quest guiding off (saved as the "questGuide" setting) until you
+--     pick one again.
 --   * Places you pick clear themselves when you arrive.
+--   * Inside a dungeon it never points outside it (only at the keeper standing in there).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,6 +17,7 @@ local Quests = require(Shared.Config.Quests)
 local Dungeons = require(Shared.Config.Dungeons)
 local Zones = require(Shared.Config.Zones)
 local Signal = require(Shared.Signal)
+local Remotes = require(Shared.Remotes)
 
 local Waypoint = {}
 local App
@@ -21,6 +26,7 @@ local player = Players.LocalPlayer
 local current = nil -- { pos, label, source ("quest" | "place"), questId? }
 local trackedQuest = nil -- quest id the player chose to follow (nil = the first active quest)
 local suppressed = false -- the tutorial draws its own guide
+local appliedSetting = false -- (the saved "questGuide" setting, read once the profile arrives)
 local marker, markerLabel, anchor, beam, beamStart
 local ARRIVE_DISTANCE = 30
 
@@ -71,14 +77,25 @@ local function nearestFishingSpot(from: Vector3): Vector3
 end
 
 -- Where a quest giver stands: a dungeon keeper also stands inside its dungeon, so while you're in
--- that dungeon it's the one by the entrance in there.
-local function giverPosition(giverId: string): Vector3
+-- that dungeon it's the one by the entrance in there. From inside a dungeon, nobody outside it
+-- (nil: no pin 3,000 studs away).
+local function giverPosition(giverId: string): Vector3?
 	local giver = Quests.Givers[giverId]
 	local run = App.State.dungeon and App.State.dungeon.run
-	if giver.dungeon and run and run.dungeonId == giver.dungeon and run.origin then
-		return run.origin + Dungeons.get(giver.dungeon).keeper.at
+	if player:GetAttribute("InDungeon") then
+		if giver.dungeon and run and run.dungeonId == giver.dungeon and run.origin then
+			return run.origin + Dungeons.get(giver.dungeon).keeper.at
+		end
+		return nil
 	end
 	return Zones.QuestGivers[giverId].position
+end
+
+-- A quest whose next step is going into a dungeon (group content you head for from the 🏰
+-- window): the guide only points there if you pick that quest yourself.
+local function dungeonTrip(quest, progress: number): boolean
+	local o = quest.objective
+	return (o.type == "dungeonClear" or o.type == "dungeonKill") and progress < o.count
 end
 
 -- Where to go for a quest right now: returns position, label (or nil if it can be done anywhere).
@@ -91,7 +108,11 @@ function Waypoint.questTarget(questId: string)
 	end
 	local giver = Quests.Givers[quest.giver]
 	if progress >= quest.objective.count then
-		return giverPosition(quest.giver), "Return to " .. giver.name
+		local pos = giverPosition(quest.giver)
+		return pos, pos and "Return to " .. giver.name or nil
+	end
+	if player:GetAttribute("InDungeon") then
+		return nil -- (nothing out there to point at from in here)
 	end
 	local o = quest.objective
 	local level = p.level
@@ -172,10 +193,36 @@ function Waypoint.setPlace(pos: Vector3, label: string)
 	apply({ pos = pos, label = label, source = "place" })
 end
 
--- Follow a quest (nil = follow whatever quest comes first).
+local function saveGuide(on: boolean)
+	local p = App.State.profile
+	if p and p.settings and (p.settings.questGuide ~= false) ~= on then
+		p.settings.questGuide = on
+		Remotes.event("SetSetting"):FireServer("questGuide", on)
+	end
+end
+
+-- Follow a quest (nil = follow whatever quest comes first). Picking the quest it's already
+-- following turns quest guiding off instead.
 function Waypoint.trackQuest(questId: string?)
+	if questId and current and current.source == "quest" and current.questId == questId then
+		Waypoint.stopGuiding()
+		return
+	end
 	trackedQuest = questId
+	saveGuide(true)
 	Waypoint.refreshQuest()
+end
+
+-- No quest pin or guide line until a quest is picked again (remembered between sessions).
+function Waypoint.stopGuiding()
+	trackedQuest = false
+	apply(nil)
+	saveGuide(false)
+end
+
+-- Is it following quests at all?
+function Waypoint.guiding(): boolean
+	return trackedQuest ~= false
 end
 
 function Waypoint.clear()
@@ -185,21 +232,33 @@ end
 
 -- Recompute the quest waypoint (called whenever the profile changes).
 function Waypoint.refreshQuest()
-	if not App.State.profile then
+	local p = App.State.profile
+	if not p then
 		return
+	end
+	if not appliedSetting and p.settings then
+		appliedSetting = true
+		if p.settings.questGuide == false and trackedQuest == nil then
+			trackedQuest = false
+		end
 	end
 	if current and current.source == "place" then
 		return
 	end
 	if trackedQuest == false then
+		if current then
+			apply(nil)
+		end
 		return
 	end
 	local ids = {}
-	if trackedQuest and App.State.profile.quests.active[trackedQuest] ~= nil then
+	if trackedQuest and p.quests.active[trackedQuest] ~= nil then
 		table.insert(ids, trackedQuest)
 	end
 	for _, q in ipairs(activeQuests()) do
-		table.insert(ids, q.id)
+		if not dungeonTrip(q, p.quests.active[q.id] or 0) then
+			table.insert(ids, q.id)
+		end
 	end
 	for _, id in ipairs(ids) do
 		local pos, label = Waypoint.questTarget(id)
@@ -269,7 +328,13 @@ function Waypoint.init(app)
 		local flat = Vector3.new(current.pos.X - root.Position.X, 0, current.pos.Z - root.Position.Z).Magnitude
 		if current.source == "place" and flat < ARRIVE_DISTANCE then
 			App.Notifications.toast("You've arrived at " .. current.label .. "!", Color3.fromRGB(140, 230, 120), "📍")
-			trackedQuest = nil -- go back to following quests
+			-- go back to following quests (unless guiding was turned off)
+			local p = App.State.profile
+			if p and p.settings and p.settings.questGuide == false then
+				trackedQuest = false
+			else
+				trackedQuest = nil
+			end
 			apply(nil)
 			Waypoint.refreshQuest()
 			return

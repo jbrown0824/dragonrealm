@@ -1086,14 +1086,16 @@ do
 		local boss = Dungeons.Bosses[def.boss.id]
 		local bossLevel = def.level + 2
 		local bossBlock = 1 - defense / (defense + Game.DEFENSE_CONSTANT + 5 * bossLevel)
+		-- (the level gap: the boss is 2 levels above these dragons, the monsters level with them)
+		local toBoss, fromBoss = StatCalc.levelGap(level - bossLevel), StatCalc.levelGap(bossLevel - level)
 		local perHit = 0 -- the boss's damage per second on the dragon it's fighting (per unit of `hit`)
 		for name, cfg in pairs(boss.moves) do
 			perHit += (cfg.mult or 1) / cfg.cooldown * (name == "Cleave" and 1 or DODGE)
 		end
 		for n = 1, 4 do
 			local bossHp = boss.health * Dungeons.groupHealth(n) * (1 + (boss.secondLife and boss.secondLife.health or 0))
-			local bossTime = bossHp / (dps * n)
-			local bossDps = boss.hit * Dungeons.groupDamage(n) * perHit * bossBlock
+			local bossTime = bossHp / (dps * toBoss * n)
+			local bossDps = boss.hit * Dungeons.groupDamage(n) * perHit * bossBlock * fromBoss
 			local bossLasts = hp * n / bossDps -- (it turns on each dragon in turn)
 			local packHp, packHit = 0, 0
 			for _, pack in ipairs(def.packs) do
@@ -1101,7 +1103,7 @@ do
 					local mdef = Enemies.Dungeon[m[1]]
 					local mob = def.level
 					packHp += mdef.health * (1 + Enemies.HEALTH_PER_LEVEL * (mob - 1)) * Dungeons.groupHealth(n) / #def.packs
-					local hit = mdef.damage * (1 + Enemies.DAMAGE_PER_LEVEL * (mob - 1)) * Dungeons.groupDamage(n)
+					local hit = mdef.damage * (1 + Enemies.DAMAGE_PER_LEVEL * (mob - 1)) * Dungeons.groupDamage(n) * StatCalc.levelGap(mob - level)
 					hit *= 1 - defense / (defense + Game.DEFENSE_CONSTANT + 5 * mob)
 					packHit += hit / mdef.attackCooldown * SPREAD / #def.packs
 				end
@@ -1156,6 +1158,99 @@ do
 			end
 		end
 		check(patrols >= 1 and wanderers >= 3, id .. ": a patrol and some wanderers (not all standing still)")
+	end
+end
+
+---------------------------------------------------------------- levels, the level gap, lifesteal paths
+do
+	-- Levelling up counts for more (each level ~3.3% health and ~3.9% attack at 15, was ~2.4% and
+	-- ~3%), gear a little less, so a dragon with Rare gear of its level is about as strong as it
+	-- was before (these are the old numbers: health, attack).
+	local BEFORE = {
+		Shadowstalker = { [5] = { 298, 35.2 }, [15] = { 633, 76.2 }, [30] = { 1134, 136.7 } },
+		Stormwing = { [5] = { 282, 33.4 }, [15] = { 597, 72.4 }, [30] = { 1068, 129.9 } },
+		Behemoth = { [5] = { 394, 38.4 }, [15] = { 819, 82.4 }, [30] = { 1455, 147.4 } },
+		Frostwyrm = { [5] = { 314, 33.8 }, [15] = { 659, 73.8 }, [30] = { 1175, 132.8 } },
+		Venomspine = { [5] = { 304, 32.0 }, [15] = { 639, 70.0 }, [30] = { 1140, 126.0 } },
+	}
+	for _, classId in ipairs(Classes.Order) do
+		for _, level in ipairs({ 5, 15, 30 }) do
+			local st = StatCalc.compute(classId, level, gearAt(level, "Rare"), {}, {})
+			local old = BEFORE[classId][level]
+			local band = level == 5 and 0.08 or 0.07
+			check(math.abs(st.maxHealth / old[1] - 1) <= band and math.abs(st.attack / old[2] - 1) <= band,
+				string.format("%s %d with at-level Rare gear is about as strong as before (%d hp, %.1f atk; was %d, %.1f)", classId, level, st.maxHealth, st.attack, old[1], old[2]))
+		end
+		local a = StatCalc.compute(classId, 15, gearAt(15, "Rare"), {}, {})
+		local b = StatCalc.compute(classId, 16, gearAt(15, "Rare"), {}, {})
+		check(b.attack / a.attack - 1 >= 0.035 and b.maxHealth / a.maxHealth - 1 >= 0.03,
+			string.format("%s: a level-up alone (15 -> 16, same gear) is worth ~4%% (%.1f%% attack, %.1f%% health)", classId, (b.attack / a.attack - 1) * 100, (b.maxHealth / a.maxHealth - 1) * 100))
+	end
+
+	-- the level gap: mild at first, bigger past 10, capped, and the same both ways
+	check(StatCalc.levelGap(0) == 1, "no level gap at the same level")
+	local last = 1
+	local rising = true
+	for d = 1, 40 do
+		local g = StatCalc.levelGap(d)
+		if g < last then
+			rising = false
+		end
+		last = g
+		check(math.abs(StatCalc.levelGap(-d) - math.max(1 / g, Game.LEVEL_GAP.floor)) < 1e-9, "the level gap works the same both ways (" .. d .. ")")
+	end
+	check(rising, "the level gap never shrinks as the gap grows")
+	check(StatCalc.levelGap(2) < 1.08 and StatCalc.levelGap(3) < 1.12, "a couple of levels barely matter (x" .. Util.fmt(Util.round(StatCalc.levelGap(2), 3)) .. ")")
+	check(StatCalc.levelGap(10) >= 1.4 and StatCalc.levelGap(10) <= 1.8, "ten levels matter (x" .. Util.fmt(Util.round(StatCalc.levelGap(10), 2)) .. ")")
+	check(StatCalc.levelGap(40) <= Game.LEVEL_GAP.cap + 1e-9 and StatCalc.levelGap(-40) >= Game.LEVEL_GAP.floor - 1e-9, "the level gap is capped (no one-shotting paragons)")
+	Tuning.values.global.levelGapCap = 0.5
+	check(StatCalc.levelGap(40) <= Game.LEVEL_GAP.cap * 0.5 + 1e-9, "the admin panel can lower the level gap's cap")
+	Tuning.reset()
+
+	-- lifesteal: only one talent path (Nightmare) stacks two lifesteal talents, and even that
+	-- stays well under the old 18%
+	local doubled = {}
+	for _, classId in ipairs(Classes.Order) do
+		for _, branch in ipairs(Talents[classId]) do
+			local n, total = 0, 0
+			for _, t in ipairs(branch.talents) do
+				if (t.effects.lifesteal or 0) > 0 then
+					n += 1
+					total += t.effects.lifesteal * t.maxRank
+				end
+			end
+			if n >= 2 then
+				table.insert(doubled, classId .. "/" .. branch.id)
+				check(total < 14, branch.id .. ": its lifesteal talents add up to less than 14% (" .. total .. ")")
+			end
+			check(total <= 13.5, classId .. "/" .. branch.id .. ": at most 13.5% lifesteal from talents (" .. total .. ")")
+		end
+	end
+	check(#doubled == 1 and doubled[1] == "Shadowstalker/Nightmare", "only Nightmare stacks two lifesteal talents (" .. table.concat(doubled, ", ") .. ")")
+
+	-- the Forge Egg: better odds than the Barrow's, and a 1% Secret that only it hatches
+	local fw, bw = Pets.Eggs.ForgeEgg.weights, Pets.Eggs.BarrowEgg.weights
+	check((fw.Rare or 0) <= 20 and (fw.Rare or 0) < (bw.Rare or 0), "the Forge Egg rolls Rare far less than the Barrow Egg")
+	check(fw.Secret == 1 and #Pets.speciesFor("ForgeEgg", "Secret") == 1 and Pets.speciesFor("ForgeEgg", "Secret")[1] == "ForgeheartWyrmling", "the Forge Egg's 1% Secret is the Forgeheart Wyrmling")
+	check(table.find(Pets.speciesFor("SecretEgg", "Secret"), "ForgeheartWyrmling") == nil, "the Secret Egg can't hatch the Forgeheart Wyrmling")
+	local wyrmling = BonusUtil.petBoosts({ uid = "x", species = "ForgeheartWyrmling", level = Pets.MAX_LEVEL or 10, golden = true })
+	check(wyrmling.breathRange == 50, "the Forgeheart Wyrmling's breath range doesn't grow with level or gold (" .. tostring(wyrmling.breathRange) .. ")")
+	local plain = StatCalc.resolveAbility("Breath", "Stormwing", StatCalc.compute("Stormwing", 30, {}, {}, {}))
+	local longer = StatCalc.resolveAbility("Breath", "Stormwing", StatCalc.compute("Stormwing", 30, {}, {}, { { stats = { breathRange = 50 } } }))
+	check(math.abs(longer.range / plain.range - 1.5) < 1e-6, "+50% breath range reaches 50% farther")
+
+	-- the mini-boss door opens itself once the packs on the way are beaten
+	local Dungeons = require(Config.Dungeons)
+	local DungeonNav = require(Shared.DungeonNav)
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		local list = def.miniBoss.autoOpen
+		check(list ~= nil and #list > 0, id .. ": the mini-boss lists the packs on the way to it")
+		local miniAt = DungeonNav.routeLength(def, def.spawn, def.miniBoss.at)
+		for _, index in ipairs(list or {}) do
+			local pack = def.packs[index]
+			check(pack ~= nil and DungeonNav.routeLength(def, def.spawn, pack.at or Dungeons.packMobs(pack)[1][2]) < miniAt, string.format("%s: pack %d is on the way to the mini-boss", id, index))
+		end
 	end
 end
 

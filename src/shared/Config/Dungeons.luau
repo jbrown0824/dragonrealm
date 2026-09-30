@@ -24,7 +24,8 @@
 --             off the ledges); rooms with `hub = false` have no walkable middle (a lava channel, a pit)
 --   keeper:   where the entrance's quest giver also stands inside (with the provisions table)
 -- The boss rooms (miniBoss.room, boss.room) get doors wherever a tunnel comes in: you open them
--- (it alerts the monsters nearby), and they seal while the boss fights.
+-- (it alerts the monsters nearby), and they seal while the boss fights. miniBoss.autoOpen lists
+-- the packs on the way to it: once they're all beaten, the door nearest the entrance opens itself.
 -- Mob types live in Enemies.Dungeon; bosses (their moves and traits, see server/Combat/BossKit)
 -- are below.
 
@@ -66,10 +67,16 @@ Dungeons.STROLL = 0.45 -- idle monsters walk at this much of their speed
 Dungeons.PATROL_SPEED = 4 -- studs per second along a patrol route
 Dungeons.DOOR_ALERT = 60 -- opening a boss door wakes the monsters this close to it
 Dungeons.DOOR_HOLD = 2 -- seconds to push a boss door open
+Dungeons.SEAL_DELAY = 4 -- a boss wakes: its doors seal this long after (time to get in)
+Dungeons.JOIN_HOLD = 1 -- a sealed door lets the group's stragglers in ("Join the fight")
+Dungeons.SHIELD_MAX_TIME = 90 -- a rune shield never holds longer than this (nobody gets stuck)
+Dungeons.STUCK_KILLS = 2 -- a boss's add that's stuck this many times in a row just dies
+Dungeons.REEL_TIME = 0.9 -- a harpooned dragon is dragged in over this long
 
 -- Healing draughts that turn up on the floor during a boss fight
-Dungeons.DRAUGHT_EVERY = 22
+Dungeons.DRAUGHT_EVERY = 28
 Dungeons.DRAUGHT_MAX = 2
+Dungeons.DRAUGHT_LIFE = 12 -- gone if nobody drinks it by then (it flickers for the last 3 s)
 Dungeons.DRAUGHT_HEAL = 0.25 -- of max health...
 Dungeons.DRAUGHT_TIME = 4 -- ...over this many seconds
 Dungeons.DRAUGHT_REACH = 7 -- walk (or hover) this close to drink it
@@ -160,7 +167,7 @@ Dungeons.List = {
 		},
 		chest = V(110, -24, 492),
 		keeper = { at = V(-22, 0, 16), face = V(1, 0, 0), food = V(22, 0, 16) },
-		miniBoss = { id = "Grimvald", at = V(140, -24, 370), room = "Crypt" },
+		miniBoss = { id = "Grimvald", at = V(140, -24, 370), room = "Crypt", autoOpen = { 1, 2, 3 } },
 		-- Haldor waits on his throne (the throne decor) and stands up when he wakes
 		boss = { id = "Haldor", at = V(232, -40, 598), room = "Mound", throne = true },
 		hazards = {},
@@ -238,7 +245,7 @@ Dungeons.List = {
 			{ V(51, 10, 160), V(51, 10, 186), V(51, 0, 214), V(0, 0, 196) }, -- off the east ledge
 		},
 		keeper = { at = V(-26, 0, 14), face = V(1, 0, 0), food = V(26, 0, 14) },
-		miniBoss = { id = "Brakki", at = V(-86, -36, 548), room = "Smithy" },
+		miniBoss = { id = "Brakki", at = V(-86, -36, 548), room = "Smithy", autoOpen = { 1, 2, 3, 4, 5 } },
 		boss = { id = "Sigrun", at = V(0, -44, 760), room = "Heart" },
 		-- the elder dragon chained on the ledge at the back of the Heart (its fire lanes come
 		-- from `breath`, a point on the floor in front of it)
@@ -282,7 +289,10 @@ Dungeons.Bosses = {
 			weapon = "greatAxe", shield = false, cape = rgb(30, 50, 45), crown = true, glow = GRAVE },
 		moves = {
 			Cleave = { cooldown = 2.4, mult = 1.0, range = 16 },
-			GroundSlam = { cooldown = 11, mult = 2.2, radius = 22, delay = 1.6 },
+			GroundSlam = { cooldown = 11, mult = 2.2, radius = 26, delay = 1.6 },
+			-- (the whole room gets hurt, not just the dragon in front of him)
+			AxeVolley = { cooldown = 8, mult = 0.7, count = 4 },
+			RuneStrikes = { cooldown = 9, mult = 1.3, radius = 9, delay = 1.7, count = 4, style = "bone" },
 		},
 		summons = { { at = 0.5, add = "DraugrRaider", count = 3 } },
 		secondLife = {
@@ -321,7 +331,9 @@ Dungeons.Bosses = {
 			Lane = { cooldown = 18, mult = 2.2, width = 16, delay = 2.0 },
 		},
 		phases = {
-			{ at = 0.6, shield = { add = "ForgeGuard", count = 3 }, hold = true,
+			-- (the guards come in at fixed spots by the Heart's wall, clear of the ledge: dungeon_check
+			-- makes sure each has a floor and a straight walk from the middle)
+			{ at = 0.6, shield = { add = "ForgeGuard", count = 3, spots = { V(-60, -44, 790), V(60, -44, 790), V(0, -44, 708) } }, hold = true,
 				moves = {
 					RuneStrikes = { cooldown = 6, mult = 1.5, radius = 10, delay = 1.7, count = 6, style = "meteor" },
 					AxeVolley = { cooldown = 3.5, mult = 0.7, count = 3, style = "rune" },

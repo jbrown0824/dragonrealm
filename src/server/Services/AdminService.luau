@@ -135,6 +135,17 @@ local function tuningReport(): string
 			table.insert(lines, string.format("Game.%s = %s  -- was %s", name, fmt(Game[name] * v), fmt(Game[name])))
 		end
 	end
+	local gap = {}
+	for key, field in pairs({ levelGapLinear = "linear", levelGapCurve = "curve", levelGapCap = "cap" }) do
+		local v = Tuning.values.global[key]
+		if v and v ~= 1 then
+			table.insert(gap, string.format("%s = %s", field, fmt(Game.LEVEL_GAP[field] * v)))
+		end
+	end
+	if #gap > 0 then
+		table.sort(gap)
+		table.insert(lines, "Game.LEVEL_GAP: " .. table.concat(gap, ", ") .. "  (floor stays " .. fmt(Game.LEVEL_GAP.floor) .. ")")
+	end
 	local scaling = Tuning.values.global.groupScaling
 	if scaling and scaling ~= 1 then
 		for _, list in ipairs({ "GROUP_HEALTH", "GROUP_DAMAGE" }) do

@@ -16,7 +16,7 @@ local TEXT = [[
 • <b>Skills</b>: K  •  <b>Bag</b>: B  •  <b>Pets</b>: P  •  <b>Quests</b>: J  •  <b>Map</b>: M  •  <b>Hide minimap</b>: N  •  <b>Collection</b>: L  •  <b>Fly home</b>: H
 
 <font color="#FFBE46"><b>HOW TO PLAY</b></font>
-• Talk to dragons with a <b>❗</b> in Dragon Town for quests. <b>❓</b> means a quest is ready to turn in.
+• Talk to dragons with a <b>❗</b> in Dragon Town for quests. <b>❓</b> means a quest is ready to turn in. A grey <b>!</b> is a quest you're not high enough level for yet. A red line guides you to your quest: click the quest you're following in the tracker to turn the guide off (the map has a button to turn it back on).
 • <b>Villagers</b> stroll around town. Chat with them (E), and pop into their houses: every house has a fireplace and a nest.
 • Practice on the <b>Training Dummies</b> (they show your DPS). The golem in the <b>Sparring Pen</b> throws back but can't knock you out.
 • At the <b>🏹 Target Practice</b> range (behind the houses west of the main road), stand on a firing mat and knock down moving targets with Fireball. Left click fires Fireball there too. Clear the 10 levels for XP, or pick <b>AFK practice</b> to earn XP slowly while it fires by itself.

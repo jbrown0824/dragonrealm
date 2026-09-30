@@ -278,6 +278,10 @@ local function targetRoot(e, player: Player)
 		if (root.Position - e.spawnPos).Magnitude > e.leash + 40 then
 			return nil
 		end
+		-- nor through a shut boss door
+		if S.DungeonService.doorBetween(e.run, e.root.Position, root.Position) then
+			return nil
+		end
 	elseif e.arena then
 		if not S.BossService.isInFight(player) then
 			return nil
@@ -655,7 +659,7 @@ function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number,
 			local character, _, r = S.PlayerService.getCharacter(p)
 			if character and (r.Position - targetPos).Magnitude <= 5 + 2.5 * (character:GetAttribute("DragonScale") or 1) then
 				e.lastCombat = now()
-				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil }
+				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil }
 				for k, v in pairs(dmgOpts or {}) do
 					o[k] = v
 				end
@@ -686,7 +690,7 @@ local function meleeSwing(e, player: Player)
 		local reach = (e.def.attackRange or 6) + 3 * ((player.Character and player.Character:GetAttribute("DragonScale")) or 1) + 2
 		if flat <= reach and math.abs(offset.Y) <= verticalReach(e) + 1 then
 			e.lastCombat = now()
-			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil })
+			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil })
 		end
 	end)
 end
@@ -709,7 +713,7 @@ local function slam(e)
 				local offset = root.Position - center
 				if Vector3.new(offset.X, 0, offset.Z).Magnitude <= cfg.radius + 3 and offset.Y < 14 then
 					e.lastCombat = now()
-					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil })
+					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil })
 				end
 			end
 		end

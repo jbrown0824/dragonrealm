@@ -4,7 +4,8 @@
 -- lines you can paste into the Config files.
 --
 --   global:    playerDamage, enemyHealth, enemyDamage, xp, gold (multipliers, 1 = normal), plus
---              the lifesteal / regen caps (CAP_KEYS) and dungeon group scaling (multipliers on Config)
+--              the lifesteal / regen caps (CAP_KEYS), dungeon group scaling and the level gap
+--              (LEVEL_GAP_KEYS) (multipliers on Config)
 --   abilities: [abilityId] = { dmg = x, cd = x } multipliers on damage and cooldown
 --   talents:   [talentId] = x, multiplies every stat the talent gives
 --   dungeons:  [dungeonId] = { mobHp, mobDmg, bossHp, bossDmg, loot } multipliers
@@ -23,10 +24,14 @@ Tuning.GLOBAL_LABELS = {
 	extraLifestealCap = "Gear + pet lifesteal cap",
 	extraRegenCap = "Gear + pet regen cap",
 	groupScaling = "Small-group discount",
+	levelGapLinear = "Level gap: per level",
+	levelGapCurve = "Level gap: growth past 10",
+	levelGapCap = "Level gap: cap",
 }
 -- More global multipliers, shown in their own admin sections.
 Tuning.CAP_KEYS = { "lifestealCap", "regenCap", "extraLifestealCap", "extraRegenCap" }
 Tuning.DUNGEON_GLOBAL_KEYS = { "groupScaling" }
+Tuning.LEVEL_GAP_KEYS = { "levelGapLinear", "levelGapCurve", "levelGapCap" }
 Tuning.DUNGEON_KEYS = { "mobHp", "mobDmg", "bossHp", "bossDmg", "loot" }
 Tuning.DUNGEON_LABELS = {
 	mobHp = "Monster health",
@@ -39,6 +44,7 @@ Tuning.DUNGEON_LABELS = {
 -- Every key that lives in `global`.
 function Tuning.isGlobalKey(key): boolean
 	return table.find(Tuning.GLOBAL_KEYS, key) ~= nil or table.find(Tuning.CAP_KEYS, key) ~= nil or table.find(Tuning.DUNGEON_GLOBAL_KEYS, key) ~= nil
+		or table.find(Tuning.LEVEL_GAP_KEYS, key) ~= nil
 end
 
 local function fresh()

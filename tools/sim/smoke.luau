@@ -6,6 +6,15 @@
 -- leap, loot and pity, the hoard, Ylva's quest) and a solo Forge run (harpoon, fire lanes, the rune
 -- shield, phases, Brakki's enrage, the freed dragon, admin tuning). (Its own function: the main
 -- scenario is out of local variables.)
+-- Knock `frac` of a monster's max health off it. (A dragon's hits go through the level gap, so this
+-- undoes it: the checks aim at exact thresholds like "at half health".)
+local StatCalcSim = require(__proxy("Shared/StatCalc"))
+local function hurt(p, e, frac: number)
+	local st = S.PlayerService.getStats(p)
+	local gap = (st and e.level and not e.arena and not e.dummy) and StatCalcSim.levelGap(st.level - e.level) or 1
+	return S.CombatService.damageEnemy(p, e, e.humanoid.MaxHealth * frac / gap, false)
+end
+
 local function dungeonScenario(p1, p2, profile)
 	step("dungeons: unlock + groups")
 	local Dungeons = require(__proxy("Shared/Config/Dungeons"))
@@ -190,7 +199,7 @@ local function dungeonScenario(p1, p2, profile)
 	tp(p2, grim.e.root.Position + Vector3.new(0, 3, -14))
 	task.wait(0.6)
 	check(grim.engaged, "Grimvald wakes when dragons come close")
-	S.CombatService.damageEnemy(p1, grim.e, grim.e.humanoid.MaxHealth * 0.6, false)
+	hurt(p1, grim.e, 0.6)
 	task.wait(0.6)
 	check(grim.summoned[1] and #grim.adds == 2, "at half health Grimvald calls two Barrow Hounds")
 	check(not grim.enraged, "Grimvald never enrages")
@@ -205,7 +214,7 @@ local function dungeonScenario(p1, p2, profile)
 	local boss = run.bosses.boss
 	tp(p1, boss.e.root.Position + Vector3.new(0, 3, 20))
 	tp(p2, boss.e.root.Position + Vector3.new(0, 3, -20))
-	S.CombatService.damageEnemy(p1, boss.e, boss.e.humanoid.MaxHealth * 0.3, false)
+	hurt(p1, boss.e, 0.3)
 	task.wait(0.6)
 	check(boss.engaged, "hitting Haldor wakes him")
 	for _, p in ipairs({ p1, p2 }) do
@@ -348,9 +357,14 @@ local function dungeonScenario(p1, p2, profile)
 	end
 	check(pulled, "...and one hanging back out of reach")
 	local log0 = #REMOTE_LOG
-	task.wait(4)
+	for _ = 1, 48 do
+		task.wait(0.25)
+		if sig.brain.nextMove.Lane ~= nil and vfxSince("telegraph", log0) > 3 then
+			break
+		end
+	end
 	check(sig.brain.nextMove.Lane ~= nil and vfxSince("telegraph", log0) > 3, "the chained dragon breathes a fire lane across the room")
-	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.45, false)
+	hurt(p1, sig.e, 0.45)
 	task.wait(0.6)
 	check(sig.phase == 1 and sig.shielded and sig.e.immune, "at 60% Sigrun raises her rune shield")
 	check(sig.shieldAdds and #sig.shieldAdds == 3, "...with three Forge Guards")
@@ -360,11 +374,11 @@ local function dungeonScenario(p1, p2, profile)
 	end
 	task.wait(0.6)
 	check(not sig.shielded and not sig.e.immune, "the shield shatters when the guards fall")
-	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.3, false)
+	hurt(p1, sig.e, 0.3)
 	task.wait(0.6)
 	check(sig.phase == 2 and sig.brain.moves.Whirlwind ~= nil, "below 30% she whirls")
 	local brakki = forge.bosses.mini
-	S.CombatService.damageEnemy(p1, brakki.e, brakki.e.humanoid.MaxHealth * 0.75, false)
+	hurt(p1, brakki.e, 0.75)
 	task.wait(0.8)
 	check(brakki.engaged and brakki.enraged, "Brakki enrages at 30%")
 	local forgeClears = profile.dungeons.clears.Forge or 0
@@ -373,8 +387,8 @@ local function dungeonScenario(p1, p2, profile)
 	task.wait(1)
 	check(forge.cleared and profile.dungeons.clears.Forge == forgeClears + 1, "Sigrun falls: the Forge is cleared")
 	check(vfxSince("shatter", log0) >= 1, "the elder dragon's chains shatter")
-	task.wait(4.5)
-	check(forge.built.chained.Parent == nil, "...and it flies off, free")
+	task.wait(5.5)
+	check(forge.built.chained.Parent == nil and forge.built.chains.Parent == nil, "...its chains burst apart and it flies off, free")
 	check(invoke("AdminAction", p1, "tuneDungeon", { dungeonId = "Forge", key = "bossHp", value = 2 }) and Tuning.dungeon("Forge", "bossHp") == 2, "admin: tune a dungeon")
 	local okReport, report = invoke("AdminAction", p1, "printTuning", {})
 	check(okReport and tostring(report):find("Dungeons.Bosses.Sigrun.health") ~= nil, "the tuning report has the new boss health")
@@ -385,7 +399,7 @@ local function dungeonScenario(p1, p2, profile)
 	-- the same copy of the Forge is used again, with its dragon back in chains
 	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "the Forge again")
 	local again = S.DungeonService.runOf(p1)
-	check(again and again.built == forge.built and again.built.chained.Parent ~= nil, "the next group finds the elder dragon chained again")
+	check(again and again.built == forge.built and again.built.chained.Parent ~= nil and again.built.chains.Parent ~= nil, "the next group finds the elder dragon chained again")
 	dungeon(p1, "leaveRun")
 	invoke("AdminAction", p1, "god", { on = false })
 	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
@@ -493,6 +507,8 @@ local function dungeonRound2(p1, p2)
 	task.wait(0.6)
 	check(idler.target == p1, "an idle monster right by a fight joins in")
 	fighter.customAI = false
+	-- (this part pushes the Crypt's door open by hand: round three has the one opening by itself)
+	run.autoOpened = true
 	for _, pack in ipairs(run.packs) do
 		for _, m in ipairs(pack.mobs) do
 			if not m.dead and pack.index <= 4 then
@@ -525,7 +541,7 @@ local function dungeonRound2(p1, p2)
 	end
 	local grim = run.bosses.mini
 	tp(p1, grim.e.root.Position + Vector3.new(0, 3, 14))
-	task.wait(0.8)
+	task.wait(Dungeons.SEAL_DELAY + 0.8)
 	check(grim.engaged and west.state == "sealed" and west.seal.CanCollide, "Grimvald wakes and his doors seal behind you")
 	S.CombatService.damageEnemy(p1, grim.e, 1e9, false)
 	task.wait(0.6)
@@ -553,6 +569,7 @@ local function dungeonRound2(p1, p2)
 	tp(p1, DungeonBuilder.floorAt(boss.throne.pos + boss.throne.face * 30) + Vector3.new(0, 5, 0))
 	task.wait(0.8)
 	check(boss.engaged and not boss.seated and boss.e.model:GetAttribute("Pose") == nil and not boss.e.root.Anchored, "Haldor gets up off his throne when a dragon comes close")
+	task.wait(Dungeons.SEAL_DELAY + 0.5)
 	check(mound.state == "sealed", "...and the mound seals")
 	-- no out-of-combat regen while the group fights
 	local _, hum1 = S.PlayerService.getCharacter(p1)
@@ -621,7 +638,7 @@ local function dungeonRound2(p1, p2)
 	local sig = forge.bosses.boss
 	tp(p1, sig.e.root.Position + Vector3.new(0, 3, 20))
 	task.wait(0.8)
-	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.45, false)
+	hurt(p1, sig.e, 0.45)
 	task.wait(0.6)
 	check(sig.shielded and sig.brain.hold ~= nil, "behind her rune shield Sigrun casts from the middle of the room")
 	local fromEdge = #sig.shieldAdds == 3
@@ -639,7 +656,7 @@ local function dungeonRound2(p1, p2)
 	task.wait(0.6)
 	check(not sig.shielded and sig.brain.hold == nil, "the shield breaks: she comes for you again")
 	-- the whirlwind: a firestorm round her, and cyclones spiralling out
-	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.3, false)
+	hurt(p1, sig.e, 0.3)
 	local log2 = #REMOTE_LOG
 	local whirled = false
 	for _ = 1, 80 do
@@ -652,6 +669,325 @@ local function dungeonRound2(p1, p2)
 	check(whirled, "Sigrun's whirlwind: a firestorm and cyclones spiralling across the room")
 	invoke("DungeonAction", p1, "leaveRun", {})
 	invoke("AdminAction", p1, "god", { on = false })
+	task.wait(1)
+end
+
+-- Dungeons, round three (a group of two, then p1 alone): nothing fights through a shut door; the
+-- mini-boss door opening by itself once the packs on the way are beaten; a boss's doors sealing a
+-- few seconds after it wakes, and a straggler getting in through the seal; a boss that keeps
+-- fighting while anyone's in its room and gives up once they've all gone; Haldor's room-wide
+-- bone spikes and axes; the boss-fight attribute that hides other dragons' pets; draughts going
+-- off; the level gap both ways (not in the arena); the level-up's gains; the Way out signs; and in
+-- the Forge: the harpoon's reel, Sigrun's guards at their spots (one lost in the rock put back,
+-- stuck again it dies), no second wake-up behind her shield, a shield that holds too long giving
+-- out, and the chains put back for the next group.
+local function dungeonRound3(p1, p2)
+	step("dungeons 3: shut doors, the mini-boss door, the seal")
+	local Dungeons = require(__proxy("Shared/Config/Dungeons"))
+	local Enemies = require(__proxy("Shared/Config/Enemies"))
+	local StatCalc = require(__proxy("Shared/StatCalc"))
+	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+	local function flatDist(a: Vector3, b: Vector3): number
+		return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+	end
+	local function vfxAfter(from: number, test): any
+		for i = from + 1, #REMOTE_LOG do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == "VFX" and type(entry.args[1]) == "table" and test(entry.args[1]) then
+				return entry.args[1]
+			end
+		end
+		return nil
+	end
+	local function notesSince(p, from: number, text: string): boolean
+		for i = from + 1, #REMOTE_LOG do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == "Notify" and entry.player == p and tostring(entry.args[1].text):find(text, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	local function dungeon(p, name, args)
+		return invoke("DungeonAction", p, name, args or {})
+	end
+	local function killPack(run, index: number)
+		for _, m in ipairs(run.packs[index].mobs) do
+			if not m.dead then
+				S.CombatService.damageEnemy(p1, m, 1e9, false)
+			end
+		end
+	end
+	local function hasParticipant(boss, p): boolean
+		for _, entry in ipairs(boss.brain.participants()) do
+			if entry.player == p then
+				return true
+			end
+		end
+		return false
+	end
+	S.PlayerService.setLevel(p1, 20)
+	S.PlayerService.setLevel(p2, 20)
+	invoke("AdminAction", p1, "god", { on = true })
+	invoke("AdminAction", p1, "god", { on = true, userId = 102 })
+	dungeon(p1, "leaveGroup")
+	dungeon(p2, "leaveGroup")
+	check(dungeon(p1, "invite", { userId = 102 }), "round 3: invite")
+	local group = S.DungeonService.groupOf(p1)
+	check(dungeon(p2, "accept", { groupId = group and group.id }), "round 3: p2 joins the group")
+	check(dungeon(p1, "enter", { dungeonId = "Barrow" }), "round 3: straight into the Barrow")
+	task.wait(0.5)
+	dungeon(p1, "ready", { yes = true })
+	dungeon(p2, "ready", { yes = true })
+	task.wait(0.8)
+	local run = S.DungeonService.runOf(p1)
+	check(run ~= nil and S.DungeonService.runOf(p2) == run, "round 3: both in the Barrow")
+	if not run then
+		return
+	end
+	local origin = run.built.origin
+	local entrance = origin + Vector3.new(0, 5, 20)
+
+	-- nothing fights through a shut door, either way
+	local mound = nil
+	for _, d in ipairs(run.built.doors) do
+		if d.room == "Mound" then
+			mound = d
+		end
+	end
+	local inside = mound.pos + mound.dir * 16
+	local ghoul = S.EnemyService.spawn("DraugrRaider", 16, inside, { def = Enemies.Dungeon.DraugrRaider, run = run.id, leash = Dungeons.MOB_LEASH, ground = DungeonBuilder.floorAt(inside) })
+	tp(p1, mound.pos - mound.dir * 8 + Vector3.new(0, 5, 0))
+	task.wait(0.2)
+	local reachable = false
+	for _, t in ipairs(S.CombatService.collectTargets(p1)) do
+		if t.enemy == ghoul then
+			reachable = true
+		end
+	end
+	check(S.EnemyService.targetRoot(ghoul, p1) == nil and not reachable, "a shut door: the monster behind it can't get at you, nor you at it")
+	DungeonBuilder.setDoor(mound, "open")
+	check(S.EnemyService.targetRoot(ghoul, p1) ~= nil, "...open it, and it can")
+	S.EnemyService.despawn(ghoul)
+	DungeonBuilder.setDoor(mound, "closed")
+
+	-- the packs on the way beaten: one of Grimvald's doors opens by itself (the Mound's never does)
+	for _, index in ipairs(Dungeons.List.Barrow.miniBoss.autoOpen) do
+		killPack(run, index)
+	end
+	task.wait(0.8)
+	local opened = {}
+	for _, d in ipairs(run.built.doors) do
+		if d.room == "Crypt" and d.state == "open" then
+			table.insert(opened, d)
+		end
+	end
+	check(#opened == 1 and mound.state == "closed", "the packs on the way beaten: a door to Grimvald opens by itself (" .. #opened .. ")")
+	local door = opened[1]
+	if not door then
+		return
+	end
+
+	-- Grimvald wakes: his doors close a few seconds later, and a straggler still gets in
+	local grim = run.bosses.mini
+	local log0 = #REMOTE_LOG
+	tp(p2, entrance)
+	tp(p1, grim.e.root.Position + Vector3.new(0, 3, 14))
+	task.wait(1)
+	check(grim.engaged and door.state == "open", "Grimvald wakes: his doors don't slam straight away")
+	check(notesSince(p2, log0, "get in"), "...the dragons outside are told to get in")
+	task.wait(Dungeons.SEAL_DELAY)
+	check(door.state == "sealed" and door.join.Enabled, "...then they seal")
+	tp(p2, door.pos - door.dir * 6 + Vector3.new(0, 5, 0))
+	check(not hasParticipant(grim, p2), "a dragon outside the seal isn't in the fight")
+	door.join.Triggered:Fire(p2)
+	task.wait(0.3)
+	check(hasParticipant(grim, p2), "...until it slips in through the seal")
+	-- he keeps fighting while anyone's in his room (no second wake-up)...
+	local log1 = #REMOTE_LOG
+	task.wait(Dungeons.EVADE_TIME + 1)
+	check(grim.engaged and not notesSince(p1, log1, "wakes up"), "a boss keeps fighting while anyone's in its room")
+	-- ...and gives up once they've all gone
+	tp(p1, entrance)
+	tp(p2, entrance + Vector3.new(6, 0, 0))
+	for _, add in ipairs(grim.adds) do
+		if not add.dead then
+			S.EnemyService.despawn(add)
+		end
+	end
+	task.wait(Dungeons.EVADE_TIME + 1.5)
+	check(not grim.engaged and door.state == "open", "everyone gone from his room: Grimvald gives up and the seal lifts")
+
+	step("dungeons 3: Haldor's reach, draughts, the level gap")
+	for index = 4, 7 do
+		killPack(run, index)
+	end
+	S.CombatService.damageEnemy(p1, grim.e, 1e9, false)
+	DungeonBuilder.setDoor(mound, "open")
+	local boss = run.bosses.boss
+	local near = DungeonBuilder.floorAt(boss.throne.pos + boss.throne.face * 30)
+	tp(p1, near + Vector3.new(0, 5, 0))
+	tp(p2, near + Vector3.new(10, 5, 0))
+	task.wait(1)
+	check(boss.engaged and p1:GetAttribute("InBossFight") == true and p2:GetAttribute("InBossFight") == true, "in Haldor's fight (clients hide the other dragons' pets)")
+	local log2 = #REMOTE_LOG
+	local spikes, axes = nil, nil
+	for _ = 1, 100 do
+		task.wait(0.25)
+		spikes = spikes or vfxAfter(log2, function(d)
+			return d.kind == "strike" and d.style == "bone"
+		end)
+		axes = axes or vfxAfter(log2, function(d)
+			return d.kind == "throw" and d.style == "axe"
+		end)
+		if spikes and axes then
+			break
+		end
+	end
+	check(spikes ~= nil and axes ~= nil, "Haldor hurts the whole room: bone spikes and thrown axes, not just a cleave")
+	-- a draught nobody drinks goes again (flickering first)
+	boss.nextDraught = os.clock()
+	task.wait(0.5)
+	local draught = run.draughts[1]
+	check(draught ~= nil, "a draught turns up")
+	if draught then
+		-- (both dragons across the room from it)
+		local dir = Vector3.new(draught.pos.X - boss.room.center.X, 0, draught.pos.Z - boss.room.center.Z)
+		dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
+		local away = DungeonBuilder.floorAt(boss.room.center - dir * (boss.room.radius - 12))
+		tp(p1, away + Vector3.new(0, 5, 0))
+		tp(p2, away + Vector3.new(4, 5, 0))
+		task.wait(Dungeons.DRAUGHT_LIFE + 1)
+		check(table.find(run.draughts, draught) == nil and draught.model.Parent == nil, "a draught nobody drinks goes after a while")
+	end
+	dungeon(p1, "leaveRun")
+	dungeon(p2, "leaveRun")
+	task.wait(0.5)
+	check(p1:GetAttribute("InBossFight") == false and p2:GetAttribute("InBossFight") == false, "out of the dungeon: out of the boss fight")
+
+	-- the level gap: dragons hit lower-level monsters harder (and higher ones softer)...
+	local camp = Zones.Camps[1].center
+	local low = S.EnemyService.spawn("Raider", 5, camp, {})
+	local even = S.EnemyService.spawn("Raider", 20, camp + Vector3.new(6, 0, 0), {})
+	local arena = S.EnemyService.spawn("Raider", 5, camp + Vector3.new(-6, 0, 0), { arena = true })
+	for _, e in ipairs({ low, even, arena }) do
+		e.humanoid.MaxHealth = 1e7
+		e.humanoid.Health = 1e7
+	end
+	local lvl = S.PlayerService.getStats(p1).level
+	local hitLow = S.CombatService.damageEnemy(p1, low, 1000, false)
+	local hitEven = S.CombatService.damageEnemy(p1, even, 1000, false)
+	local hitArena = S.CombatService.damageEnemy(p1, arena, 1000, false)
+	check(math.abs(hitLow - 1000 * StatCalc.levelGap(lvl - 5)) < 1.5 and math.abs(hitEven - 1000 * StatCalc.levelGap(lvl - 20)) < 1.5 and hitLow > hitEven,
+		string.format("the level gap: %d levels up, x%.2f damage (%d up: x%.2f)", lvl - 5, hitLow / 1000, lvl - 20, hitEven / 1000))
+	check(hitArena == 1000, "...but not on the world boss's side (the arena)")
+	for _, e in ipairs({ low, even, arena }) do
+		S.EnemyService.despawn(e)
+	end
+	-- ...and higher-level monsters hit dragons harder
+	invoke("AdminAction", p1, "god", { on = false })
+	local stats = S.PlayerService.getStats(p1)
+	local dodge = stats.dodge
+	stats.dodge = 0
+	local _, hum = S.PlayerService.getCharacter(p1)
+	hum.Health = hum.MaxHealth
+	local plain = S.CombatService.damagePlayer(p1, 100, { sourceLevel = lvl + 10, ignoreSafe = true, noLevelGap = true })
+	hum.Health = hum.MaxHealth
+	local gapped = S.CombatService.damagePlayer(p1, 100, { sourceLevel = lvl + 10, ignoreSafe = true })
+	hum.Health = hum.MaxHealth
+	stats.dodge = dodge
+	check(plain > 0 and math.abs(gapped / plain - StatCalc.levelGap(10)) < 0.05, string.format("a monster 10 levels up hits harder (x%.2f)", gapped / math.max(1, plain)))
+	-- a level-up says what it gave you
+	local log3 = #REMOTE_LOG
+	S.PlayerService.addXP(p1, Game.xpToNext(S.PlayerService.getProfile(p1).level) + 1, true)
+	local said = false
+	for i = log3 + 1, #REMOTE_LOG do
+		local entry = REMOTE_LOG[i]
+		if entry.remote == "Announce" and entry.player == p1 and tostring(entry.args[1].text):find("health") and tostring(entry.args[1].text):find("attack") then
+			said = true
+		end
+	end
+	check(said, "LEVEL UP lists the health and attack it gave you")
+
+	step("dungeons 3: the Forge (the harpoon's reel, Sigrun's guards, the chains)")
+	invoke("AdminAction", p1, "god", { on = true })
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "round 3: the Forge alone")
+	local forge = S.DungeonService.runOf(p1)
+	local fo = forge.built.origin
+	local signs = 0
+	for _, d in ipairs(forge.built.model:GetDescendants()) do
+		if d.Name == "WayOutSign" then
+			signs += 1
+		end
+	end
+	check(signs >= 2, "Way out signs over the tunnels back toward the entrance (" .. signs .. ")")
+	local link = forge.built.chains:FindFirstChildWhichIsA("BasePart", true)
+	local linkHome = link.CFrame
+	local sig = forge.bosses.boss
+	tp(p1, sig.e.root.Position + Vector3.new(0, 3, 20))
+	task.wait(1)
+	-- hanging back: hooked, then reeled in (the dragon's own client drags it; the server only
+	-- snaps one that didn't come)
+	local far = DungeonBuilder.floorAt(sig.room.center + Vector3.new(0, 2, 60)) + Vector3.new(0, 6, 0)
+	local log4 = #REMOTE_LOG
+	tp(p1, far)
+	local reel = nil
+	for _ = 1, 80 do
+		task.wait(0.25)
+		reel = vfxAfter(log4, function(d)
+			return d.kind == "harpooned"
+		end)
+		if reel then
+			break
+		end
+	end
+	check(reel ~= nil and reel.time == Dungeons.REEL_TIME and reel.model == sig.e.model, "the harpoon hooks a dragon hanging back and reels it in")
+	check(flatDist(rootOf(p1).Position, far) < 3, "...over time (not a snap)")
+	task.wait(Dungeons.REEL_TIME + 0.5)
+	check(reel ~= nil and flatDist(rootOf(p1).Position, reel.to) < 14, "...ending up at her feet")
+	-- the rune shield: her guards at their spots by the wall
+	hurt(p1, sig.e, 0.45)
+	task.wait(0.6)
+	local spots = Dungeons.Bosses.Sigrun.phases[1].shield.spots
+	local atSpots = sig.shielded and #sig.shieldAdds == #spots
+	for i, g in ipairs(sig.shieldAdds or {}) do
+		if flatDist(g.home, fo + spots[i]) > 3 then
+			atSpots = false
+		end
+	end
+	check(atSpots, "her guards come in at their spots by the wall (none in the rock)")
+	local g1 = sig.shieldAdds[1]
+	g1.model:PivotTo(CFrame.new(g1.spot + Vector3.new(0, -30, 0)))
+	task.wait(0.6)
+	check(g1.root.Position.Y > g1.spot.Y and flatDist(g1.root.Position, g1.spot) < 3 and g1.stuck == 1, "a guard lost in the rock is put back at its spot")
+	g1.target = p1
+	g1.chasing = p1
+	g1.bestDist = 0
+	g1.lastCombat = os.clock() - 100
+	g1.progressAt = os.clock() - 100
+	task.wait(0.6)
+	check(g1.dead, "...and a guard stuck twice running just dies (no fight hangs on it)")
+	-- with you in her room she never "wakes up" again behind her shield
+	local log5 = #REMOTE_LOG
+	sig.e.lastCombat = os.clock() - 100
+	task.wait(Dungeons.EVADE_TIME + 1)
+	check(sig.engaged and sig.shielded and not notesSince(p1, log5, "wakes up"), "behind her shield, with you in her room, Sigrun never wakes up again")
+	-- a shield that's held too long gives out
+	sig.shieldSince = os.clock() - Dungeons.SHIELD_MAX_TIME - 1
+	task.wait(0.6)
+	check(not sig.shielded and not sig.e.immune, "a rune shield never holds forever")
+	-- the chains burst apart, and are back (where they were) for the next group
+	S.CombatService.damageEnemy(p1, sig.e, 1e9, false)
+	task.wait(6)
+	check(forge.built.chains.Parent == nil, "Sigrun down: the chains burst apart")
+	dungeon(p1, "leaveRun")
+	task.wait(0.5)
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "the Forge again")
+	local again = S.DungeonService.runOf(p1)
+	check(again and again.built.chains.Parent ~= nil and (link.Position - linkHome.Position).Magnitude < 0.01, "...the chains are back where they were")
+	dungeon(p1, "leaveRun")
+	invoke("AdminAction", p1, "god", { on = false })
+	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
 	task.wait(1)
 end
 
@@ -1176,7 +1512,8 @@ task.spawn(function()
 	check(not invoke("TeleportTo", p1, "range"), "Wayfinder has a cooldown")
 	check(not invoke("TeleportTo", p1, "nowhere"), "unknown places are refused")
 	task.wait(StoreInfo.WAYFINDER_COOLDOWN + 1)
-	check(invoke("TeleportTo", p1, "range"), "Wayfinder works again after the cooldown")
+	local okAgain, whyAgain = invoke("TeleportTo", p1, "range")
+	check(okAgain, "Wayfinder works again after the cooldown (" .. tostring(whyAgain) .. ")")
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 
 	step("admin: paragon, pets, collection, store")
@@ -1267,7 +1604,7 @@ task.spawn(function()
 	check(okTargets, "a viking on deck is something dragons can hit")
 	if onDeck then
 		check(onDeck.model:GetAttribute("Shielded") == true, "vikings on deck huddle behind their shields")
-		S.CombatService.damageEnemy(p1, onDeck, onDeck.humanoid.MaxHealth * 0.4, false)
+		hurt(p1, onDeck, 0.4)
 		hitHard = onDeck.humanoid.MaxHealth - onDeck.humanoid.Health
 		check(math.abs(hitHard - onDeck.humanoid.MaxHealth * 0.4 * Raids.DECK_DAMAGE_TAKEN) <= 1, "...and take less damage there (" .. math.floor(hitHard) .. ")")
 	end
@@ -1628,6 +1965,7 @@ task.spawn(function()
 
 	dungeonScenario(p1, p2, profile)
 	dungeonRound2(p1, p2)
+	dungeonRound3(p1, p2)
 
 	step("snapshot + leave")
 	local snap = S.PlayerService.snapshot(p1)

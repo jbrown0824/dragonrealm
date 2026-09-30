@@ -24,7 +24,7 @@ end
 
 function ItemUtil.power(item): number
 	local rarity = Items.Rarities[item.rarity] or Items.Rarities.Common
-	local p = (4 + item.ilvl * 1.6) * rarity.mult * (1 + 0.1 * (item.up or 0))
+	local p = (Items.POWER_BASE + item.ilvl * Items.POWER_PER_ILVL) * rarity.mult * (1 + 0.1 * (item.up or 0))
 	if item.uniq then
 		p *= 1.15
 	end

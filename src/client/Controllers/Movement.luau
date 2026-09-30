@@ -27,6 +27,8 @@ local faceTarget: Vector3? = nil
 local faceUntil = 0
 local dashUntil = 0
 local dashVelocity = Vector3.zero
+local reelTo: Vector3? = nil -- (a boss's harpoon dragging you in)
+local reelUntil = 0
 local groundParams = RaycastParams.new()
 groundParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -105,6 +107,16 @@ end
 -- Stop flying (a dungeon boss's harpoon dragged you down).
 function Movement.land()
 	stopFlight()
+end
+
+-- Hooked by a harpoon: out of the air and dragged to `to` over `time` seconds.
+function Movement.reel(to: Vector3, time: number)
+	if not alive() then
+		return
+	end
+	stopFlight()
+	reelTo = to
+	reelUntil = os.clock() + math.max(0.1, time)
 end
 
 function Movement.toggleFlight()
@@ -209,6 +221,22 @@ local function step(dt: number)
 		end
 	else
 		stamina = math.min(maxStamina, stamina + Game.FLIGHT_REGEN * dt)
+	end
+
+	-- Being reeled in by a harpoon overrides everything (arriving right as the reel ends).
+	if reelTo and now < reelUntil then
+		local left = math.max(0.05, reelUntil - now)
+		local toward = reelTo - root.Position
+		linear.Enabled = true
+		linear.VectorVelocity = toward / left
+		align.Enabled = true
+		align.CFrame = CFrame.lookAt(Vector3.zero, flatLook(toward, root.CFrame.LookVector))
+		humanoid.AutoRotate = false
+		return
+	elseif reelTo then
+		reelTo = nil
+		linear.Enabled = false
+		linear.VectorVelocity = Vector3.zero
 	end
 
 	-- Dash overrides everything for a moment.

@@ -4,6 +4,7 @@
 --   DungeonNav.graph(def)          nodes (tunnel points, room middles, routes, spiral samples) and
 --                                  the walks between them (tools/preview/dungeon_check walks every one)
 --   DungeonNav.route(def, a, b)    the node positions to go through from a to b (A*), or nil
+--   DungeonNav.routeLength(def, a, b)  how far that walk is
 --   DungeonNav.direct(def, a, b)   true when you can just walk straight from a to b: both in the
 --                                  same hub room (climbing no more than a step) or the same stretch
 --                                  of tunnel, with no lava in between
@@ -286,6 +287,20 @@ function DungeonNav.route(def, a: Vector3, b: Vector3): { Vector3 }?
 		end
 	end
 	return nil
+end
+
+-- How far a walk from a to b is along the dungeon's paths (math.huge if it can't be walked).
+function DungeonNav.routeLength(def, a: Vector3, b: Vector3): number
+	local path = DungeonNav.route(def, a, b)
+	if not path then
+		return math.huge
+	end
+	local total, last = 0, a
+	for _, p in ipairs(path) do
+		total += (p - last).Magnitude
+		last = p
+	end
+	return total + (b - last).Magnitude
 end
 
 return DungeonNav

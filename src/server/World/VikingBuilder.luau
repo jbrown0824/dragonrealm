@@ -301,14 +301,19 @@ function VikingBuilder.build(look, scale: number, name: string)
 	end
 
 	---------------------------------------------------------------- legs
+	-- thigh (hip joint LegL/LegR) and shin with the boot (knee joint KneeL/KneeR), so a boss can
+	-- sit on a throne or go down on one knee properly; walking keeps the knees straight
 	for _, side in ipairs({ -1, 1 }) do
-		local leg = part("Part", V(0.92, 2, 0.95), CFrame.new(V(0.5 * side, -2, 0)), look.pants)
+		local leg = part("Part", V(0.92, 1.06, 0.95), CFrame.new(V(0.5 * side, -1.5, 0)), look.pants)
 		leg.Name = side > 0 and "RightLeg" or "LeftLeg"
-		weldAll(leg, collect(function()
-			part("Part", V(1.0, 0.65, 1.12), CFrame.new(V(0.5 * side, -2.72, -0.06)), Color3.fromRGB(70, 50, 35))
-			ellipsoid(V(1.1, 0.45, 1.1), V(0.5 * side, -2.35, 0), Color3.fromRGB(130, 110, 90))
-		end))
 		motor(side > 0 and "LegR" or "LegL", torso, leg, CFrame.new(V(0.5 * side, -1, 0)))
+		local shin = part("Part", V(0.9, 1.06, 0.93), CFrame.new(V(0.5 * side, -2.5, 0)), look.pants)
+		shin.Name = side > 0 and "RightShin" or "LeftShin"
+		weldAll(shin, collect(function()
+			part("Part", V(1.0, 0.65, 1.12), CFrame.new(V(0.5 * side, -2.72, -0.06)), Color3.fromRGB(70, 50, 35))
+			ellipsoid(V(1.0, 0.45, 1.05), V(0.5 * side, -2.02, -0.05), Color3.fromRGB(130, 110, 90))
+		end))
+		motor(side > 0 and "KneeR" or "KneeL", leg, shin, CFrame.new(V(0.5 * side, -2, 0)))
 	end
 
 	local hipHeight = (3.05 - 1) * s

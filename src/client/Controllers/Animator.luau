@@ -105,8 +105,12 @@ local function animatePassenger(model: Model, rig, now: number)
 		set(rig, "ArmL", CFrame.Angles(2.9, 0, 0))
 		set(rig, "LegL", CFrame.Angles(0.9, 0, 0))
 		set(rig, "LegR", CFrame.Angles(0.6, 0, 0))
+		set(rig, "KneeL", CFrame.Angles(-1.2, 0, 0))
+		set(rig, "KneeR", CFrame.Angles(-0.9, 0, 0))
 		return
 	end
+	set(rig, "KneeL", CFrame.new())
+	set(rig, "KneeR", CFrame.new())
 	-- a battle cry on the way in: weapons pumping in the air
 	set(rig, "ArmR", CFrame.Angles(2.5 + math.sin(t * 5) * 0.4, 0, 0))
 	set(rig, "ArmL", CFrame.Angles(1.6 + math.sin(t * 5 + 1.3) * 0.5, 0, 0))
@@ -131,19 +135,27 @@ local function animateViking(model: Model, rig, now: number)
 		end
 	end
 	-- a dungeon boss posed by the server (it anchors and places the body): on his throne, or down
-	-- on his knees before his second life
+	-- on one knee before his second life. (Positive angles swing a limb forward; the knees fold
+	-- the shin back. DungeonService's seat / kneel put the body at the matching height.)
 	local pose = model:GetAttribute("Pose")
 	if pose == "sit" then
+		-- thighs level on the seat, shins down to the throne's step
 		local breathe = math.sin((now + rig.phase) * 1.2) * 0.04
-		set(rig, "LegL", CFrame.Angles(1.08, 0, 0.05))
-		set(rig, "LegR", CFrame.Angles(1.08, 0, -0.05))
+		set(rig, "LegL", CFrame.Angles(1.5, 0, 0.06))
+		set(rig, "LegR", CFrame.Angles(1.5, 0, -0.06))
+		set(rig, "KneeL", CFrame.Angles(-1.35, 0, 0))
+		set(rig, "KneeR", CFrame.Angles(-1.35, 0, 0))
 		set(rig, "ArmR", CFrame.Angles(0.35 + breathe, 0, 0))
 		set(rig, "ArmL", CFrame.Angles(0.25 - breathe, 0, 0))
 		return
 	elseif pose == "kneel" then
+		-- right knee on the floor (its shin flat behind), left foot planted forward, leaning on
+		-- his weapon (the body leans ~6 degrees forward, so the legs make up for it)
 		local sway = math.sin((now + rig.phase) * 2) * 0.05
-		set(rig, "LegL", CFrame.Angles(-1.45, 0, 0.1))
-		set(rig, "LegR", CFrame.Angles(-1.45, 0, -0.1))
+		set(rig, "LegR", CFrame.Angles(0.25, 0, -0.05))
+		set(rig, "KneeR", CFrame.Angles(-1.57, 0, 0))
+		set(rig, "LegL", CFrame.Angles(1.45, 0, 0.08))
+		set(rig, "KneeL", CFrame.Angles(-1.35, 0, 0))
 		set(rig, "ArmR", CFrame.Angles(0.9 + sway, 0, 0))
 		set(rig, "ArmL", CFrame.Angles(0.6, 0, 0.2))
 		return

@@ -309,15 +309,18 @@ local function forge(parent: Instance, pos: Vector3, face: Vector3, theme)
 	Props.light(coals, theme.light, 40, 2.4)
 end
 
-local function chains(parent: Instance, a: Vector3, b: Vector3)
+-- A hanging chain from a to b; `size` scales the links (the elder dragon's are enormous).
+local function chains(parent: Instance, a: Vector3, b: Vector3, size: number?)
+	local k = size or 1
 	local length = (b - a).Magnitude
-	local links = math.max(2, math.floor(length / 3))
+	local links = math.max(2, math.floor(length / (k == 1 and 3 or 2.7 * k)))
 	local sag = length * 0.08
 	for i = 0, links do
-		local k = i / links
-		local p = a:Lerp(b, k) - Vector3.new(0, sag * 4 * k * (1 - k), 0)
-		local link = Props.part(parent, Vector3.new(0.5, 1.2, 2.6), CFrame.lookAt(p, p + (b - a)) * CFrame.Angles(0, 0, i % 2 == 0 and 0 or math.rad(90)), IRON, Enum.Material.Metal)
+		local t = i / links
+		local p = a:Lerp(b, t) - Vector3.new(0, sag * 4 * t * (1 - t), 0)
+		local link = Props.part(parent, Vector3.new(0.5, 1.2, 2.6) * k, CFrame.lookAt(p, p + (b - a)) * CFrame.Angles(0, 0, i % 2 == 0 and 0 or math.rad(90)), IRON, Enum.Material.Metal)
 		link.CanCollide = false
+		link.CanQuery = false
 	end
 end
 
@@ -449,19 +452,55 @@ local function chainedDragon(parent: Instance, origin: Vector3, spec, theme)
 		},
 	})
 	local at = origin + spec.at
-	model:PivotTo(CFrame.lookAt(at + Vector3.new(0, 6, 0), at + Vector3.new(0, 6, 0) + spec.face))
+	local face = spec.face.Unit
+	local side = Vector3.new(-face.Z, 0, face.X)
+	model:PivotTo(CFrame.lookAt(at + Vector3.new(0, 6, 0), at + Vector3.new(0, 6, 0) + face))
 	model.Parent = parent
+	-- Chains big enough to read from across the room (everything in the folder breaks when
+	-- Sigrun falls): to the walls behind, from two great rings on the floor in front up to a collar
+	-- round its neck, and shackles on its forelegs.
 	local chainFolder = Instance.new("Folder")
 	chainFolder.Name = "Chains"
 	chainFolder.Parent = parent
+	local function iron(size: Vector3, cf: CFrame, shape: Enum.PartType?)
+		local p = Props.part(chainFolder, size, cf, IRON, Enum.Material.Metal)
+		if shape then
+			p.Shape = shape
+		end
+		p.CanCollide = false
+		p.CanQuery = false
+		return p
+	end
 	local body = at + Vector3.new(0, 8, 0)
 	for _, anchor in ipairs({ Vector3.new(-60, 26, 6), Vector3.new(60, 26, 6), Vector3.new(-40, 34, 26), Vector3.new(40, 34, 26) }) do
-		chains(chainFolder, body, at + anchor)
+		local wall = at + side * anchor.X - face * anchor.Z + Vector3.new(0, anchor.Y, 0)
+		iron(Vector3.new(7, 7, 2.5), CFrame.lookAt(wall, body))
+		chains(chainFolder, body, wall, 3)
+	end
+	local neck = nil
+	for i = 1, 8 do
+		neck = model:FindFirstChild("Neck" .. i, true) or neck
+	end
+	neck = neck or model:FindFirstChild("Head", true)
+	local collarAt = neck and neck.Position or body + face * 12
+	iron(Vector3.new(3.2, 10, 10), CFrame.lookAt(collarAt, collarAt + face) * CFrame.Angles(0, math.rad(90), 0), Enum.PartType.Cylinder)
+	for _, s in ipairs({ -1, 1 }) do
+		local ring = DungeonBuilder.floorAt(at + face * 36 + side * 24 * s + Vector3.new(0, 2, 0))
+		iron(Vector3.new(3, 6, 3), CFrame.new(ring + Vector3.new(0, 3, 0)))
+		iron(Vector3.new(1.4, 7, 7), CFrame.lookAt(ring + Vector3.new(0, 7, 0), ring + Vector3.new(0, 7, 0) + side), Enum.PartType.Cylinder)
+		chains(chainFolder, ring + Vector3.new(0, 8, 0), collarAt, 3)
+		local shin = model:FindFirstChild(s < 0 and "ShinFL" or "ShinFR", true)
+		if shin and shin:IsA("BasePart") then
+			local cuff = shin.Position - Vector3.new(0, shin.Size.Z * 0.25, 0)
+			iron(Vector3.new(2.4, 6, 6), CFrame.new(cuff) * CFrame.Angles(0, 0, math.rad(90)), Enum.PartType.Cylinder)
+			chains(chainFolder, cuff, DungeonBuilder.floorAt(cuff + side * 9 * s + Vector3.new(0, 4, 0)) + Vector3.new(0, 0.5, 0), 1.8)
+		end
 	end
 	local glow = Props.part(parent, Vector3.new(1, 1, 1), CFrame.new(body), theme.accent, Enum.Material.Neon)
 	glow.Transparency = 1
 	glow.CanCollide = false
-	Props.light(glow, theme.light, 50, 2)
+	glow.CanQuery = false
+	Props.light(glow, theme.light, 50, 1.3)
 	return model, chainFolder
 end
 
@@ -794,8 +833,20 @@ local function buildDoor(parent: Instance, def, mouth, origin: Vector3, theme, i
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = seal
 	CollectionService:AddTag(prompt, "DungeonDoor")
+	-- while it's sealed, the group's stragglers can still get in (never out)
+	local join = Instance.new("ProximityPrompt")
+	join.Name = "JoinPrompt"
+	join.ActionText = "Join the fight"
+	join.ObjectText = Dungeons.Bosses[bossId].name
+	join.KeyboardKeyCode = Enum.KeyCode.E
+	join.HoldDuration = Dungeons.JOIN_HOLD
+	join.MaxActivationDistance = math.max(16, w / 2 + 6)
+	join.RequiresLineOfSight = false
+	join.Enabled = false
+	join.Parent = seal
+	CollectionService:AddTag(join, "DungeonJoin")
 	model.Parent = parent
-	return { room = mouth.room, model = model, leaves = leaves, seal = seal, prompt = prompt, pos = base, dir = dir, width = w, height = h, state = "closed" }
+	return { room = mouth.room, model = model, leaves = leaves, seal = seal, prompt = prompt, join = join, pos = base, dir = dir, width = w, height = h, state = "closed" }
 end
 
 local function swingTo(door, angle: number)
@@ -816,12 +867,16 @@ local function setSolid(door, solid: boolean)
 end
 
 -- A boss door's state: "closed" (shut, you can push it open), "open" (swung into the room),
--- "sealed" (shut, with the rune seal glowing across it: nobody in or out). `animate` swings it.
+-- "sealed" (shut, with the rune seal glowing across it: nobody out, and only the group's
+-- stragglers in, through its "Join the fight" prompt). `animate` swings it.
 function DungeonBuilder.setDoor(door, state: string, animate: boolean?)
 	local was = door.state
 	door.state = state
 	local open = state == "open"
 	door.prompt.Enabled = state == "closed"
+	if door.join then
+		door.join.Enabled = state == "sealed"
+	end
 	door.seal.Transparency = state == "sealed" and 0.35 or 1
 	door.seal.CanCollide = state == "sealed"
 	setSolid(door, not open)
@@ -843,6 +898,54 @@ function DungeonBuilder.setDoor(door, state: string, animate: boolean?)
 			task.wait(0.06)
 		end
 	end)
+end
+
+---------------------------------------------------------------- way out signs
+
+-- A glowing "Way out" plaque over the tunnel that leads back toward the entrance, in every room
+-- with more than one way in or out (after a fight in there it's easy to get turned round).
+local WAY_OUT = Color3.fromRGB(120, 200, 255)
+local function wayOutSigns(parent: Instance, def, origin: Vector3)
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind ~= "path" then
+			local mouths = roomMouths(def, sp.id)
+			if #mouths >= 2 then
+				local best, bestDist = nil, math.huge
+				for _, m in ipairs(mouths) do
+					local d = DungeonNav.routeLength(def, def.spawn, m.at)
+					if d < bestDist then
+						best, bestDist = m, d
+					end
+				end
+				local floor = DungeonBuilder.floorAt(origin + best.at)
+				local pos = floor + best.dir * 3 + Vector3.new(0, math.min(best.height - 4, 13), 0)
+				local cf = CFrame.lookAt(pos, pos + best.dir)
+				local board = Props.part(parent, Vector3.new(12, 3.4, 0.8), cf, DARK_STONE, Enum.Material.Slate)
+				board.Name = "WayOutSign"
+				board.CanCollide = false
+				board.CanQuery = false
+				local strip = Props.part(parent, Vector3.new(10, 0.3, 0.3), cf * CFrame.new(0, -1.3, -0.45), WAY_OUT, Enum.Material.Neon)
+				strip.CanCollide = false
+				strip.CanQuery = false
+				Props.light(strip, WAY_OUT, 12, 0.8)
+				local gui = Instance.new("SurfaceGui")
+				gui.Name = "Title"
+				gui.Face = Enum.NormalId.Front
+				gui.LightInfluence = 0
+				gui.CanvasSize = Vector2.new(360, 100)
+				local label = Instance.new("TextLabel")
+				label.BackgroundTransparency = 1
+				label.Size = UDim2.fromScale(1, 1)
+				label.Font = Enum.Font.FredokaOne
+				label.TextScaled = true
+				label.Text = "Way out"
+				label.TextColor3 = WAY_OUT
+				label.TextStrokeTransparency = 0.4
+				label.Parent = gui
+				gui.Parent = board
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------- interior
@@ -970,11 +1073,12 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance, slot: n
 	if chest then
 		table.insert(keepClear, chest:GetPivot().Position)
 	end
-	local chained = nil
+	local chained, chainFolder = nil, nil
 	if def.chained then
-		chained = chainedDragon(model, origin, def.chained, theme)
+		chained, chainFolder = chainedDragon(model, origin, def.chained, theme)
 	end
 	lightUp(model, def, origin, theme, keepClear)
+	wayOutSigns(model, def, origin)
 
 	local spawn = DungeonBuilder.floorAt(origin + def.spawn)
 	return {
@@ -986,6 +1090,7 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance, slot: n
 		bounds = { min = min - Vector3.new(SHELL, 14, SHELL), max = max + Vector3.new(SHELL, 10, SHELL) },
 		chest = chest,
 		chained = chained,
+		chains = chainFolder,
 		doors = doors,
 		keeper = keeper,
 		food = food,
@@ -994,58 +1099,127 @@ end
 
 ---------------------------------------------------------------- entrance (in the viking lands)
 
+-- The cave mouth: a rock arch (the same shape as the way out inside) set into the face of a hill,
+-- a dark passage carved back into it, and the dungeon's glow at the far end of the passage. The
+-- hill sits wholly behind the arch (it used to bulge out over the doorway and bury it), and the
+-- only light is the small one in the passage, so the rock keeps its colours. The opening (the
+-- dungeon check makes sure it's clear):
+DungeonBuilder.MOUTH = { half = 9, leg = 13, radius = 9, depth = 16 }
+
 function DungeonBuilder.entrance(parent: Instance, def)
 	local folder = Instance.new("Model")
 	folder.Name = "Dungeon_" .. def.id
 	local theme = def.theme
-	local face = def.entranceFacing.Unit
+	local terrain = workspace.Terrain
+	local face = def.entranceFacing.Unit -- (the way the mouth looks out)
 	local side = Vector3.new(-face.Z, 0, face.X)
 	local x, z = def.entrance.X, def.entrance.Z
-	local ground = Props.groundY(x, z)
-	local base = Vector3.new(x, ground, z)
-	local rock = def.id == "Forge" and Color3.fromRGB(70, 60, 58) or Color3.fromRGB(105, 110, 108)
-
-	-- a rocky knoll behind the mouth
-	workspace.Terrain:FillBall(base - face * 18 + Vector3.new(0, -8, 0), 30, mat(theme.shell))
-	-- the arch: two great rocks and a lintel, with the dark mouth between them
-	for _, s in ipairs({ -1, 1 }) do
-		Props.part(folder, Vector3.new(9, 22, 10), CFrame.lookAt(base + side * 11 * s + Vector3.new(0, 9, 0), base + side * 11 * s + Vector3.new(0, 9, 0) + face) * CFrame.Angles(0, 0, -0.08 * s), rock, Enum.Material.Slate)
+	local base = Vector3.new(x, Props.groundY(x, z), z)
+	local forge = def.id == "Forge"
+	local rock = forge and Color3.fromRGB(70, 60, 58) or Color3.fromRGB(105, 110, 108)
+	local HALF, LEG, R, DEPTH = DungeonBuilder.MOUTH.half, DungeonBuilder.MOUTH.leg, DungeonBuilder.MOUTH.radius, DungeonBuilder.MOUTH.depth
+	local top = LEG + R
+	-- at the foot of the arch, looking out: +Z runs back into the hill
+	local cf = CFrame.lookAt(base, base + face)
+	local function at(dx: number, dz: number): Vector3
+		-- a spot on the ground beside the mouth (read before the hill goes up)
+		local p = (cf * CFrame.new(dx, 0, dz)).Position
+		return Vector3.new(p.X, Props.groundY(p.X, p.Z), p.Z)
 	end
-	Props.part(folder, Vector3.new(32, 7, 11), CFrame.lookAt(base + Vector3.new(0, 21, 0), base + Vector3.new(0, 21, 0) + face) * CFrame.Angles(0, 0, 0.04), rock, Enum.Material.Slate)
-	local mouth = Props.part(folder, Vector3.new(14, 17, 1), CFrame.lookAt(base + Vector3.new(0, 8.5, 0) - face * 2, base + Vector3.new(0, 8.5, 0) + face), Color3.fromRGB(8, 8, 12), Enum.Material.SmoothPlastic)
-	mouth.Name = "Mouth"
-	mouth.CanCollide = false
-	local swirl = Props.part(folder, Vector3.new(12, 15, 0.3), CFrame.lookAt(base + Vector3.new(0, 8.5, 0) - face * 1.2, base + Vector3.new(0, 8.5, 0) + face), theme.accent, Enum.Material.Neon)
-	swirl.Transparency = 0.7
-	swirl.CanCollide = false
-	Props.light(swirl, theme.light, 28, 2)
-	-- braziers on either side
-	for _, s in ipairs({ -1, 1 }) do
-		local p = base + side * 20 * s + face * 4
-		brazier(folder, Vector3.new(p.X, Props.groundY(p.X, p.Z), p.Z), theme)
-	end
-	if def.id == "Barrow" then
-		for _, s in ipairs({ -1, 1 }) do
-			local p = base + side * 30 * s - face * 2
-			local h = 13
-			Props.part(folder, Vector3.new(4, h, 2.4), CFrame.lookAt(Vector3.new(p.X, Props.groundY(p.X, p.Z) + h / 2 - 1, p.Z), Vector3.new(p.X, Props.groundY(p.X, p.Z) + h / 2 - 1, p.Z) + face), DARK_STONE, Enum.Material.Slate)
-		end
-		local skull = Props.ellipsoid(folder, Vector3.new(3.4, 3, 3), CFrame.new(base + Vector3.new(0, 25.5, 0) + face * 3), IVORY, Enum.Material.Slate)
-		skull.CanCollide = false
-	else
-		for _, s in ipairs({ -1, 1 }) do
-			chains(folder, base + side * 14 * s + Vector3.new(0, 19, 0) + face * 5, base + side * 20 * s + Vector3.new(0, 3, 0) + face * 8)
-		end
-	end
-	-- boulders tumbled around the mouth
 	local rng = Random.new(#def.id * 131)
-	for i = 1, 7 do
-		local a = math.rad(-80 + i * 22)
-		local p = base - face * 6 + (side * math.sin(a) - face * math.cos(a) * 0.4) * rng:NextNumber(20, 28)
-		Props.rock(folder, Vector3.new(p.X, Props.groundY(p.X, p.Z) + 1, p.Z), rng:NextNumber(4, 8), rock)
+	local braziers = { at(-(HALF + 5), -8), at(HALF + 5, -8) }
+	local stones = { at(-(HALF + 11), -13), at(HALF + 11, -13) }
+	local stakes = { at(-(HALF + 8), -8), at(HALF + 8, -8) }
+	local boulders = {}
+	for i = 1, 6 do
+		local s = i % 2 == 0 and 1 or -1
+		table.insert(boulders, { at(s * rng:NextNumber(HALF + 14, HALF + 26), rng:NextNumber(-17, -12)), rng:NextNumber(4, 7) })
+	end
+
+	-- the hill: a compact rock mass the arch is set into, round shoulders either side of the
+	-- doorway (they may come forward beside it, never across it), and a knoll rising behind
+	local shell = mat(theme.shell)
+	terrain:FillBlock(cf * CFrame.new(0, (top + 6) / 2 - 1, 14), Vector3.new(HALF * 2 + 12, top + 6, 28), shell)
+	terrain:FillBall((cf * CFrame.new(0, top + 6, 18)).Position, 18, shell)
+	for _, s in ipairs({ -1, 1 }) do
+		terrain:FillBall((cf * CFrame.new(s * (HALF + 18), 3, 6)).Position, 16, shell)
+		terrain:FillBall((cf * CFrame.new(s * 26, 8, 30)).Position, 21, shell)
+	end
+	terrain:FillBall((cf * CFrame.new(0, 10, 44)).Position, 30, shell)
+	-- the passage back into it, and nothing standing in front of the doorway
+	terrain:FillBlock(cf * CFrame.new(0, (top + 1.5) / 2, DEPTH / 2 + 0.5), Vector3.new(HALF * 2, top + 0.5, DEPTH + 1), Enum.Material.Air)
+	terrain:FillBlock(cf * CFrame.new(0, top / 2 + 1, -8), Vector3.new(HALF * 2 + 8, top, 16), Enum.Material.Air)
+
+	-- the arch: two pillars and a round top
+	for _, xx in ipairs({ -HALF - 1.8, HALF + 1.8 }) do
+		Props.part(folder, Vector3.new(3.6, LEG, 4), cf * CFrame.new(xx, LEG / 2, 0), rock, Enum.Material.Slate)
+		Props.part(folder, Vector3.new(4.6, 1.2, 5), cf * CFrame.new(xx, 0.6, 0), DARK_STONE, Enum.Material.Slate)
+	end
+	for i = 0, 14 do
+		local a = math.pi * i / 14
+		local p = cf * CFrame.new(math.cos(a) * (R + 1.8), LEG + math.sin(a) * (R + 1.8), 0)
+		Props.part(folder, Vector3.new(3.6, 3.6, 4), CFrame.lookAt(p.Position, p.Position + face) * CFrame.Angles(0, 0, a), rock, Enum.Material.Slate)
+	end
+	-- the dark passage: a black back wall, and the glow shaped like the opening, set in front of it
+	local back = Props.part(folder, Vector3.new(HALF * 2, top, 1), cf * CFrame.new(0, top / 2, DEPTH - 0.5), Color3.fromRGB(8, 8, 12), Enum.Material.SmoothPlastic)
+	back.Name = "Back"
+	local glowParts = {}
+	local swirl = Props.part(folder, Vector3.new(HALF * 2 - 1, LEG, 0.4), cf * CFrame.new(0, LEG / 2, DEPTH - 1.5), theme.accent, Enum.Material.Neon)
+	swirl.Name = "Glow"
+	table.insert(glowParts, swirl)
+	local slices = 6
+	local r = HALF - 0.5
+	for i = 0, slices - 1 do
+		local y0, y1 = r * i / slices, r * (i + 1) / slices
+		local ym = (y0 + y1) / 2
+		local w = 2 * math.sqrt(math.max(0, r * r - ym * ym))
+		table.insert(glowParts, Props.part(folder, Vector3.new(math.max(1, w), y1 - y0, 0.4), cf * CFrame.new(0, LEG + ym, DEPTH - 1.5), theme.accent, Enum.Material.Neon))
+	end
+	for _, g in ipairs(glowParts) do
+		g.Transparency = 0.45
+		g.CanCollide = false
+		g.CastShadow = false
+	end
+	Props.light(swirl, theme.light, 14, 1)
+	-- (where the prompt lives: the doorway itself)
+	local mouth = Props.part(folder, Vector3.new(HALF * 2, LEG, 1), cf * CFrame.new(0, LEG / 2, 0.5), Color3.fromRGB(8, 8, 12), Enum.Material.SmoothPlastic)
+	mouth.Name = "Mouth"
+	mouth.Transparency = 1
+	mouth.CanCollide = false
+	mouth.CanQuery = false
+
+	-- braziers either side, and each dungeon's own touches
+	for _, p in ipairs(braziers) do
+		brazier(folder, p, theme)
+	end
+	if forge then
+		-- the keystone glows like a forge, and chains hang from the arch's shoulders to iron stakes
+		local keystone = Props.part(folder, Vector3.new(2.6, 3.8, 4.2), cf * CFrame.new(0, top + 1.8, 0), theme.accent, Enum.Material.Neon)
+		keystone.CanCollide = false
+		for i, s in ipairs({ -1, 1 }) do
+			local stake = stakes[i]
+			Props.part(folder, Vector3.new(1.4, 3, 1.4), CFrame.new(stake + Vector3.new(0, 1.5, 0)), IRON, Enum.Material.Metal)
+			chains(folder, (cf * CFrame.new(s * (HALF + 1.8), LEG + R * 0.6, -2.2)).Position, stake + Vector3.new(0, 2.6, 0), 1.6)
+		end
+	else
+		-- standing stones, and a skull on the keystone
+		for _, p in ipairs(stones) do
+			local h = 13
+			Props.part(folder, Vector3.new(4, h, 2.4), CFrame.lookAt(p + Vector3.new(0, h / 2 - 1, 0), p + Vector3.new(0, h / 2 - 1, 0) + face), DARK_STONE, Enum.Material.Slate)
+		end
+		local skull = Props.ellipsoid(folder, Vector3.new(3.6, 3.2, 3.2), cf * CFrame.new(0, top + 2.6, -1), IVORY, Enum.Material.Slate)
+		skull.CanCollide = false
+		for _, s in ipairs({ -1, 1 }) do
+			local eye = Props.part(folder, Vector3.new(0.6, 0.6, 0.3), cf * CFrame.new(s * 0.7, top + 2.8, -2.6), theme.accent, Enum.Material.Neon)
+			eye.CanCollide = false
+		end
+	end
+	-- boulders tumbled at the foot of the hill's shoulders (off to the sides, never in the doorway)
+	for _, b in ipairs(boulders) do
+		Props.rock(folder, b[1] + Vector3.new(0, 1, 0), b[2], rock)
 	end
 	-- (the sign on the side away from the keeper, Zones.QuestGivers)
-	Props.sign(folder, CFrame.lookAt(base + face * 14 - side * 16 + Vector3.new(0, 5, 0), base + face * 40 - side * 16 + Vector3.new(0, 5, 0)),
+	Props.sign(folder, CFrame.lookAt(base + face * 24 - side * 18 + Vector3.new(0, 5, 0), base + face * 50 - side * 18 + Vector3.new(0, 5, 0)),
 		string.format("%s %s\nDungeon  •  Level %d+", def.icon, def.name, def.minLevel), Vector2.new(15, 5), theme.accent, Color3.fromRGB(45, 40, 38))
 
 	local prompt = Instance.new("ProximityPrompt")

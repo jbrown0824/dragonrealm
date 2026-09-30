@@ -244,7 +244,7 @@ local function makeBreath(character: Model, classId: string)
 	return { part = p, emitters = emitters, light = light, untilTime = 0, dir = Vector3.new(0, 0, -1), classId = classId }
 end
 
-function VFX.breath(character: Model, dir: Vector3, classId: string, duration: number)
+function VFX.breath(character: Model, dir: Vector3, classId: string, duration: number, reach: number?)
 	if not character or not character.Parent then
 		return
 	end
@@ -259,6 +259,17 @@ function VFX.breath(character: Model, dir: Vector3, classId: string, duration: n
 	end
 	b.dir = dir
 	b.untilTime = os.clock() + duration
+	-- a longer breath (the Forgeheart Wyrmling's +breath range): the flames fly faster, farther
+	reach = reach or 1
+	if b.reach ~= reach then
+		b.reach = reach
+		b.speeds = b.speeds or {}
+		for _, e in ipairs(b.emitters) do
+			b.speeds[e] = b.speeds[e] or e.Speed
+			local base = b.speeds[e]
+			e.Speed = NumberRange.new(base.Min * reach, base.Max * reach)
+		end
+	end
 	for _, e in ipairs(b.emitters) do
 		e.Enabled = true
 	end
@@ -447,6 +458,21 @@ function VFX.strike(data)
 				cloud.Enabled = false
 			end)
 			Debris:AddItem(anchor, 5)
+		elseif style == "bone" then
+			-- grave spikes: bones bursting up out of the floor, then sinking back
+			for i = 1, 7 do
+				local a = i / 7 * math.pi * 2 + math.random() * 0.6
+				local r = (i == 7) and 0 or radius * (0.35 + math.random() * 0.5)
+				local height = radius * (0.7 + math.random() * 0.5)
+				local base = pos + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+				local tilt = CFrame.Angles(math.random(-20, 20) / 100, 0, math.random(-20, 20) / 100)
+				local spike = part(Vector3.new(1.3, height, 1.3), CFrame.new(base - Vector3.new(0, height / 2, 0)) * tilt, Color3.fromRGB(225, 215, 190), Enum.Material.Slate, 0)
+				tween(spike, 0.12, { CFrame = CFrame.new(base + Vector3.new(0, height / 2 - 0.5, 0)) * tilt })
+				task.delay(0.9, function()
+					tween(spike, 0.5, { CFrame = CFrame.new(base - Vector3.new(0, height / 2, 0)) * tilt, Transparency = 1 })
+				end)
+				Debris:AddItem(spike, 1.5)
+			end
 		elseif style == "shadow" then
 			local orb = part(Vector3.new(radius * 2, radius * 2, radius * 2), CFrame.new(pos), colorB, Enum.Material.Neon, 0.5, Enum.PartType.Ball)
 			tween(orb, 0.2, { Size = Vector3.new(1, 1, 1), Transparency = 0.1 })
@@ -558,6 +584,46 @@ end
 ---------------------------------------------------------------- vikings & farm
 
 -- A dungeon boss's harpoon: a chain of links flying out to a dragon.
+-- A harpooned dragon being dragged in: the chain stays taut between the boss's hand and the
+-- dragon for the whole reel, then a thud where it lands.
+local function reelChain(d)
+	local victim = Players:GetPlayerByUserId(d.userId)
+	local bossRoot = d.model and d.model.PrimaryPart
+	if not victim or not bossRoot then
+		return
+	end
+	local hand = d.from - bossRoot.Position
+	local links = {}
+	for i = 1, 14 do
+		links[i] = part(Vector3.new(0.4, 0.7, 1.4), CFrame.new(d.from), Color3.fromRGB(70, 70, 80), Enum.Material.Metal)
+	end
+	local hook = part(Vector3.new(0.6, 1.8, 1.4), CFrame.new(d.from), Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
+	local start, time = os.clock(), math.max(0.1, d.time or 0.6)
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local character = victim.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local done = os.clock() - start >= time or not root or not bossRoot.Parent
+		if not done then
+			local a = bossRoot.Position + hand
+			local b = root.Position
+			local look = (b - a).Magnitude > 0.1 and (b - a) or Vector3.new(0, 0, -1)
+			hook.CFrame = CFrame.lookAt(b, b + look)
+			for i, link in ipairs(links) do
+				local p = a:Lerp(b, i / (#links + 1))
+				link.CFrame = CFrame.lookAt(p, p + look) * CFrame.Angles(0, 0, i % 2 == 0 and 0 or math.rad(90))
+			end
+		else
+			conn:Disconnect()
+			hook:Destroy()
+			for _, link in ipairs(links) do
+				link:Destroy()
+			end
+			burst(d.to, Color3.fromRGB(190, 190, 200), Color3.fromRGB(90, 90, 100), 16, 14, 1.5, SMOKE)
+		end
+	end)
+end
+
 local function chainThrow(from: Vector3, to: Vector3, time: number)
 	local hook = part(Vector3.new(0.6, 1.8, 1.4), CFrame.new(from), Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
 	local links = {}
@@ -578,7 +644,7 @@ local function chainThrow(from: Vector3, to: Vector3, time: number)
 		end
 		if t >= 1 then
 			conn:Disconnect()
-			task.delay(0.4, function()
+			task.delay(0.05, function()
 				hook:Destroy()
 				for _, link in ipairs(links) do
 					link:Destroy()
@@ -724,7 +790,7 @@ end
 
 local HANDLERS = {
 	breath = function(d)
-		VFX.breath(d.character, d.dir, d.classId, d.duration)
+		VFX.breath(d.character, d.dir, d.classId, d.duration, d.reach)
 	end,
 	projectiles = VFX.projectiles,
 	projectileHit = VFX.projectileHit,
@@ -788,10 +854,10 @@ local HANDLERS = {
 	end,
 	-- a dungeon boss's harpoon hooked a dragon and dragged it down (the hooked dragon stops flying)
 	harpooned = function(d)
-		burst(d.to, Color3.fromRGB(190, 190, 200), Color3.fromRGB(90, 90, 100), 16, 14, 1.5, SMOKE)
 		if d.userId == Players.LocalPlayer.UserId then
-			App.Movement.land()
+			App.Movement.reel(d.to, d.time or 0.6)
 		end
+		reelChain(d)
 	end,
 	-- chains breaking (the Rune Forge's elder dragon set free, or a rune shield shattering)
 	shatter = function(d)

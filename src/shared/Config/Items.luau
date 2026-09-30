@@ -18,6 +18,12 @@ Items.SlotInfo = {
 	Charm = { name = "Amulet", icon = "📿" },
 }
 
+-- An item's power (before rarity and upgrades) is POWER_BASE + item level * POWER_PER_ILVL. (Tuned
+-- together with each dragon's per-level growth in Config/Classes: levelling up counts for more,
+-- gear a little less, and a dragon with at-level gear ends up about as strong as before.)
+Items.POWER_BASE = 5.4
+Items.POWER_PER_ILVL = 1.01
+
 -- How much of each stat an item of a slot gets per point of item power.
 Items.SlotStats = {
 	Head = { health = 2.2, defense = 0.22 },

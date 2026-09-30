@@ -13,6 +13,9 @@ local Pets = {}
 -- "Secret" pets come from the Secret Egg in the 💎 Store (Robux), except the Aurora Serpent: a
 -- 1% chance in every Mythic Egg (species with `egg` set only hatch from that egg). The dungeon
 -- eggs' species are tied the same way.
+-- Pet boosts that don't grow with the pet's level or golden-ness (a pet's breath range stays +50%).
+Pets.FIXED_STATS = { breathRange = true }
+
 Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
 Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000, Secret = 3000 }
 
@@ -108,6 +111,10 @@ Pets.Species = {
 		look = palette(rgb(95, 95, 105), rgb(55, 55, 62), rgb(160, 150, 140), rgb(255, 130, 50), rgb(255, 170, 60), rgb(80, 80, 90), rgb(60, 55, 55), rgb(255, 190, 80), rgb(255, 90, 20)) },
 	RuneforgedDrake = { name = "Runeforged Drake", rarity = "Epic", plan = "Venomspine", egg = "ForgeEgg", stats = { abilityPct = 8, cooldownPct = 4 },
 		look = palette(rgb(35, 30, 32), rgb(20, 16, 18), rgb(90, 60, 45), rgb(255, 140, 50), rgb(255, 180, 70), rgb(45, 38, 40), rgb(255, 140, 60), rgb(255, 200, 90), rgb(255, 100, 20)) },
+	-- only in Forge Eggs (1%): a molten-hearted wyrmling whose breath reaches half again as far
+	-- (breathRange is one of Pets.FIXED_STATS: pet levels and gold don't grow it)
+	ForgeheartWyrmling = { name = "Forgeheart Wyrmling", rarity = "Secret", plan = "Shadowstalker", egg = "ForgeEgg", stats = { breathRange = 50, attackPct = 4 }, aura = rgb(255, 170, 60),
+		look = palette(rgb(40, 22, 18), rgb(20, 12, 10), rgb(255, 150, 60), rgb(255, 190, 70), rgb(255, 240, 150), rgb(90, 30, 18), rgb(255, 200, 110), rgb(255, 230, 120), rgb(255, 90, 20)) },
 	-- the freed elder dragon's hatchling
 	ChainbreakerWyrm = { name = "Chainbreaker Wyrm", rarity = "Legendary", plan = "Stormwing", egg = "ForgeEgg", stats = { regen = 0.15, healthPct = 10, attackPct = 6 },
 		look = palette(rgb(170, 40, 25), rgb(90, 20, 15), rgb(255, 200, 120), rgb(255, 210, 90), rgb(255, 230, 120), rgb(200, 60, 30), rgb(255, 210, 110), rgb(255, 220, 110), rgb(255, 110, 20)) },
@@ -135,8 +142,8 @@ Pets.Eggs = {
 		weights = { Rare = 65, Epic = 28, Legendary = 7 },
 		desc = "Cold as a grave and faintly glowing. Only Haldor the Hollow King drops it, and it hatches nano dragons found nowhere else." },
 	ForgeEgg = { name = "Forge Egg", icon = "🔥", price = nil, dungeon = "Forge", color = rgb(255, 140, 60),
-		weights = { Rare = 65, Epic = 28, Legendary = 7 },
-		desc = "Still hot from the Rune Forge. Only Runemaster Sigrun drops it, and it hatches nano dragons found nowhere else." },
+		weights = { Rare = 20, Epic = 55, Legendary = 24, Secret = 1 },
+		desc = "Still hot from the Rune Forge. Only Runemaster Sigrun drops it, and it hatches nano dragons found nowhere else, with a 1% chance of the Forgeheart Wyrmling (+50% breath range)." },
 }
 
 Pets.RarityColors = {

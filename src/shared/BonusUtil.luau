@@ -54,7 +54,7 @@ function BonusUtil.petBoosts(pet)
 	if species then
 		local mult = Pets.multiplier(pet.level, pet.golden)
 		for stat, v in pairs(species.stats) do
-			out[stat] = v * mult
+			out[stat] = Pets.FIXED_STATS[stat] and v or v * mult
 		end
 	end
 	return out

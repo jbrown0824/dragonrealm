@@ -669,9 +669,20 @@ function Map.refreshList()
 	end
 	local wp = App.Waypoint.get()
 	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 17, TextColor3 = C.accent, Text = "📍 Waypoint: " .. (wp and wp.label or "none"), Parent = big.list })
-	if wp then
+	if wp and wp.source == "quest" then
+		Theme.button("Stop guiding me to quests", C.panel3, function()
+			App.Waypoint.stopGuiding()
+			Map.refreshList()
+		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
+	elseif wp then
 		Theme.button("Clear waypoint", C.panel3, function()
 			App.Waypoint.clear()
+			Map.refreshList()
+		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
+	end
+	if not wp and not App.Waypoint.guiding() then
+		Theme.button("Guide me to my quests", C.panel3, function()
+			App.Waypoint.trackQuest(nil)
 			Map.refreshList()
 		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
 	end

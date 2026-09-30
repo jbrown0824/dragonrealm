@@ -303,7 +303,10 @@ end
 Vector2 = { new = v2, zero = v2(0, 0), one = v2(1, 1) }
 NumberSequence = { new = passthrough }
 NumberSequenceKeypoint = { new = passthrough }
-NumberRange = { new = passthrough }
+-- (Min / Max like Roblox's; one number means both)
+NumberRange = { new = function(a, b)
+	return { a, b, Min = a, Max = b or a }
+end }
 ColorSequence = { new = passthrough }
 ColorSequenceKeypoint = { new = passthrough }
 -- Enum items are cached so `a == Enum.Material.Water` comparisons work like in Roblox.
