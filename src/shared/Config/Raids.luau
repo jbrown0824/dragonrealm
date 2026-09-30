@@ -3,11 +3,14 @@
 -- Longships row down the river with the raiders aboard and run aground below town; waves of
 -- vikings hop ashore. Torchbearers set houses alight, the rest pick their own victims (villagers,
 -- or dragons anywhere in town, even at home in their lairs), and the villagers (brave, but not
--- very strong) join the fight until a raider knocks them out for a while.
---   Repelled: every raider is beaten before dawn. Everyone who helped (hit a raider or put out a
---             fire) gets the Rewards.
---   Lost:     dawn comes with raiders still in town, or MAX_BURNED houses burn down. The raiders
---             loot the market and every shop stays shut for SHOPS_CLOSED seconds.
+-- very strong) join the fight until a raider knocks them out for a while. Dragons can fly out and
+-- fight the vikings on deck before they land (one beaten aboard falls overboard).
+--   Repelled: every raider is beaten. Everyone who helped (hit a raider or put out a fire) gets
+--             the Rewards.
+--   Lost:     MAX_BURNED houses burn down, or the raiders are still in town FIGHT_TIME seconds
+--             after the last wave lands (the raid keeps its own clock: dawn doesn't end it). The
+--             raiders run back to their longships with the loot and every shop stays shut for
+--             SHOPS_CLOSED seconds.
 -- Burned houses are rebuilt REBUILD seconds after the raid, win or lose.
 
 local Raids = {}
@@ -17,6 +20,7 @@ Raids.PITY_NIGHTS = 5 -- nights in a row without a raid before one is guaranteed
 Raids.WARNING = 20 -- seconds from the war horn to the first wave coming ashore
 Raids.WAVE_GAP = 40 -- seconds between waves
 Raids.MAX_BURNED = 5 -- the village falls when this many houses have burned down
+Raids.FIGHT_TIME = 180 -- seconds after the last wave lands before the raiders make off with the loot
 Raids.SHOPS_CLOSED = 180
 Raids.REBUILD = 150
 
@@ -74,10 +78,23 @@ Raids.CROWD = 3
 Raids.RETARGET = 15
 Raids.VILLAGER_VICTIM_CHANCE = 0.45 -- how often a fighter goes after a villager instead of a dragon
 
--- Houses
+-- Houses. A burning house burns down after the tier's burnTime unless someone puts it out.
 Raids.TORCH_TIME = 3 -- seconds a Torchbearer stands at a door to set the house alight
-Raids.DOUSE_HOLD = 2 -- hold E at the door this long to beat out the flames
--- (a burning house burns down after the tier's burnTime unless someone puts it out)
+-- Burning down: the flames roar up and the walls blacken, the roof caves in after COLLAPSE_TIME,
+-- the flames die down over DIE_DOWN seconds, and the embers smolder for SMOLDER more.
+Raids.COLLAPSE_TIME = 2.5
+Raids.DIE_DOWN = 16
+Raids.SMOLDER = 60
+
+-- Putting fires out: dragons breathe fire, so they need water. Skim low over any water (the river
+-- below town, a lake) or dip into a town well (Zones.Wells) to scoop up WATER_LOADS splashes, then
+-- fly over a burning house to drop one on it. One splash puts one fire out.
+Raids.WATER_LOADS = 3
+Raids.SCOOP_REACH = 5 -- how far below a dragon's belly the water can be
+Raids.WELL_REACH = 11 -- flat distance from a well's middle
+Raids.WELL_HEIGHT = 18 -- ...and at most this high above it
+Raids.SPLASH_REACH = 24 -- flat distance from a burning house's middle that counts as over it
+Raids.SPLASH_HEIGHT = 50 -- ...and at most this high above its floor
 
 -- Villagers join the fight: they puff small bursts of fire at raiders near them. A raider fresh
 -- off the boat can't be finished by villagers (their fire stops at VILLAGER_FLOOR of its health),
@@ -126,12 +143,19 @@ Raids.Landings = {
 	{ shipX = 52, fromX = 330, shore = Vector3.new(40, 0, 247) },
 }
 Raids.ENTRY_NODE = "N4"
-Raids.SHIP_ROW_TIME = 18 -- seconds the longships take to row in (inside the WARNING)
+Raids.SHIP_ROW_TIME = 19 -- seconds the longships take to row in (the vikings leap off a second after they arrive)
+Raids.SHIP_SLOWDOWN = 0.15 -- they row at full speed and only slow down for this last part of the trip
+Raids.SHIP_SPEED = 22 -- studs a second, for trips that aren't timed (coming back for the raiders)
 Raids.PASSENGERS = 10 -- room on each ship's deck (the wave rides in standing up, then leaps ashore)
 Raids.HOP_GAP = 0.45 -- seconds between raiders leaping ashore
 Raids.LEAP_TIME = 0.8 -- seconds a leap from the deck to the beach takes
 Raids.LEAP_HEIGHT = 9 -- studs above the straight line at the top of the leap
 Raids.SHIP_OUT_TIME = 12 -- seconds to row back upriver for the next wave (it returns in SHIP_ROW_TIME)
+-- A lost raid: the raiders still standing run back to the beach (RETREAT_SPEED x their walking
+-- speed), each with a sack of loot, and leap aboard; the ships row off once everyone's on deck or
+-- after RETREAT_TIME (stragglers still ashore then vanish in a puff).
+Raids.RETREAT_SPEED = 1.35
+Raids.RETREAT_TIME = 35
 
 -- If it's time for a raid while a world boss is on its way or being fought, the raid waits for
 -- it (as long as at least RAID_MIN_NIGHT seconds of night are left). Bosses wait for raids too.

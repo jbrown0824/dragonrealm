@@ -4,7 +4,8 @@
 --            walking with knees, a pulsing ember core, sprawled flat when knocked out or dead),
 --            blended smoothly between states
 --   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers); raiders
---            riding a longship (tag VikingPassenger) cheer with their arms up, and tuck in to leap
+--            riding a longship (model attribute Aboard) cheer with their arms up, and tuck in
+--            to leap (Leaping)
 --   animals: trotting legs, head bob and tail wag (AnimalBuilder rigs)
 
 local CollectionService = game:GetService("CollectionService")
@@ -45,7 +46,7 @@ local function register(model: Instance, kind: string)
 		end
 		rig.root = root
 	end)
-	if kind == "viking" or kind == "animal" or kind == "passenger" then
+	if kind == "viking" or kind == "animal" then
 		model:GetAttributeChangedSignal("Swing"):Connect(function()
 			rig.swingAt = os.clock()
 		end)
@@ -113,14 +114,21 @@ local function animatePassenger(model: Model, rig, now: number)
 	set(rig, "LegR", CFrame.new())
 end
 
+-- Not in the middle of an axe throw (an axe thrower on deck throws like one on land).
+local function sinceThrowing(rig, now: number): boolean
+	return now - rig.throwAt >= 0.4
+end
+
 local function animateViking(model: Model, rig, now: number)
-	if rig.kind == "passenger" then
-		animatePassenger(model, rig, now)
-		return
-	end
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.Health <= 0 then
-		return -- toppled over (EnemyService); keep the pose it fell in
+		return -- toppled over (EnemyService) or tumbling overboard; keep the pose it fell in
+	end
+	if model:GetAttribute("Aboard") or model:GetAttribute("Leaping") then
+		if sinceThrowing(rig, now) then
+			animatePassenger(model, rig, now)
+			return
+		end
 	end
 	local root = rig.root
 	local vel = root.AssemblyLinearVelocity
@@ -191,12 +199,6 @@ function Animator.init(app)
 	end)
 	CollectionService:GetInstanceAddedSignal("Viking"):Connect(function(m)
 		register(m, "viking")
-	end)
-	for _, model in ipairs(CollectionService:GetTagged("VikingPassenger")) do
-		register(model, "passenger")
-	end
-	CollectionService:GetInstanceAddedSignal("VikingPassenger"):Connect(function(m)
-		register(m, "passenger")
 	end)
 	-- the sparring golem swings its throwing arm like a viking
 	local function maybeGolem(model)

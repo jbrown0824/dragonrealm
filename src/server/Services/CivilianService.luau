@@ -7,7 +7,10 @@
 -- bump into players.
 --
 -- During a night raid (RaidService) they drop what they're doing, come out of their houses and
--- puff little bursts of fire at the nearest raider. They're brave but weak: a few axe hits
+-- puff little bursts of fire at the raiders, spreading out over them rather than mobbing one.
+-- They hurry at their own pace (Civilians.RaidSpeed by age: the youngsters run, the old-timers
+-- walk) and wait by their own street between waves, so they don't move about in one clump.
+-- They're brave but weak: a few axe hits
 -- (Raids.VILLAGER_HITS) knock one out, sprawled on the ground with its eyes shut (the model
 -- attribute "KnockedOut" tells clients to pose it) until it gets back up.
 
@@ -124,7 +127,7 @@ end
 -- Walk to `pos` (ground/floor level). If something blocks the way for too long, hop there so a
 -- villager can never get stuck behind a lamp post forever.
 local function walkTo(v, pos: Vector3)
-	local deadline = os.clock() + flatDistance(v.root.Position, pos) / Civilians.WALK_SPEED + 5
+	local deadline = os.clock() + flatDistance(v.root.Position, pos) / math.max(1, v.humanoid.WalkSpeed) + 5
 	local lastPush = 0
 	while v.model.Parent do
 		if called(v) then
@@ -202,10 +205,40 @@ local function face(v, pos: Vector3)
 	end
 end
 
--- Out of the house, then after the nearest raider: along the streets while it's far away, straight
--- at it once close, and a puff of fire whenever it's in range.
+-- How many other villagers are going after this raider.
+local function foesOn(e, except): number
+	local n = 0
+	for _, other in ipairs(villagers) do
+		if other ~= except and other.foe == e and other.defending and not other.knockedOut then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- The raider to go after: a near one, but one with fewer villagers already on it, so they
+-- spread out over the raiders instead of trooping after the same one.
+local function pickFoe(v)
+	local best, bestScore = nil, math.huge
+	for _, e in ipairs(S.RaidService.raiders()) do
+		local d = flatDistance(v.root.Position, e.root.Position)
+		if d < 260 then
+			local score = d + foesOn(e, v) * 35
+			if score < bestScore then
+				best, bestScore = e, score
+			end
+		end
+	end
+	return best
+end
+
+-- Out of the house, then after a raider: along the streets while it's far away, straight at it
+-- once close, and a puff of fire whenever it's in range. With no raider ashore (before the first
+-- wave, between waves) they wait by their own street.
 local function defend(v)
 	v.defending = true
+	local base = Civilians.RaidSpeed[v.def.age or "adult"] or Civilians.WALK_SPEED
+	v.humanoid.WalkSpeed = base * (1 + (math.random() * 2 - 1) * Civilians.RAID_SPEED_JITTER)
 	if v.inside then
 		local house = Zones.Houses[v.inside]
 		walkTo(v, Zones.housePoint(house, Zones.HouseEntry.X, Zones.HouseEntry.Z) + Vector3.new(0, Zones.HOUSE_FLOOR, 0))
@@ -213,14 +246,30 @@ local function defend(v)
 		v.node = "Door" .. v.inside
 		v.inside = nil
 	end
+	local post = Zones.TownWalk.houseLinks[v.def.home] or "PN"
 	local shouted = false
 	while raiding and v.model.Parent do
-		local e = S.RaidService.nearestRaider(v.root.Position)
+		if v.foe and (v.foe.dead or not v.foe.model.Parent or v.foe.aboard or os.clock() >= (v.foeUntil or 0)) then
+			v.foe = nil
+		end
+		if not v.foe and not v.knockedOut then
+			v.foe = pickFoe(v)
+			v.foeUntil = os.clock() + 8 + math.random() * 6
+		end
+		local e = v.foe
 		if v.knockedOut then
+			v.foe = nil
 			task.wait(0.5)
 		elseif not e then
-			goToNode(v, "PN")
-			rest(v, { 1, 2 })
+			-- one street node at a time toward their post, so they notice the next raider at once
+			local path = CivilianService.route(v.node, post)
+			if path[1] then
+				walkTo(v, positions[path[1]])
+				v.node = path[1]
+			else
+				v.humanoid:MoveTo(v.root.Position)
+				task.wait(0.6)
+			end
 		else
 			local dist = flatDistance(v.root.Position, e.root.Position)
 			if dist > 40 then
@@ -252,6 +301,8 @@ local function defend(v)
 		end
 	end
 	v.defending = false
+	v.foe = nil
+	v.humanoid.WalkSpeed = Civilians.WALK_SPEED
 	v.node = CivilianService.nearestNode(v.root.Position, true)
 end
 

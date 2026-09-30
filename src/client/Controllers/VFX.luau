@@ -721,9 +721,33 @@ local HANDLERS = {
 	thud = function(d)
 		burst(d.pos + Vector3.new(0, 0.5, 0), Color3.fromRGB(225, 205, 160), Color3.fromRGB(150, 125, 90), 14, 12, 2.5, SMOKE)
 	end,
-	-- flames beaten out of a burning house
-	douse = function(d)
-		burst(d.pos, Color3.fromRGB(230, 230, 230), Color3.fromRGB(90, 90, 95), 40, 18, 6, SMOKE)
+	-- a dragon drops a splash of water on a burning house: a shower from the dragon down onto the
+	-- roof, then a cloud of steam
+	pour = function(d)
+		local anchor = anchorAt(d.from)
+		local shower = emitter(anchor, {
+			Color = ColorSequence.new(Color3.fromRGB(200, 235, 255), Color3.fromRGB(70, 140, 230)),
+			LightEmission = 0.3,
+			Speed = NumberRange.new(4, 12),
+			SpreadAngle = Vector2.new(30, 30),
+			EmissionDirection = Enum.NormalId.Bottom,
+			Acceleration = Vector3.new(0, -70, 0),
+			Lifetime = NumberRange.new(0.7, 1.1),
+			Size = NS({ { 0, 1.4 }, { 1, 0.6 } }),
+		})
+		shower:Emit(70)
+		Debris:AddItem(anchor, 1.6)
+		task.delay(0.35, function()
+			burst(d.pos, Color3.fromRGB(245, 248, 255), Color3.fromRGB(170, 180, 190), 45, 16, 7, SMOKE)
+			burst(d.pos, Color3.fromRGB(200, 235, 255), Color3.fromRGB(90, 160, 240), 30, 20, 1.2, SPARKLE)
+		end)
+	end,
+	-- a burning house's roof caving in: sparks and a gust of smoke and flame
+	collapse = function(d)
+		burst(d.pos, Color3.fromRGB(255, 200, 90), Color3.fromRGB(255, 80, 20), 60, 30, 1.5, SPARKLE)
+		burst(d.pos, Color3.fromRGB(255, 150, 60), Color3.fromRGB(120, 40, 10), 30, 14, 8)
+		burst(d.pos, Color3.fromRGB(90, 80, 75), Color3.fromRGB(40, 35, 35), 40, 12, 10, SMOKE)
+		flash(d.pos, Color3.fromRGB(255, 140, 60), 60, 0.8)
 	end,
 }
 

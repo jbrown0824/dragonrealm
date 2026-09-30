@@ -239,6 +239,10 @@ function Zones.housePoint(house, x: number, z: number): Vector3
 	local cf = CFrame.lookAt(house.pos, house.pos + house.facing)
 	return (cf * CFrame.new(x, 0, z)).Position
 end
+-- Town wells (Props.well): dragons dip in to scoop up water for burning houses during a raid (the
+-- river below town is the other place close by). One on the main road between the house rows,
+-- one between the two houses at the south end of town.
+Zones.Wells = { Vector3.new(-24, 0, 129), Vector3.new(26, 0, -170) }
 Zones.HOUSE_FLOOR = 2.6 -- height of the floorboards
 Zones.HouseEntry = Vector3.new(0, 0, -8) -- just inside the door
 -- Where villagers potter about indoors: the rug, in the nest, the fireplace, the bookshelf, the table.

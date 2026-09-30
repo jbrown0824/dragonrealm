@@ -2,10 +2,12 @@
 -- there's a Raids.CHANCE of a raid (always one after Raids.PITY_NIGHTS quiet nights in a row).
 --
 -- A raid: the war horn sounds and longships row down the river (Raids.WARNING) with the first
--- wave standing on deck, then the vikings hop ashore below town one after another. The size of
--- the raid follows the strongest dragon online (Raids.Tiers), so new players get a gentler one.
--- Raiders are ordinary EnemyService vikings flagged `raid` (so they can fight inside town) with
--- an `objective` (see "raider brains"): Torchbearers walk the villagers' street graph
+-- wave standing on deck, then the vikings leap ashore below town one after another. The vikings
+-- on deck are already real raiders (EnemyService, welded to the keel and cheering, with no AI yet),
+-- so dragons can fly out and fight them on the way in: one beaten on deck tumbles overboard. The
+-- size of the raid follows the strongest dragon online (Raids.Tiers), so new players get a gentler
+-- one. Raiders are ordinary vikings flagged `raid` (so they can fight inside town) with an
+-- `objective` (see "raider brains"): Torchbearers walk the villagers' street graph
 -- (Zones.TownWalk, via CivilianService) to a house door and set it alight; the rest go after
 -- villagers (knocking them out for a while) and dragons all over town, even at home in their
 -- lairs. Villagers come out and puff fire at them (CivilianService), and the quest givers breathe
@@ -16,9 +18,15 @@
 -- A raid never starts while a world boss is on its way or being fought: it waits for the boss
 -- (BossService likewise waits for a raid to finish before sounding its warning).
 --
--- A burning house burns down after the tier's burnTime unless a dragon holds E at its door. Beat
--- every raider before dawn to win: everyone who hit a raider or put out a fire gets the
--- rewards. Lose (dawn, or Raids.MAX_BURNED houses gone) and ShopService closes every vendor
+-- Fire: a burning house burns down after the tier's burnTime unless a dragon drops water on it.
+-- Dragons scoop water by skimming low over the river or a lake, or dipping into a town well, and
+-- carry Raids.WATER_LOADS splashes (player attribute "Water"); flying over a burning house drops
+-- one. A house that burns down flares up, blackens, caves in and smolders (see "houses").
+--
+-- The raid keeps its own clock (Raids.FIGHT_TIME after the last wave lands), so dawn doesn't cut
+-- it short. Beat every raider to win: everyone who hit a raider or put out a fire gets the
+-- rewards. Lose (time's up, or Raids.MAX_BURNED houses gone) and the raiders still standing run
+-- back to their longships with sacks of loot and row away, and ShopService closes every vendor
 -- for a while. Burned houses are rebuilt Raids.REBUILD seconds after the raid either way.
 --
 -- Clients follow along through workspace attributes (UI/RaidUI): RaidPhase ("incoming" /
@@ -36,11 +44,9 @@ local Zones = require(Shared.Config.Zones)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
-local Enemies = require(Shared.Config.Enemies)
 local Quests = require(Shared.Config.Quests)
 
 local Props = require(script.Parent.Parent.World.Props)
-local VikingBuilder = require(script.Parent.Parent.World.VikingBuilder)
 
 local RaidService = {}
 local S
@@ -49,17 +55,23 @@ local raid = nil -- the raid in progress (see RaidService.start)
 local raidCounter = 0
 local quietNights = 0
 local pendingRaid = false -- rolled a raid while a boss was busy: it starts once the boss is done
-local houses = {} -- [index] = { model, state = "ok" | "burning" | "burned", burnsAt, fx, original, rebuildAt }
+local houses = {} -- [index] = { model, state = "ok" | "burning" | "burned", burnsAt, fx, fires, lights, original, rebuildAt, baseY }
+local wells = {} -- { ground = Vector3, tag = BillboardGui }
+local rowing = {} -- [ship] = the trip it's on (a newer trip replaces it)
 local shipFolder: Folder
+local enemyFolder: Instance?
 local riverSamples = {}
+local terrainParams = RaycastParams.new()
 
 local endRaid: (won: boolean, reason: string?) -> () -- below; burning a house down can end the raid
 local giversFight: (r: any) -> () -- below; the quest givers fight once the raiders land
+local runBack: (r: any, e: any) -> () -- below; a lost raid's raiders run back to their ships
 
 local STREET_GOALS = { "PN", "PNE", "PE", "PSE", "PS", "PSW", "PW", "PNW", "N1", "N2", "N3", "E1", "E2", "W1", "S1" }
 local CHAR = Color3.fromRGB(38, 32, 30)
 local SHIP_SIDE = 9 -- a landed longship sits this far from the middle of the river, toward town
 local SHIP_KEEL = CFrame.new(0, -2.4, 0) -- where Props.longship puts the keel (the ship's PrimaryPart)
+local WATER_COLOR = Color3.fromRGB(140, 200, 255)
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -111,23 +123,33 @@ local function houseCF(index: number): CFrame
 	return CFrame.lookAt(house.pos, house.pos + house.facing)
 end
 
+local function roofTop(index: number): Vector3
+	return Vector3.new(Zones.Houses[index].pos.X, houses[index].baseY + Zones.HouseSize.Y + 4, Zones.Houses[index].pos.Z)
+end
+
 local function clearFx(h)
 	if h.fx then
 		h.fx:Destroy()
-		h.fx = nil
 	end
+	h.fx = nil
+	h.fires = nil
+	h.lights = nil
+	h.tag = nil
 end
 
--- Invisible anchors on the roof and over the door for the flames (or the smoke of a burned house).
-local function addFx(index: number, burning: boolean)
+-- The effects on a house: invisible anchors on the roof carrying flames (`kind` "burning", with
+-- the countdown everyone can see), a puff of steam that clears ("steam", a fire just put out), or
+-- smoke and a few embers that smolder for a while ("burned").
+local function addFx(index: number, kind: string)
 	local h = houses[index]
 	clearFx(h)
 	local size = Zones.HouseSize
-	local cf = houseCF(index)
+	local cf = houseCF(index) + Vector3.new(0, h.baseY, 0)
 	local fx = Instance.new("Folder")
 	fx.Name = "FireFX"
-	local spots = burning and { Vector3.new(-size.X * 0.28, size.Y + 5, 0), Vector3.new(size.X * 0.28, size.Y + 5, 2), Vector3.new(0, size.Y - 3, -size.Z / 2) }
-		or { Vector3.new(-size.X * 0.2, size.Y + 3, 0), Vector3.new(size.X * 0.25, size.Y + 2, 3) }
+	local fires, lights = {}, {}
+	local spots = kind == "burned" and { Vector3.new(-size.X * 0.2, size.Y + 3, 0), Vector3.new(size.X * 0.25, size.Y + 2, 3) }
+		or { Vector3.new(-size.X * 0.28, size.Y + 5, 0), Vector3.new(size.X * 0.28, size.Y + 5, 2), Vector3.new(0, size.Y - 3, -size.Z / 2) }
 	for _, off in ipairs(spots) do
 		local anchor = Instance.new("Part")
 		anchor.Anchored = true
@@ -139,39 +161,21 @@ local function addFx(index: number, burning: boolean)
 		anchor.CFrame = cf * CFrame.new(off)
 		anchor.Parent = fx
 		local smoke = Instance.new("Smoke")
-		smoke.Color = burning and Color3.fromRGB(70, 60, 55) or Color3.fromRGB(110, 105, 100)
-		smoke.Size = burning and 12 or 7
 		smoke.RiseVelocity = 8
-		smoke.Opacity = burning and 0.35 or 0.2
-		smoke.Parent = anchor
-		if burning then
-			Props.fire(anchor, 14, Color3.fromRGB(255, 120, 40))
-			Props.light(anchor, Color3.fromRGB(255, 140, 60), 40, 3)
+		if kind == "burning" then
+			smoke.Color, smoke.Size, smoke.Opacity = Color3.fromRGB(70, 60, 55), 12, 0.35
+			table.insert(fires, Props.fire(anchor, 14, Color3.fromRGB(255, 120, 40)))
+			table.insert(lights, Props.light(anchor, Color3.fromRGB(255, 140, 60), 40, 3))
+		elseif kind == "steam" then
+			smoke.Color, smoke.Size, smoke.Opacity, smoke.RiseVelocity = Color3.fromRGB(235, 240, 245), 10, 0.3, 12
+		else
+			smoke.Color, smoke.Size, smoke.Opacity = Color3.fromRGB(110, 105, 100), 7, 0.2
+			table.insert(fires, Props.fire(anchor, 3, Color3.fromRGB(200, 60, 20)))
+			table.insert(lights, Props.light(anchor, Color3.fromRGB(255, 90, 30), 14, 0.8))
 		end
+		smoke.Parent = anchor
 	end
-	if burning then
-		-- the prompt to beat out the flames, on the doorstep
-		local door = Instance.new("Part")
-		door.Name = "Doorstep"
-		door.Anchored = true
-		door.CanCollide = false
-		door.CanQuery = false
-		door.CanTouch = false
-		door.Transparency = 1
-		door.Size = Vector3.new(2, 2, 2)
-		door.CFrame = CFrame.new(Zones.houseDoor(Zones.Houses[index]) + Vector3.new(0, 4, 0))
-		door.Parent = fx
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Put out the fire"
-		prompt.ObjectText = "Burning house"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = Raids.DOUSE_HOLD
-		prompt.MaxActivationDistance = 20
-		prompt.RequiresLineOfSight = false
-		prompt.Parent = door
-		prompt.Triggered:Connect(function(player)
-			RaidService.douse(index, player)
-		end)
+	if kind == "burning" then
 		-- a countdown everyone can see from across town
 		local gui = Instance.new("BillboardGui")
 		gui.Name = "FireTag"
@@ -194,6 +198,7 @@ local function addFx(index: number, burning: boolean)
 		corner.CornerRadius = UDim.new(0, 10)
 		corner.Parent = label
 		local base = Instance.new("Part")
+		base.Name = "TagAnchor"
 		base.Anchored = true
 		base.CanCollide = false
 		base.CanQuery = false
@@ -207,37 +212,166 @@ local function addFx(index: number, burning: boolean)
 	end
 	fx.Parent = h.model
 	h.fx = fx
+	h.fires = fires
+	h.lights = lights
+	if kind ~= "burning" then
+		-- steam clears in a few seconds; embers go cold after a while (the smoke lingers)
+		task.delay(kind == "steam" and 6 or Raids.SMOLDER, function()
+			if h.fx ~= fx then
+				return
+			end
+			if kind == "steam" then
+				clearFx(h)
+			else
+				for _, f in ipairs(fires) do
+					f.Enabled = false
+				end
+				for _, l in ipairs(lights) do
+					l.Enabled = false
+				end
+			end
+		end)
+	end
 end
 
--- Soot-black walls, dark windows, cold fireplace. Remembers every part's look for the rebuild.
-local function char(h)
+-- Remember every part's look and place (and switch off the fireplace and lanterns) before a
+-- house burns down, so the rebuild can put it all back.
+local function remember(h)
+	if h.original then
+		return
+	end
 	h.original = {}
 	for _, d in ipairs(h.model:GetDescendants()) do
-		if d:IsA("BasePart") then
-			h.original[d] = { color = d.Color, material = d.Material }
-			d.Color = d.Color:Lerp(CHAR, 0.8)
-			if d.Material == Enum.Material.Neon then
-				d.Material = Enum.Material.SmoothPlastic
+		if not d:FindFirstAncestor("FireFX") then
+			if d:IsA("BasePart") then
+				h.original[d] = { color = d.Color, material = d.Material, cf = d.CFrame }
+			elseif d:IsA("Light") or d:IsA("Fire") then
+				h.original[d] = { enabled = d.Enabled }
+				d.Enabled = false
 			end
-		elseif d:IsA("Light") or d:IsA("Fire") then
-			h.original[d] = { enabled = d.Enabled }
-			d.Enabled = false
 		end
 	end
 end
 
+-- Soot creeping over the walls: `k` from 0 (as built) to 1 (charred black).
+local function blacken(h, k: number)
+	for d, look in pairs(h.original) do
+		if look.color and d.Parent then
+			d.Color = look.color:Lerp(CHAR, 0.8 * k)
+			if look.material == Enum.Material.Neon then
+				d.Material = Enum.Material.SmoothPlastic -- the glowing windows go dark
+			end
+		end
+	end
+end
+
+-- The roof (everything above the wall tops but the brick chimney) caves in: it drops into the
+-- house, tipping this way and that, speeding up as it falls.
+local function caveIn(index: number, token)
+	local h = houses[index]
+	local frame = houseCF(index) + Vector3.new(0, h.baseY, 0)
+	local falling = {}
+	local rng = Random.new(index * 31)
+	for d, look in pairs(h.original) do
+		if look.cf and d.Material ~= Enum.Material.Brick and frame:PointToObjectSpace(look.cf.Position).Y > Zones.HouseSize.Y + 0.8 then
+			local drop = Zones.HouseSize.Y * 0.5 + rng:NextNumber(0, 3)
+			local tip = CFrame.Angles(rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.1, 0.1), rng:NextNumber(-0.2, 0.2))
+			table.insert(falling, { part = d, from = look.cf, to = (look.cf - Vector3.new(0, drop, 0)) * tip })
+		end
+	end
+	for i = 1, 6 do
+		if h.collapsing ~= token then
+			return
+		end
+		local k = (i / 6) ^ 2
+		for _, f in ipairs(falling) do
+			if f.part.Parent then
+				f.part.CFrame = f.from:Lerp(f.to, k)
+			end
+		end
+		task.wait(0.08)
+	end
+end
+
+-- A house burning down, over a little while rather than all at once: the flames roar up while the
+-- walls blacken, the roof caves in with a burst of sparks, then the fire dies down to smoldering
+-- embers and smoke.
+local function collapse(index: number)
+	local h = houses[index]
+	local token = {}
+	h.collapsing = token
+	if not h.fires or #h.fires == 0 then
+		addFx(index, "burning")
+	end
+	if h.tag then
+		h.tag.Text = "🏚️ Burning down!"
+	end
+	for _, f in ipairs(h.fires) do
+		f.Size = 22
+		f.Heat = 18
+	end
+	for _, l in ipairs(h.lights) do
+		l.Brightness = 5
+	end
+	remember(h)
+	for i = 1, 5 do
+		blacken(h, i / 5)
+		task.wait(Raids.COLLAPSE_TIME / 5)
+		if h.collapsing ~= token then
+			return
+		end
+	end
+	if h.tag then
+		h.tag.Parent.Parent:Destroy() -- (the countdown's anchor)
+		h.tag = nil
+	end
+	caveIn(index, token)
+	if h.collapsing ~= token then
+		return
+	end
+	S.CombatService.broadcastVFX({ kind = "collapse", pos = roofTop(index) - Vector3.new(0, 6, 0) })
+	local steps = 8
+	for i = 1, steps do
+		task.wait(Raids.DIE_DOWN / steps)
+		if h.collapsing ~= token then
+			return
+		end
+		local k = 1 - i / steps
+		for _, f in ipairs(h.fires) do
+			f.Size = 4 + 18 * k
+			f.Heat = 4 + 14 * k
+		end
+		for _, l in ipairs(h.lights) do
+			l.Brightness = 0.8 + 4.2 * k
+		end
+	end
+	h.collapsing = nil
+	addFx(index, "burned")
+end
+
 local function unchar(h)
+	h.collapsing = nil
 	for d, look in pairs(h.original or {}) do
 		if d.Parent then
 			if look.color then
 				d.Color = look.color
 				d.Material = look.material
+				d.CFrame = look.cf
 			else
 				d.Enabled = look.enabled
 			end
 		end
 	end
 	h.original = nil
+end
+
+local function anyBurning(): boolean
+	for _, h in pairs(houses) do
+		if h.state == "burning" then
+			return true
+		end
+	end
+	return false
 end
 
 -- A Torchbearer made it to the door.
@@ -251,8 +385,8 @@ function RaidService.ignite(index: number): boolean
 	h.burnsAt = now() + burnTime
 	h.model:SetAttribute("Fire", "burning")
 	h.model:SetAttribute("BurnsAt", h.burnsAt)
-	addFx(index, true)
-	notifyAll(string.format("A house is on fire! Hold E at its door to put it out (%ds).", burnTime), Color3.fromRGB(255, 150, 70), "🔥")
+	addFx(index, "burning")
+	notifyAll(string.format("A house is on fire! Scoop up water from the river or a well and fly over it (%ds).", burnTime), Color3.fromRGB(255, 150, 70), "🔥")
 	return true
 end
 
@@ -260,28 +394,9 @@ local function extinguish(index: number)
 	local h = houses[index]
 	h.state = "ok"
 	h.burnsAt = nil
-	h.tag = nil
 	h.model:SetAttribute("Fire", nil)
 	h.model:SetAttribute("BurnsAt", nil)
-	clearFx(h)
-end
-
-function RaidService.douse(index: number, player: Player): boolean
-	local h = houses[index]
-	if not h or h.state ~= "burning" then
-		return false
-	end
-	local _, _, root = S.PlayerService.getCharacter(player)
-	if not root or flat(root.Position, Zones.houseDoor(Zones.Houses[index])) > 30 then
-		return false
-	end
-	extinguish(index)
-	S.CombatService.broadcastVFX({ kind = "douse", pos = houseCF(index).Position + Vector3.new(0, Zones.HouseSize.Y + 4, 0) })
-	if raid then
-		raid.contrib[player] = (raid.contrib[player] or 0) + 1
-	end
-	S.PlayerService.notify(player, "You beat out the flames! The house is saved.", Color3.fromRGB(140, 230, 140), "🧯")
-	return true
+	addFx(index, "steam")
 end
 
 local function burnDown(index: number)
@@ -291,12 +406,9 @@ local function burnDown(index: number)
 	end
 	h.state = "burned"
 	h.burnsAt = nil
-	h.tag = nil
 	h.model:SetAttribute("Fire", "burned")
 	h.model:SetAttribute("BurnsAt", nil)
-	clearFx(h)
-	char(h)
-	addFx(index, false)
+	task.spawn(collapse, index)
 	if raid then
 		raid.burned += 1
 		setAttributes()
@@ -332,6 +444,123 @@ function RaidService.houseState(index: number): string?
 	return houses[index] and houses[index].state
 end
 
+---------------------------------------------------------------- water
+-- Dragons carry up to Raids.WATER_LOADS splashes (player attribute "Water"; drops drip off them
+-- while they do). They scoop it up skimming low over any water or at a town well, and drop a
+-- splash on any burning house they fly over.
+
+local function waterOf(player: Player): number
+	return player:GetAttribute("Water") or 0
+end
+
+local function setWater(player: Player, n: number)
+	player:SetAttribute("Water", n > 0 and n or nil)
+	local _, _, root = S.PlayerService.getCharacter(player)
+	local drips = root and root:FindFirstChild("WaterDrips")
+	if n > 0 and root and not drips then
+		drips = Instance.new("ParticleEmitter")
+		drips.Name = "WaterDrips"
+		drips.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		drips.Color = ColorSequence.new(Color3.fromRGB(170, 220, 255), Color3.fromRGB(80, 150, 230))
+		drips.LightEmission = 0.4
+		drips.Rate = 22
+		drips.Lifetime = NumberRange.new(0.5, 0.8)
+		drips.Speed = NumberRange.new(2, 5)
+		drips.SpreadAngle = Vector2.new(35, 35)
+		drips.EmissionDirection = Enum.NormalId.Bottom
+		drips.Acceleration = Vector3.new(0, -50, 0)
+		drips.Size = NumberSequence.new(0.5, 0.2)
+		drips.Parent = root
+	elseif n <= 0 and drips then
+		drips:Destroy()
+	end
+end
+
+local function clearWater()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("Water") then
+			setWater(player, 0)
+		end
+	end
+end
+
+-- Where this dragon could scoop water from right now (a well it's at, or water just under its
+-- belly), or nil.
+local function scoopSpot(humanoid: Humanoid, root: BasePart): Vector3?
+	local pos = root.Position
+	for _, well in ipairs(wells) do
+		if flat(pos, well.ground) <= Raids.WELL_REACH and pos.Y - well.ground.Y <= Raids.WELL_HEIGHT then
+			return well.ground + Vector3.new(0, 2.5, 0)
+		end
+	end
+	local reach = humanoid.HipHeight + root.Size.Y / 2 + Raids.SCOOP_REACH
+	local ray = workspace:Raycast(pos + Vector3.new(0, 10, 0), Vector3.new(0, -(10 + reach), 0), terrainParams)
+	if ray and ray.Material == Enum.Material.Water then
+		return ray.Position
+	end
+	return nil
+end
+
+local function overHouse(root: BasePart, index: number): boolean
+	return flat(root.Position, Zones.Houses[index].pos) <= Raids.SPLASH_REACH and root.Position.Y - houses[index].baseY <= Raids.SPLASH_HEIGHT
+end
+
+-- A dragon carrying water flew over a burning house: splash!
+function RaidService.pour(index: number, player: Player): boolean
+	local h = houses[index]
+	local _, _, root = S.PlayerService.getCharacter(player)
+	if not h or h.state ~= "burning" or waterOf(player) <= 0 or not root or not overHouse(root, index) then
+		return false
+	end
+	local left = waterOf(player) - 1
+	setWater(player, left)
+	extinguish(index)
+	S.CombatService.broadcastVFX({ kind = "pour", from = root.Position, pos = roofTop(index) })
+	if raid then
+		raid.contrib[player] = (raid.contrib[player] or 0) + 1
+	end
+	S.PlayerService.notify(player, left > 0 and string.format("Splash! The fire's out. (%d splash%s of water left)", left, left == 1 and "" or "es")
+		or "Splash! The fire's out. Scoop up more water for the next one.", Color3.fromRGB(140, 230, 140), "💧")
+	return true
+end
+
+local function scoop(player: Player, at: Vector3)
+	local had = waterOf(player)
+	setWater(player, Raids.WATER_LOADS)
+	S.CombatService.broadcastVFX({ kind = "splash", pos = at })
+	if had == 0 then
+		S.PlayerService.notify(player, string.format("You scooped up water (%d splashes)! Fly over a burning house to drop it.", Raids.WATER_LOADS), WATER_COLOR, "💧")
+	end
+end
+
+-- Several times a second: scoop for dragons at the water, splash for dragons over a fire. Only
+-- while there's a raid or a fire (otherwise nobody carries water).
+local function waterTick()
+	local burning = anyBurning()
+	if not raid and not burning then
+		clearWater()
+		return
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		local _, humanoid, root = S.PlayerService.getCharacter(player)
+		if root then
+			if burning and waterOf(player) > 0 then
+				for index, h in pairs(houses) do
+					if h.state == "burning" and waterOf(player) > 0 and overHouse(root, index) then
+						RaidService.pour(index, player)
+					end
+				end
+			end
+			if waterOf(player) < Raids.WATER_LOADS then
+				local at = scoopSpot(humanoid, root)
+				if at then
+					scoop(player, at)
+				end
+			end
+		end
+	end
+end
+
 ---------------------------------------------------------------- longships
 
 local function riverZ(x: number): number
@@ -352,28 +581,51 @@ local function shipCF(x: number, heading: number, side: number): CFrame
 	return CFrame.lookAt(pos, ahead)
 end
 
+-- How far along a trip is at time share k: full speed nearly all the way, slowing down only for
+-- the last Raids.SHIP_SLOWDOWN of it (the ships used to ease in so gently they seemed to crawl up
+-- to the beach while the vikings on deck waited).
+function RaidService.rowEase(k: number): number
+	local d = Raids.SHIP_SLOWDOWN
+	local v = 1 / (1 - d / 2)
+	if k <= 1 - d then
+		return v * k
+	end
+	local u = (k - (1 - d)) / d
+	return v * (1 - d) + v * d * (u - u * u / 2)
+end
+
+local function shipX(ship: Model): number
+	return (ship.PrimaryPart.CFrame * SHIP_KEEL:Inverse()).Position.X
+end
+
 -- Row a ship from where it is now to x `toX`, `toSide` studs toward the town bank, over
--- `seconds` (easing in to run aground gently), then call done. The keel is the ship's
--- PrimaryPart and sits SHIP_KEEL below the waterline frame the ship was built on.
+-- `seconds`, then call done. A newer trip for the same ship cancels this one. The keel is the
+-- ship's PrimaryPart and sits SHIP_KEEL below the waterline frame the ship was built on.
 local function rowTo(ship: Model, toX: number, toSide: number, seconds: number, done: (() -> ())?)
 	local keel = ship.PrimaryPart
 	if not keel then
 		return
 	end
+	local trip = {}
+	rowing[ship] = trip
 	local here = (keel.CFrame * SHIP_KEEL:Inverse()).Position
 	local fromX, fromSide = here.X, riverZ(here.X) - here.Z
 	local heading = toX > fromX and 1 or -1
 	task.spawn(function()
 		local start = os.clock()
-		while ship.Parent do
+		while ship.Parent and rowing[ship] == trip do
 			local k = math.min(1, (os.clock() - start) / seconds)
-			local e = 1 - (1 - k) * (1 - k)
+			local e = RaidService.rowEase(k)
 			ship:PivotTo(shipCF(fromX + (toX - fromX) * e, heading, fromSide + (toSide - fromSide) * e) * SHIP_KEEL)
 			if k >= 1 then
 				break
 			end
-			task.wait() -- every frame: only the keel moves (everything else is welded to it)
+			task.wait() -- every frame
 		end
+		if rowing[ship] ~= trip or not ship.Parent then
+			return
+		end
+		rowing[ship] = nil
 		if done then
 			done()
 		end
@@ -384,8 +636,11 @@ local function rowAll(r, inbound: boolean, seconds: number)
 	for i, ship in ipairs(r.ships) do
 		local landing = Raids.Landings[i]
 		if inbound then
-			rowTo(ship, landing.shipX, SHIP_SIDE, seconds)
+			rowTo(ship, landing.shipX, SHIP_SIDE, seconds, function()
+				r.docked[i] = true
+			end)
 		else
+			r.docked[i] = false
 			rowTo(ship, landing.fromX, 0, seconds)
 		end
 	end
@@ -438,84 +693,134 @@ local function shipFor(k: number): number
 	return (k % #Raids.Landings) + 1
 end
 
--- The wave's vikings stand on the decks in two rows, cheering (the Animator waves their arms:
--- tag "VikingPassenger"). They're only for show (no Humanoid): each one leaps ashore and turns
--- into the real raider where it lands. r.waveList keeps the order so ships and landings agree.
-local function board(r, index: number)
-	local list = waveList(r, index)
-	r.waveList = list
-	for s, ship in ipairs(r.ships) do
-		local keel = ship.PrimaryPart
-		if keel and ship.Parent then
-			local mine = {}
-			for k, typeId in ipairs(list) do
-				if shipFor(k) == s then
-					table.insert(mine, { k = k, typeId = typeId })
-				end
-			end
-			local count = math.min(Raids.PASSENGERS, #mine)
-			local slots = math.ceil(count / 2)
-			local frame = keel.CFrame * SHIP_KEEL:Inverse() -- the ship's own frame at the waterline
-			for i = 1, count do
-				local typeId = mine[i].typeId
-				local def = typeId == "leader" and Enemies.Vikings[Raids.Captain.base] or Enemies.Vikings[typeId]
-				local look = typeId == "leader" and Raids.Captain.look or def.look
-				local scale = typeId == "leader" and Raids.Captain.scale or def.scale
-				local model = VikingBuilder.build(look, scale, "Passenger")
-				local slot = math.ceil(i / 2)
-				local along = slots > 1 and (-9 + 18 * (slot - 1) / (slots - 1)) or 0
-				local deck = (frame * CFrame.new(i % 2 == 0 and 1.3 or -1.3, 0.6, along)).Position
-				local pos = deck + Vector3.new(0, 3.05 * scale, 0)
-				model:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(0, 0, -1)))
-				model:SetAttribute("Order", mine[i].k)
-				model:SetAttribute("Scale", scale)
-				weldTo(model, keel)
-				CollectionService:AddTag(model, "VikingPassenger")
-				model.Parent = ship
-			end
-		end
-	end
+-- Deck spot i of `count` on a ship: two rows along the deck.
+local function deckSpot(keel: BasePart, i: number, count: number): Vector3
+	local slots = math.ceil(count / 2)
+	local slot = math.ceil(i / 2)
+	local along = slots > 1 and (-9 + 18 * (slot - 1) / (slots - 1)) or 0
+	local frame = keel.CFrame * SHIP_KEEL:Inverse() -- the ship's own frame at the waterline
+	return (frame * CFrame.new(i % 2 == 0 and 1.3 or -1.3, 0.6, along)).Position
 end
 
--- A spot on the beach for a raider to land on.
-local function shoreSpot(landing): Vector3
-	for _ = 1, 10 do
-		local try = landing.shore + Vector3.new(math.random(-8, 8), 0, math.random(-5, 3))
-		local ok, ground = S.EnemyService.isGoodSpawn(try)
-		if ok then
-			return ground
-		end
-	end
-	return (S.EnemyService.terrainGround(landing.shore))
-end
-
--- A passenger leaps off the deck in an arc and lands on the beach at `to`, then `done` runs.
-local function leap(passenger: Model, to: Vector3, done: () -> ())
-	local root = passenger.PrimaryPart
-	root.Anchored = true
-	for _, d in ipairs(passenger:GetDescendants()) do
+local function dropShipWelds(e)
+	for _, d in ipairs(e.root:GetChildren()) do
 		if d:IsA("WeldConstraint") and d.Name == "ShipWeld" then
 			d:Destroy()
 		end
 	end
-	passenger.Parent = shipFolder
-	passenger:SetAttribute("Leaping", true)
-	local from = passenger:GetPivot().Position
-	local dest = to + Vector3.new(0, 3.05 * (passenger:GetAttribute("Scale") or 1), 0)
-	local turn = CFrame.lookAt(from, Vector3.new(dest.X, from.Y, dest.Z)).Rotation
+end
+
+-- Stand a raider on a ship's deck (facing town, cheering: model attribute "Aboard"), welded to
+-- the keel by its root. It doesn't think while it's aboard, and if it's beaten there it tumbles
+-- overboard (keepBody: see onRaiderDeath) instead of toppling onto the deck.
+local function putAboard(e, ship: Model, deck: Vector3)
+	local keel = ship.PrimaryPart
+	local lift = e.humanoid.HipHeight + e.root.Size.Y / 2
+	e.root.Anchored = true
+	e.model:PivotTo(CFrame.lookAt(deck + Vector3.new(0, lift, 0), deck + Vector3.new(0, lift, -1)))
+	e.model.Parent = ship
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "ShipWeld"
+	weld.Part0 = keel
+	weld.Part1 = e.root
+	weld.Parent = e.root
+	e.root.Anchored = false
+	e.aboard = true
+	e.customAI = true
+	e.keepBody = true
+	e.target = nil
+	e.humanoid.BreakJointsOnDeath = false
+	e.model:SetAttribute("Aboard", true)
+end
+
+-- A leap in an arc from `from` to `dest` (where the root ends up) over Raids.LEAP_TIME, then `done`
+-- (unless it was beaten mid-air). The root is anchored for the flight.
+local function arc(e, from: Vector3, dest: Vector3, done: () -> ())
+	e.leaping = true
+	e.root.Anchored = true
+	e.model:SetAttribute("Leaping", true)
+	local turn = flat(from, dest) > 0.5 and CFrame.lookAt(from, Vector3.new(dest.X, from.Y, dest.Z)).Rotation or e.root.CFrame.Rotation
 	task.spawn(function()
 		local start = os.clock()
-		while passenger.Parent do
+		while not e.dead and e.model.Parent do
 			local k = math.min(1, (os.clock() - start) / Raids.LEAP_TIME)
-			passenger:PivotTo(CFrame.new(from:Lerp(dest, k) + Vector3.new(0, Raids.LEAP_HEIGHT * 4 * k * (1 - k), 0)) * turn)
+			e.model:PivotTo(CFrame.new(from:Lerp(dest, k) + Vector3.new(0, Raids.LEAP_HEIGHT * 4 * k * (1 - k), 0)) * turn)
 			if k >= 1 then
 				break
 			end
 			task.wait()
 		end
-		S.CombatService.broadcastVFX({ kind = "thud", pos = to })
-		passenger:Destroy()
+		if e.dead or not e.model.Parent then
+			return
+		end
+		e.leaping = nil
+		e.model:SetAttribute("Leaping", nil)
 		done()
+	end)
+end
+
+-- Off the deck and onto the beach at `spot`: from there it's an ordinary raider (or, if the raid
+-- was lost while it was in the air, one running back to the ships).
+local function leapAshore(r, e, spot: Vector3)
+	dropShipWelds(e)
+	e.aboard = nil
+	e.model.Parent = enemyFolder
+	local lift = e.humanoid.HipHeight + e.root.Size.Y / 2 + 0.5
+	arc(e, e.root.Position, spot + Vector3.new(0, lift, 0), function()
+		S.CombatService.broadcastVFX({ kind = "thud", pos = spot })
+		e.model:SetAttribute("Aboard", nil)
+		e.keepBody = false
+		e.root.Anchored = false
+		pcall(function()
+			e.root:SetNetworkOwner(nil)
+			-- (it rode in welded to the ship and flew anchored: back on its feet)
+			e.humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+		e.spawnPos = spot
+		e.lastPos = e.root.Position
+		e.landedAt = now()
+		if r.retreating then
+			task.spawn(runBack, r, e)
+		else
+			e.customAI = false
+		end
+	end)
+end
+
+-- A raider beaten on deck (or in mid-leap) tumbles off the side: a splash if it lands in the
+-- river, a puff on the beach.
+local function overboard(e)
+	local model, root = e.model, e.root
+	if not model.Parent then
+		return
+	end
+	dropShipWelds(e)
+	model.Parent = enemyFolder
+	root.Anchored = true
+	model:SetAttribute("Aboard", nil)
+	model:SetAttribute("Leaping", nil)
+	local from = model:GetPivot()
+	local out = Vector3.new(math.random(-3, 3), 0, 7) -- over the river side of the deck, away from town
+	local ground, material = S.EnemyService.terrainGround(from.Position + out)
+	local to = Vector3.new(from.X + out.X, ground.Y - 1, from.Z + out.Z)
+	task.spawn(function()
+		local start = os.clock()
+		while model.Parent do
+			local k = math.min(1, (os.clock() - start) / 0.9)
+			local pos = from.Position:Lerp(to, k) + Vector3.new(0, 16 * k * (1 - k), 0)
+			model:PivotTo(CFrame.new(pos) * from.Rotation * CFrame.Angles(-2.2 * k, 0, 0.8 * k))
+			if k >= 1 then
+				break
+			end
+			task.wait()
+		end
+		if material == Enum.Material.Water then
+			S.CombatService.broadcastVFX({ kind = "splash", pos = Vector3.new(to.X, ground.Y, to.Z), big = true })
+		else
+			S.CombatService.broadcastVFX({ kind = "enemyDeath", pos = to })
+		end
+		task.wait(0.3)
+		S.EnemyService.forget(e)
 	end)
 end
 
@@ -533,19 +838,24 @@ local function launchShips(r)
 		weldTo(ship, keel)
 		table.insert(r.ships, ship)
 	end
-	board(r, 1)
-	rowAll(r, true, Raids.SHIP_ROW_TIME)
 end
 
-local function sailAway(ships)
-	for i, ship in ipairs(ships) do
+-- The ships row off upriver and are gone (with whoever's still on deck).
+local function sailAway(r)
+	for i, ship in ipairs(r.ships) do
 		local landing = Raids.Landings[i]
-		if landing and ship.Parent then
-			rowTo(ship, landing.fromX, 0, 25, function()
-				ship:Destroy()
-			end)
-		else
+		local function gone()
+			for e in pairs(r.raiders) do
+				if e.aboard and e.model:IsDescendantOf(ship) then
+					S.EnemyService.despawn(e)
+				end
+			end
 			ship:Destroy()
+		end
+		if landing and ship.Parent then
+			rowTo(ship, landing.fromX, 0, 25, gone)
+		else
+			gone()
 		end
 	end
 end
@@ -827,7 +1137,17 @@ local function objective(e, t: number): boolean
 	return true
 end
 
+-- Has the raid been won? Every wave has boarded and nobody's left (on deck or ashore).
+local function checkWon(r)
+	if raid == r and r.boarded >= #r.tier.waves and r.left <= 0 then
+		endRaid(true)
+	end
+end
+
 local function onRaiderDeath(e)
+	if e.aboard or e.leaping then
+		overboard(e)
+	end
 	local r = raid
 	if not r or not r.raiders[e] then
 		return
@@ -837,17 +1157,23 @@ local function onRaiderDeath(e)
 	end
 	r.left = math.max(0, r.left - 1)
 	setAttributes()
-	if r.wave >= #r.tier.waves and r.left == 0 then
-		endRaid(true)
-	end
+	checkWon(r)
 end
 
-local function spawnRaider(r, typeId: string, pos: Vector3, opts)
-	opts = opts or {}
-	opts.raid = true
-	opts.leash = 5000
-	opts.objective = objective
-	opts.onDeath = onRaiderDeath
+-- A raider (typeId, or "leader" for the Raid Captain) standing at `pos`.
+local function spawnRaider(r, typeId: string, pos: Vector3)
+	local opts = { raid = true, leash = 5000, objective = objective, onDeath = onRaiderDeath }
+	local c = Raids.Captain
+	if typeId == "leader" then
+		typeId = c.base
+		opts.level = math.min(Game.LEVEL_CAP, r.level + 2)
+		opts.displayName = c.name
+		opts.scale = c.scale
+		opts.look = c.look
+		opts.healthMult = r.tier.captainHealth + c.healthPerPlayer * (r.players - 1)
+		opts.damageMult = c.damageMult
+		opts.slam = c.slam
+	end
 	local e = S.EnemyService.spawn(typeId, opts.level or r.level, pos, opts)
 	if e then
 		e.role = typeId == "Torchbearer" and "torch" or "fighter"
@@ -855,65 +1181,79 @@ local function spawnRaider(r, typeId: string, pos: Vector3, opts)
 		r.raiders[e] = true
 	else
 		r.left = math.max(0, r.left - 1)
+		setAttributes()
+		checkWon(r)
 	end
 	return e
 end
 
-local function spawnCaptain(r, pos: Vector3)
-	local c = Raids.Captain
-	return spawnRaider(r, c.base, pos, {
-		level = math.min(Game.LEVEL_CAP, r.level + 2),
-		displayName = c.name,
-		scale = c.scale,
-		look = c.look,
-		healthMult = r.tier.captainHealth + c.healthPerPlayer * (r.players - 1),
-		damageMult = c.damageMult,
-		slam = c.slam,
-	})
+-- A wave boards the longships upriver: real raiders, standing on the decks in two rows. They
+-- all count toward "raiders left" from now on (so shooting them off the ships counts). If there
+-- are more than fit on deck, the rest wade ashore when the wave lands.
+local function board(r, index: number)
+	local list = waveList(r, index)
+	r.waveList = list
+	r.aboard = {}
+	r.boarded = index
+	r.left += #list
+	r.total += #list
+	for s, ship in ipairs(r.ships) do
+		local keel = ship.PrimaryPart
+		if keel and ship.Parent then
+			local mine = {}
+			for k, typeId in ipairs(list) do
+				if shipFor(k) == s then
+					table.insert(mine, { k = k, typeId = typeId })
+				end
+			end
+			local count = math.min(Raids.PASSENGERS, #mine)
+			for i = 1, count do
+				local deck = deckSpot(keel, i, count)
+				local e = spawnRaider(r, mine[i].typeId, deck)
+				if e then
+					putAboard(e, ship, deck)
+					r.aboard[mine[i].k] = e
+				end
+			end
+		end
+	end
+	setAttributes()
 end
 
--- The wave on deck leaps ashore one viking after another. Returns how long that takes.
+-- The wave on deck leaps ashore one viking after another (anyone who didn't fit on deck wades
+-- in). Returns how long that takes.
 local function unload(r, index: number): number
-	local list = r.waveList or waveList(r, index)
+	local list = r.waveList or {}
+	local aboard = r.aboard or {}
 	r.waveList = nil
+	r.aboard = nil
 	r.wave = index
 	r.nextWaveAt = nil
-	r.left += #list -- counted now, so the raid can't be won while some are still jumping
-	r.total += #list
 	setAttributes()
 	if index > 1 then
 		notifyAll(string.format("Wave %d of %d is coming ashore!", index, #r.tier.waves), Color3.fromRGB(255, 170, 90), "⛵")
 	end
-	local passengers = {}
-	for _, ship in ipairs(r.ships) do
-		for _, child in ipairs(ship:GetChildren()) do
-			if child.Name == "Passenger" then
-				passengers[child:GetAttribute("Order")] = child
-			end
-		end
-	end
 	for k, typeId in ipairs(list) do
 		task.delay((k - 1) * Raids.HOP_GAP, function()
 			if raid ~= r then
-				return
+				return -- (the raid's over: whoever's still on deck stays there)
 			end
-			local landing = Raids.Landings[shipFor(k)]
-			local spot = shoreSpot(landing)
-			local function arrive()
-				if raid ~= r then
-					return
-				end
-				if typeId == "leader" then
-					spawnCaptain(r, spot)
-				else
-					spawnRaider(r, typeId, spot)
+			local shore = Raids.Landings[shipFor(k)].shore
+			local spot = (S.EnemyService.terrainGround(shore))
+			for _ = 1, 10 do
+				local ok, ground = S.EnemyService.isGoodSpawn(shore + Vector3.new(math.random(-8, 8), 0, math.random(-5, 3)))
+				if ok then
+					spot = ground
+					break
 				end
 			end
-			local passenger = passengers[k]
-			if passenger and passenger.Parent then
-				leap(passenger, spot, arrive)
+			local e = aboard[k]
+			if e then
+				if not e.dead and e.aboard then
+					leapAshore(r, e, spot)
+				end
 			else
-				arrive() -- more raiders than room on deck: they wade in
+				spawnRaider(r, typeId, spot)
 			end
 		end)
 	end
@@ -948,7 +1288,192 @@ local function runWaves(r)
 		if raid ~= r then
 			return
 		end
+		checkWon(r) -- (the whole wave might have been beaten on the way in)
 	end
+end
+
+-- Axe throwers on deck throw at dragons who come close to the ships.
+local function deckFight(r)
+	while raid == r do
+		local t = now()
+		for e in pairs(r.raiders) do
+			local def = e.def
+			if e.aboard and not e.dead and def.throwCooldown and t >= e.nextThrow then
+				local best, bestRoot, bestDist = nil, nil, def.throwRange
+				for _, player in ipairs(Players:GetPlayers()) do
+					local character, _, root = S.PlayerService.getCharacter(player)
+					if character and not character:GetAttribute("Stealthed") then
+						local d = (root.Position - e.root.Position).Magnitude
+						if d <= bestDist then
+							best, bestRoot, bestDist = player, root, d
+						end
+					end
+				end
+				if best then
+					e.nextThrow = t + def.throwCooldown * (0.8 + math.random() * 0.4)
+					S.EnemyService.throwAt(e, best, bestRoot, e.damage * def.throwDamage, def.look.weapon == "hammer" and "hammer" or "axe")
+				end
+			end
+		end
+		task.wait(0.4)
+	end
+end
+
+---------------------------------------------------------------- a lost raid: back to the ships
+
+-- A sack of loot slung over a raider's back.
+local function lootSack(e)
+	local s = e.scale
+	local sack = Instance.new("Part")
+	sack.Name = "LootSack"
+	sack.Size = Vector3.new(1.9, 2.1, 1.6) * s
+	sack.Color = Color3.fromRGB(160, 120, 70)
+	sack.Material = Enum.Material.Fabric
+	sack.CanCollide = false
+	sack.CanQuery = false
+	sack.CanTouch = false
+	sack.Massless = true
+	sack.CFrame = e.root.CFrame * CFrame.new(0, 0.9 * s, 1.3 * s)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = sack
+	local gold = Instance.new("Part")
+	gold.Name = "Gold"
+	gold.Size = Vector3.new(1, 0.5, 0.9) * s
+	gold.Color = Color3.fromRGB(255, 205, 60)
+	gold.Material = Enum.Material.Neon
+	gold.CanCollide = false
+	gold.CanQuery = false
+	gold.CanTouch = false
+	gold.Massless = true
+	gold.CFrame = sack.CFrame * CFrame.new(0, 1.05 * s, 0)
+	for _, p in ipairs({ sack, gold }) do
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = e.root
+		weld.Part1 = p
+		weld.Parent = p
+		p.Parent = e.model
+	end
+end
+
+-- Leap from the beach onto a docked ship's deck.
+local function leapAboard(r, e, s: number)
+	local ship = r.ships[s]
+	local keel = ship and ship.Parent and ship.PrimaryPart
+	if not keel then
+		return
+	end
+	r.riders[s] = (r.riders[s] or 0) + 1
+	local deck = deckSpot(keel, (r.riders[s] - 1) % Raids.PASSENGERS + 1, Raids.PASSENGERS)
+	local lift = e.humanoid.HipHeight + e.root.Size.Y / 2
+	arc(e, e.root.Position, deck + Vector3.new(0, lift, 0), function()
+		if ship.Parent then
+			putAboard(e, ship, deck)
+		end
+	end)
+end
+
+-- One raider runs back to the beach: along the streets to the shore by the nearer ship, then
+-- aboard as soon as the ship is back at the beach.
+runBack = function(r, e)
+	e.retreating = true
+	e.customAI = true
+	e.target = nil
+	e.hunting = nil
+	e.goal = nil
+	e.torchUntil = nil
+	e.humanoid.WalkSpeed = e.baseSpeed * Raids.RETREAT_SPEED
+	lootSack(e)
+	local here = e.root.Position
+	local s, best = 1, math.huge
+	for i, landing in ipairs(Raids.Landings) do
+		local d = flat(here, landing.shore)
+		if d < best then
+			s, best = i, d
+		end
+	end
+	local shore = Raids.Landings[s].shore
+	local route = {}
+	if here.Z < S.CivilianService.nodePos(Raids.ENTRY_NODE).Z then
+		local start = S.CivilianService.nearestNode(here, true)
+		table.insert(route, S.CivilianService.nodePos(start))
+		for _, name in ipairs(S.CivilianService.route(start, Raids.ENTRY_NODE)) do
+			table.insert(route, S.CivilianService.nodePos(name))
+		end
+	end
+	table.insert(route, shore)
+	local legStart, lastPush = os.clock(), 0
+	while route[1] and not e.dead and e.model.Parent and os.clock() < r.retreatUntil do
+		local step = route[1]
+		local d = flat(e.root.Position, step)
+		if d < 4 then
+			table.remove(route, 1)
+			legStart, lastPush = os.clock(), 0
+		else
+			if os.clock() - lastPush > 2 then
+				lastPush = os.clock()
+				e.humanoid:MoveTo(step)
+			end
+			if os.clock() - legStart > d / math.max(6, e.humanoid.WalkSpeed) + 6 then
+				-- held up by something (a lamp post, a lair fence): hop past it
+				local lift = e.humanoid.HipHeight + e.root.Size.Y / 2 + 0.5
+				e.model:PivotTo(CFrame.new(S.EnemyService.terrainGround(step) + Vector3.new(0, lift, 0)) * e.root.CFrame.Rotation)
+				legStart = os.clock()
+			end
+		end
+		task.wait(0.2)
+	end
+	if e.dead or not e.model.Parent or route[1] then
+		return
+	end
+	e.humanoid:MoveTo(e.root.Position)
+	while not r.docked[s] and os.clock() < r.retreatUntil and not e.dead and e.model.Parent do
+		task.wait(0.3)
+	end
+	if r.docked[s] and not e.dead and e.model.Parent then
+		leapAboard(r, e, s)
+	end
+end
+
+-- The raiders still standing make off with the loot: the ships come back to the beach (if they
+-- were away), everyone ashore runs for them and leaps aboard, and off they row. Anyone still
+-- ashore after Raids.RETREAT_TIME vanishes in a puff.
+local function retreat(r)
+	r.retreating = true
+	r.retreatUntil = os.clock() + Raids.RETREAT_TIME
+	for i, ship in ipairs(r.ships) do
+		local landing = Raids.Landings[i]
+		if ship.Parent and ship.PrimaryPart and not r.docked[i] then
+			local seconds = math.max(3, math.abs(landing.shipX - shipX(ship)) / Raids.SHIP_SPEED)
+			rowTo(ship, landing.shipX, SHIP_SIDE, seconds, function()
+				r.docked[i] = true
+			end)
+		end
+	end
+	for e in pairs(r.raiders) do
+		if not e.dead and e.model.Parent and not e.aboard and not e.leaping then
+			task.spawn(runBack, r, e)
+		end
+	end
+	local function ashore(): boolean
+		for e in pairs(r.raiders) do
+			if not e.dead and e.model.Parent and not e.aboard then
+				return true
+			end
+		end
+		return false
+	end
+	while ashore() and os.clock() < r.retreatUntil do
+		task.wait(0.5)
+	end
+	for e in pairs(r.raiders) do
+		if not e.dead and e.model.Parent and not e.aboard then
+			S.CombatService.broadcastVFX({ kind = "enemyDeath", pos = e.root.Position })
+			S.EnemyService.despawn(e)
+		end
+	end
+	task.wait(1.5)
+	sailAway(r)
 end
 
 ---------------------------------------------------------------- the raid
@@ -987,13 +1512,7 @@ endRaid = function(won: boolean, reason: string?)
 	end
 	raid = nil
 	S.CivilianService.setRaid(false)
-	-- whoever is still standing sails off with their loot
-	for e in pairs(r.raiders) do
-		if not e.dead then
-			S.EnemyService.despawn(e)
-		end
-	end
-	sailAway(r.ships)
+	clearWater()
 	for index, h in pairs(houses) do
 		if h.state == "burning" then
 			if won then
@@ -1008,6 +1527,12 @@ endRaid = function(won: boolean, reason: string?)
 	end
 	setAttributes()
 	if won then
+		for e in pairs(r.raiders) do
+			if not e.dead then
+				S.EnemyService.despawn(e) -- (an admin ending it early)
+			end
+		end
+		sailAway(r)
 		broadcast("🎉 RAID REPELLED!", "Dragon Town is safe! Everyone who helped gets a reward.", Color3.fromRGB(140, 235, 120))
 		for player, score in pairs(r.contrib) do
 			if player.Parent and score > 0 then
@@ -1015,7 +1540,8 @@ endRaid = function(won: boolean, reason: string?)
 			end
 		end
 	else
-		local why = ({ burned = "The village burned!", dawn = "Dawn broke with raiders in town!" })[reason or ""] or "The raiders got away with the loot!"
+		task.spawn(retreat, r)
+		local why = ({ burned = "Too many houses burned!", time = "The raiders held out and ran off with the loot!" })[reason or ""] or "The raiders got away with the loot!"
 		broadcast("🔥 THE MARKET WAS LOOTED", string.format("%s The shops are closed for %s.", why, Util.formatTime(Raids.SHOPS_CLOSED)), Color3.fromRGB(255, 110, 80))
 		S.ShopService.close(Raids.SHOPS_CLOSED)
 	end
@@ -1027,6 +1553,8 @@ local function land(r)
 	end
 	r.phase = "fighting"
 	r.landedAt = now()
+	-- the raid's own clock: time to fight after the last wave lands (dawn doesn't end it)
+	r.endsAt = r.landedAt + Raids.WAVE_GAP * (#r.tier.waves - 1) + Raids.FIGHT_TIME
 	S.CivilianService.setRaid(true)
 	setAttributes()
 	task.spawn(runWaves, r)
@@ -1055,25 +1583,30 @@ function RaidService.begin(): (boolean, string)
 		id = raidCounter,
 		phase = "incoming",
 		landsAt = t + Raids.WARNING,
-		endsAt = t + (S.DayNightService.isNight() and S.DayNightService.untilChange() or Game.NIGHT_SECONDS),
 		tier = tier,
 		level = math.clamp(math.floor(levels / #list + 0.5) - tier.levelBelow, Raids.LEVEL_RANGE[1], Raids.LEVEL_RANGE[2]),
 		players = #list,
 		scale = math.min(Raids.MAX_SCALE, 1 + Raids.EXTRA_PER_PLAYER * (#list - 1)),
 		wave = 0,
+		boarded = 0,
 		left = 0,
 		total = 0,
 		burned = 0,
 		raiders = {},
 		contrib = {},
 		ships = {},
+		docked = {},
+		riders = {},
 	}
 	raid = r
 	quietNights = 0
 	pendingRaid = false
-	setAttributes()
 	launchShips(r)
-	broadcast("⚔️ VIKING RAID!", "Longships on the river! Fly home and defend Dragon Town!", Color3.fromRGB(255, 120, 60), 7)
+	board(r, 1)
+	rowAll(r, true, Raids.SHIP_ROW_TIME)
+	setAttributes()
+	task.spawn(deckFight, r)
+	broadcast("⚔️ VIKING RAID!", "Longships on the river! Fly out and fight them, then defend Dragon Town!", Color3.fromRGB(255, 120, 60), 7)
 	task.delay(Raids.WARNING, function()
 		land(r)
 	end)
@@ -1085,13 +1618,6 @@ function RaidService.stop(won: boolean): (boolean, string)
 	if not raid then
 		return false, "There's no raid."
 	end
-	if won then
-		for e in pairs(raid.raiders) do
-			if not e.dead then
-				S.EnemyService.despawn(e)
-			end
-		end
-	end
 	endRaid(won, "admin")
 	return true, won and "Raid ended: repelled." or "Raid ended: lost."
 end
@@ -1100,11 +1626,25 @@ function RaidService.isActive(): boolean
 	return raid ~= nil
 end
 
+-- Raiders ashore and fighting (not the ones still on deck or in mid-leap).
 function RaidService.raiders()
 	local list = {}
 	if raid then
 		for e in pairs(raid.raiders) do
-			if not e.dead and e.model.Parent then
+			if not e.dead and e.model.Parent and not e.aboard and not e.leaping then
+				table.insert(list, e)
+			end
+		end
+	end
+	return list
+end
+
+-- Raiders standing on the ships' decks.
+function RaidService.aboard()
+	local list = {}
+	if raid then
+		for e in pairs(raid.raiders) do
+			if not e.dead and e.model.Parent and e.aboard then
 				table.insert(list, e)
 			end
 		end
@@ -1228,19 +1768,43 @@ function RaidService.init(services)
 end
 
 function RaidService.start()
-	local town = workspace:WaitForChild("Map"):WaitForChild("Town")
+	local map = workspace:WaitForChild("Map")
+	local town = map:WaitForChild("Town")
+	enemyFolder = workspace:WaitForChild("Enemies")
+	terrainParams.FilterType = Enum.RaycastFilterType.Include
+	terrainParams.FilterDescendantsInstances = { workspace.Terrain }
+	terrainParams.IgnoreWater = false
 	for index in ipairs(Zones.Houses) do
 		local model = town:FindFirstChild("House" .. index)
 		if model then
-			houses[index] = { model = model, state = "ok" }
+			-- the floor: the bottom of the lowest part (the foundation sits on the ground)
+			local baseY = math.huge
+			for _, d in ipairs(model:GetDescendants()) do
+				if d:IsA("BasePart") then
+					baseY = math.min(baseY, d.Position.Y - d.Size.Y / 2)
+				end
+			end
+			houses[index] = { model = model, state = "ok", baseY = baseY < math.huge and baseY or 0 }
 		end
+	end
+	for index, pos in ipairs(Zones.Wells) do
+		local model = town:FindFirstChild("Well" .. index)
+		local tag = model and model:FindFirstChild("WellTag", true)
+		table.insert(wells, { ground = (S.EnemyService.terrainGround(pos)), tag = tag })
 	end
 	setAttributes()
 	S.DayNightService.nightfall:Connect(onNightfall)
 	S.DayNightService.daybreak:Connect(function()
-		pendingRaid = false
-		if raid then
-			endRaid(false, "dawn")
+		pendingRaid = false -- (a raid under way carries on into the morning: it keeps its own clock)
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(0.2)
+			local ok, err = pcall(waterTick)
+			if not ok then
+				warn("[RaidService] water:", err)
+				task.wait(2)
+			end
 		end
 	end)
 	while true do
@@ -1257,8 +1821,14 @@ function RaidService.start()
 				rebuild(index)
 			end
 		end
-		if raid and t >= raid.endsAt then
-			endRaid(false, "dawn")
+		local burning = anyBurning()
+		for _, well in ipairs(wells) do
+			if well.tag and well.tag.Enabled ~= burning then
+				well.tag.Enabled = burning
+			end
+		end
+		if raid and raid.endsAt and t >= raid.endsAt then
+			endRaid(false, "time")
 		end
 		if pendingRaid and not raid and not S.BossService.isBusy() then
 			pendingRaid = false

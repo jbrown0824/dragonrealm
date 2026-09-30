@@ -550,7 +550,16 @@ do
 		check(Zones.Houses[c.home] ~= nil, "villager home exists: " .. c.name)
 		check(#c.lines >= 1, "villager has something to say: " .. c.name)
 		check(c.scale > 0.2 and c.scale < 1, "villagers are smaller than players: " .. c.name)
+		check(Civilians.RaidSpeed[c.age or ""] ~= nil, "villager has an age with a raid speed: " .. c.name)
 	end
+	-- during a raid they hurry at different paces, so they don't arrive in one clump
+	local speeds = Civilians.RaidSpeed
+	check(speeds.young > speeds.adult and speeds.adult > speeds.old and speeds.old >= Civilians.WALK_SPEED, "raid speeds: youngsters run, grown-ups jog, old-timers walk")
+	local ages = {}
+	for _, c in ipairs(Civilians.List) do
+		ages[c.age] = true
+	end
+	check(ages.young and ages.adult and ages.old, "the village has young, grown-up and old dragons")
 	local town = Zones.getArea("Town")
 	for name, pos in pairs(W.nodes) do
 		check(town == nil or Zones.areaAt(pos) == town, "walk node is in town: " .. name)
@@ -719,14 +728,40 @@ do
 	check(d1 > d2 and d2 > d3 and d3 == 1, "villager fire hits harder with fewer dragons online")
 	check(f1 < f2 and f2 < f3 and f3 == Raids.VILLAGER_FINISH_AFTER, "villagers finish raiders sooner with fewer dragons online")
 	check(Raids.villagerHelp(0) == d1 and Raids.villagerHelp(12) == 1, "villager help for an empty or full server")
-	check(f3 < Game.NIGHT_SECONDS / 2, "a straggler can be finished by the villagers well before dawn")
+	check(f3 < Raids.FIGHT_TIME, "a straggler can be finished by the villagers before the raid's time runs out")
+	-- the raid keeps its own clock: time to fight after the last wave, and a nightfall raid still
+	-- ends before dawn (only a late one runs on into the morning)
+	check(Raids.FIGHT_TIME >= 120, "time to fight after the last wave")
+	-- the ships row at full speed for most of the trip
+	check(Raids.SHIP_SLOWDOWN > 0 and Raids.SHIP_SLOWDOWN <= 0.3 and Raids.SHIP_ROW_TIME < Raids.WARNING, "the longships don't crawl up to the beach")
+	-- water for the fires
+	check(Raids.WATER_LOADS >= 2, "one scoop of water is good for more than one fire")
+	check(Raids.SPLASH_REACH >= Zones.HouseSize.X / 2 and Raids.SPLASH_HEIGHT > Zones.HouseSize.Y + 10, "flying over any part of a house's roof drops the water")
+	check(#Zones.Wells >= 2, "town wells")
+	for i, well in ipairs(Zones.Wells) do
+		check(Zones.isIn("Town", well), "well " .. i .. " is in town")
+		for h, house in ipairs(Zones.Houses) do
+			local d = Vector3.new(house.pos.X - well.X, 0, house.pos.Z - well.Z).Magnitude
+			check(d > Zones.HouseSize.X / 2 + 6, "well " .. i .. " is clear of house " .. h)
+		end
+	end
+	-- every house is a short flight from water: a well, or the river below town (z ~ 250+)
+	for h, house in ipairs(Zones.Houses) do
+		local nearest = math.abs(250 - house.pos.Z)
+		for _, well in ipairs(Zones.Wells) do
+			nearest = math.min(nearest, Vector3.new(house.pos.X - well.X, 0, house.pos.Z - well.Z).Magnitude)
+		end
+		check(nearest < 150, "house " .. h .. " is a short flight from water (" .. math.floor(nearest) .. " studs)")
+	end
+	check(Raids.COLLAPSE_TIME > 0 and Raids.DIE_DOWN > 0 and Raids.SMOLDER > 0, "houses burn down over a while")
+	check(Raids.RETREAT_TIME > 10 and Raids.RETREAT_SPEED >= 1, "a lost raid's raiders have time to run back to their ships")
 	check(Raids.ELDER_DAMAGE > Raids.VILLAGER_DAMAGE and Raids.ELDER_RANGE > Raids.VILLAGER_RANGE, "quest givers hit harder and reach further than villagers")
 	local lastMax, lastRaiders = 0, 0
 	for t, tier in ipairs(Raids.Tiers) do
 		check(tier.maxLevel > lastMax, "raid tier " .. t .. " covers higher levels than the one before")
 		lastMax = tier.maxLevel
 		check(#tier.waves == Raids.WAVES, "raid tier " .. t .. " has " .. Raids.WAVES .. " waves")
-		check(Raids.WARNING + Raids.WAVE_GAP * (#tier.waves - 1) < Game.NIGHT_SECONDS - 60, "raid tier " .. t .. ": every wave lands with time to fight before dawn")
+		check(Raids.WARNING + Raids.WAVE_GAP * (#tier.waves - 1) + Raids.FIGHT_TIME < Game.NIGHT_SECONDS, "raid tier " .. t .. ": a raid that starts at nightfall is over by dawn")
 		check(tier.burnTime > 0 and tier.captainHealth > 0 and tier.levelBelow >= 0, "raid tier " .. t .. " numbers")
 		local raiders, leaders = 0, 0
 		for i, wave in ipairs(tier.waves) do

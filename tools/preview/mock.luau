@@ -639,8 +639,35 @@ function M.GetAttribute(o, k)
 	return o._attrs[k]
 end
 function M.Destroy(o)
+	-- like Roblox: children are destroyed too (their Parent becomes nil)
+	for _, c in ipairs(table.clone(o._children)) do
+		M.Destroy(c)
+	end
 	o.Parent = nil
 	o._destroyed = true
+end
+function M.IsDescendantOf(o, ancestor)
+	local x = o._parent
+	while x do
+		if x == ancestor then
+			return true
+		end
+		x = x._parent
+	end
+	return false
+end
+function M.IsAncestorOf(o, descendant)
+	return M.IsDescendantOf(descendant, o)
+end
+function M.FindFirstAncestor(o, name)
+	local x = o._parent
+	while x do
+		if x._props.Name == name then
+			return x
+		end
+		x = x._parent
+	end
+	return nil
 end
 function M.ClearAllChildren(o)
 	for _, c in ipairs(table.clone(o._children)) do

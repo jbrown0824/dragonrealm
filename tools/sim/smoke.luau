@@ -589,24 +589,52 @@ task.spawn(function()
 	check(workspace:GetAttribute("RaidPhase") == "incoming", "longships incoming")
 	check(#workspace.RaidShips:GetChildren() == #Raids.Landings, "longships on the river")
 	local function passengers()
-		local n = 0
-		for _, ship in ipairs(workspace.RaidShips:GetChildren()) do
-			for _, child in ipairs(ship:GetChildren()) do
-				if child.Name == "Passenger" then
-					n += 1
-				end
-			end
-		end
-		return n
+		return #S.RaidService.aboard()
 	end
 	check(passengers() > 0, "the raiders ride in on the longships (" .. passengers() .. ")")
+	check((workspace:GetAttribute("RaidLeft") or 0) == passengers(), "the vikings on deck count as raiders left (" .. tostring(workspace:GetAttribute("RaidLeft")) .. ")")
+	-- the ships row in at full speed and only slow down at the very end
+	local rowShip = workspace.RaidShips:GetChildren()[1]
+	local rowFrom = rowShip.PrimaryPart.Position.X
+	-- the vikings on deck are real raiders: a dragon can fight them on the way in
+	local deckOnes = S.RaidService.aboard()
+	local onDeck, overboardOne = deckOnes[1], deckOnes[2]
+	local hitHard = 0
+	local okTargets = false
+	for _, t in ipairs(S.CombatService.collectTargets(p1)) do
+		if t.enemy == onDeck then
+			okTargets = true
+		end
+	end
+	check(okTargets, "a viking on deck is something dragons can hit")
+	if onDeck then
+		S.CombatService.damageEnemy(p1, onDeck, onDeck.humanoid.MaxHealth * 0.4, false)
+		hitHard = onDeck.humanoid.MaxHealth - onDeck.humanoid.Health
+	end
+	local leftBefore = workspace:GetAttribute("RaidLeft") or 0
+	if overboardOne then
+		S.CombatService.damageEnemy(p1, overboardOne, 1e9, false)
+		task.wait(0.4)
+		check(overboardOne.root.Position.Y < workspace.RaidShips:GetChildren()[1].PrimaryPart.Position.Y + 20 and not overboardOne.root:FindFirstChild("ShipWeld"), "a viking beaten on deck tumbles off the ship")
+		check((workspace:GetAttribute("RaidLeft") or 0) == leftBefore - 1, "...and counts as beaten")
+		task.wait(1.5)
+		check(overboardOne.model.Parent == nil, "...and is gone with a splash")
+	end
+	task.wait(Raids.SHIP_ROW_TIME / 2 - 1.9)
+	local rowLanding = Raids.Landings[1]
+	local share = (rowShip.PrimaryPart.Position.X - rowFrom) / (rowLanding.shipX - rowLanding.fromX)
+	check(share > 0.45 and share < 0.65, "halfway through the row the ships are about halfway there (" .. string.format("%.2f", share) .. ")")
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 	tp(p2, S.FarmService.getHomeCFrame(p2).Position)
-	task.wait(Raids.WARNING + 0.1)
+	task.wait(Raids.WARNING - Raids.SHIP_ROW_TIME / 2 + 0.1)
 	check(workspace:GetAttribute("RaidPhase") == "fighting" and #S.RaidService.raiders() < (workspace:GetAttribute("RaidLeft") or 0), "they leap ashore one after another")
 	local wave1 = workspace:GetAttribute("RaidLeft") or 0
 	task.wait(wave1 * Raids.HOP_GAP + Raids.LEAP_TIME + 1)
 	check(#S.RaidService.raiders() == wave1 and passengers() == 0, "the whole wave is ashore, nobody left standing on deck (" .. #S.RaidService.raiders() .. "/" .. wave1 .. ", " .. passengers() .. " aboard)")
+	if onDeck then
+		check(not onDeck.dead and onDeck.humanoid.MaxHealth - onDeck.humanoid.Health >= hitHard * 0.99 and not onDeck.customAI and not onDeck.root.Anchored,
+			"a viking hurt on deck lands still hurt, and fights like any raider")
+	end
 	local ship1 = workspace.RaidShips:GetChildren()[1]
 	local moored = ship1 and ship1.PrimaryPart.Position
 	task.wait(3)
@@ -721,15 +749,26 @@ task.spawn(function()
 	end
 	check(lit ~= nil, "a torchbearer walked to a house and set it alight")
 	if lit then
-		tp(p1, Zones.houseDoor(Zones.Houses[lit]) + Vector3.new(0, 5, 0))
-		task.wait(0.2)
+		-- dragons breathe fire, so they need water: skim the river, then fly over the fire
 		local house = workspace.Map.Town:FindFirstChild("House" .. lit)
-		local douse = house and house:FindFirstChildWhichIsA("ProximityPrompt", true)
-		check(douse ~= nil, "a burning house has a prompt at its door")
-		if douse then
-			douse.Triggered:Fire(p1)
-		end
-		check(S.RaidService.houseState(lit) == "ok", "beating out the flames saves the house")
+		check(house:FindFirstChildWhichIsA("ProximityPrompt", true) == nil, "no \"beat out the flames\" prompt any more")
+		tp(p1, Zones.Houses[lit].pos + Vector3.new(0, 30, 0))
+		task.wait(0.5)
+		check(S.RaidService.houseState(lit) == "burning", "flying over a fire without water does nothing")
+		tp(p1, Vector3.new(0, Zones.WATER_LEVEL + 3, 280))
+		task.wait(0.5)
+		check(p1:GetAttribute("Water") == Raids.WATER_LOADS, "skimming the river scoops up water (" .. tostring(p1:GetAttribute("Water")) .. ")")
+		check(rootOf(p1):FindFirstChild("WaterDrips") ~= nil, "water drips off a dragon carrying it")
+		tp(p1, Zones.Houses[lit].pos + Vector3.new(4, 30, 0))
+		task.wait(0.5)
+		check(S.RaidService.houseState(lit) == "ok", "a splash of water puts the fire out")
+		check(p1:GetAttribute("Water") == Raids.WATER_LOADS - 1, "one splash used (" .. tostring(p1:GetAttribute("Water")) .. ")")
+		-- the wells in town fill you up too
+		tp(p2, Zones.Wells[1] + Vector3.new(5, 4, 0))
+		task.wait(0.5)
+		check(p2:GetAttribute("Water") == Raids.WATER_LOADS, "a dragon at a town well scoops up water")
+		tp(p2, S.FarmService.getHomeCFrame(p2).Position)
+		tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 	end
 	local repelled = profile.raidsRepelled
 	local buddyRepelled = S.PlayerService.getProfile(p2).raidsRepelled
@@ -746,6 +785,8 @@ task.spawn(function()
 	check(profile.raidsRepelled == repelled + 1, "the defender got the raid reward")
 	check(S.PlayerService.getProfile(p2).raidsRepelled == buddyRepelled, "dragons who didn't help get nothing")
 	check(S.ShopService.closedMessage() == nil, "shops stay open after a win")
+	task.wait(0.5)
+	check(p1:GetAttribute("Water") == nil, "the water's gone when the raid ends")
 	task.wait(26)
 	check(#workspace.RaidShips:GetChildren() == 0, "the longships rowed away")
 
@@ -754,15 +795,47 @@ task.spawn(function()
 	local okRaid, raidMsg = invoke("AdminAction", p1, "raidNow", {})
 	check(okRaid, "admin starts a raid: " .. tostring(raidMsg))
 	task.wait(Raids.WARNING + 1)
+	S.DayNightService.setHour(6.5) -- daybreak
+	task.wait(0.6)
+	check(S.RaidService.isActive(), "dawn doesn't end a raid: it keeps its own clock")
 	local torched = {}
 	for i = 1, #Zones.Houses do
 		if #torched < Raids.MAX_BURNED and S.RaidService.ignite(i) then
 			table.insert(torched, i)
 		end
 	end
-	task.wait(Raids.Tiers[#Raids.Tiers].burnTime + 1)
+	-- a house burning down caves in rather than turning black all at once
+	local ruin = workspace.Map.Town:FindFirstChild("House" .. torched[1])
+	local roofPart, roofY = nil, -math.huge
+	for _, d in ipairs(ruin:GetDescendants()) do
+		if d:IsA("WedgePart") and d.Position.Y > roofY then
+			roofPart, roofY = d, d.Position.Y
+		end
+	end
+	local roofColor = roofPart.Color
+	task.wait(Raids.Tiers[#Raids.Tiers].burnTime + 0.6)
 	check(not S.RaidService.isActive(), "the raid is lost when " .. Raids.MAX_BURNED .. " houses burn")
 	check(S.RaidService.houseState(torched[1]) == "burned", "burned houses stay burned for a while")
+	check(roofPart.Position.Y > roofY - 1, "the roof holds a moment while the flames roar")
+	local fled = {}
+	for _, e in ipairs(S.EnemyService.alive()) do
+		if e.raid and e.retreating then
+			table.insert(fled, e)
+		end
+	end
+	check(#fled > 0, "the raiders don't vanish when they win: they run for their ships (" .. #fled .. ")")
+	check(fled[1] == nil or fled[1].model:FindFirstChild("LootSack") ~= nil, "...with a sack of loot each")
+	task.wait(Raids.COLLAPSE_TIME + 1.5)
+	check(roofPart.Position.Y < roofY - 4, "the roof caves in (" .. string.format("%.1f", roofY - roofPart.Position.Y) .. " studs)")
+	check(roofPart.Color ~= roofColor, "the walls and roof are charred")
+	task.wait(Raids.RETREAT_TIME + 30)
+	local stillHere = 0
+	for _, e in ipairs(S.EnemyService.alive()) do
+		if e.raid then
+			stillHere += 1
+		end
+	end
+	check(stillHere == 0 and #workspace.RaidShips:GetChildren() == 0, "the raiders sailed off with the loot (" .. stillHere .. " left, " .. #workspace.RaidShips:GetChildren() .. " ships)")
 	check(S.ShopService.closedMessage() ~= nil and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops close after a lost raid")
 	tp(p1, Zones.getShop("Armory").position + Vector3.new(0, 5, -10))
 	task.wait(0.2)
@@ -771,6 +844,7 @@ task.spawn(function()
 	task.wait(math.max(Raids.SHOPS_CLOSED, Raids.REBUILD) + 1)
 	check(S.ShopService.closedMessage() == nil and workspace:GetAttribute("ShopsClosedUntil") == nil, "the shops reopen")
 	check(S.RaidService.houseState(torched[1]) == "ok", "burned houses are rebuilt")
+	check(math.abs(roofPart.Position.Y - roofY) < 0.01 and roofPart.Color == roofColor, "...roof and all")
 	step("raids wait for bosses")
 	S.DayNightService.setHour(8)
 	task.wait(0.6)
@@ -781,7 +855,13 @@ task.spawn(function()
 	check(not S.RaidService.isActive() and S.RaidService.isPending(), "a raid rolled during a boss warning waits")
 	task.wait(14) -- nobody queued, so the boss moves on
 	check(S.RaidService.isActive(), "the raid starts once the boss is gone")
-	S.RaidService.stop(true)
+	-- a raid that runs out of time is lost (a short clock here: 4 seconds after the last wave)
+	local fightTime = Raids.FIGHT_TIME
+	Raids.FIGHT_TIME = 4 - Raids.WAVE_GAP * (#Raids.Tiers[1].waves - 1)
+	task.wait(Raids.WARNING + 6)
+	check(not S.RaidService.isActive() and S.ShopService.closedMessage() ~= nil, "time runs out with raiders in town: the raid is lost")
+	Raids.FIGHT_TIME = fightTime
+	invoke("AdminAction", p1, "shops", { open = true })
 	Raids.CHANCE = chance
 	S.DayNightService.setHour(9)
 	invoke("AdminAction", p1, "god", { on = false })

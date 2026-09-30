@@ -583,6 +583,7 @@ task.spawn(function()
 
 	-- a night raid: the bar, the longships, then a lost raid closes the shops
 	local Raids = require(__proxy("Shared/Config/Raids"))
+	tp(me, S.FarmService.getHomeCFrame(me).Position) -- (away from the water: during a raid it'd scoop some up)
 	Remotes.func("AdminAction"):InvokeServer("raidNow")
 	task.wait(1)
 	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
@@ -600,6 +601,34 @@ task.spawn(function()
 	end
 	task.wait(0.4)
 	check(raidBar.Visible and not raidPill.Visible, "the pill opens the raid bar again")
+	-- the vikings on deck cheer with their axes up (the Animator)
+	local deckViking = S.RaidService.aboard()[1]
+	local armR = deckViking and deckViking.model:FindFirstChild("ArmR", true)
+	if deckViking then
+		tp(me, deckViking.root.Position + Vector3.new(0, 30, -60)) -- (the Animator only poses what's near the camera)
+	end
+	task.wait(0.3)
+	if armR and armR:IsA("Motor6D") then
+		local up = armR.Transform.UpVector
+		local x = math.atan2(up.Z, up.Y) -- the arm's swing about its shoulder
+		check(x > 1.5, "the vikings on deck cheer (arm " .. string.format("%.2f", x) .. ")")
+	else
+		check(false, "a viking on deck with an arm to wave")
+	end
+	tp(me, S.FarmService.getHomeCFrame(me).Position)
+	-- a house on fire: the water chip says where to get water, then how much you carry
+	Remotes.func("AdminAction"):InvokeServer("burnHouse")
+	task.wait(0.6)
+	local chip = Windows.guis.HUD:FindFirstChild("WaterChip")
+	check(chip and chip.Visible and chip.Text:find("on fire") ~= nil, "a burning house shows the water hint (" .. tostring(chip and chip.Text) .. ")")
+	local well = workspace.Map.Town:FindFirstChild("Well1")
+	check(well and well:FindFirstChild("WellTag", true).Enabled, "the wells light up \"Water\" while a house burns")
+	tp(me, Zones.Wells[1] + Vector3.new(4, 4, 0))
+	task.wait(0.6)
+	check(chip.Visible and chip.Text:find("splashes of water") ~= nil, "scooped water shows on the chip (" .. chip.Text .. ")")
+	tp(me, Zones.Houses[1].pos + Vector3.new(0, 30, 0))
+	task.wait(0.6)
+	check(chip.Text:find("2 splashes") ~= nil and workspace.Map.Town.House1:GetAttribute("Fire") == nil, "flying over the fire puts it out (" .. chip.Text .. ")")
 	task.wait(Raids.WARNING + 3)
 	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders landed")
 	-- a knocked-out villager sprawls on the ground (the Animator poses it)
@@ -625,6 +654,7 @@ task.spawn(function()
 	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
 	task.wait(0.5)
 	check(markerTexts()["⚔️"] == nil, "the swords go away after the raid")
+	check(not chip.Visible, "the water chip goes away with the raid")
 	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
 	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
 	Remotes.func("AdminAction"):InvokeServer("rebuildHouses")

@@ -303,6 +303,54 @@ function Props.barrel(parent: Instance, pos: Vector3)
 	Props.column(parent, pos + Vector3.new(0, 2.7, 0), 0.3, 2.75, Color3.fromRGB(70, 70, 75), Enum.Material.Metal)
 end
 
+-- A stone well with a little roof, a crank and a bucket. During a raid dragons dip in here for
+-- water to put out burning houses (RaidService); its "WellTag" sign lights up while a house burns.
+function Props.well(parent: Instance, pos: Vector3)
+	local model = Instance.new("Model")
+	model.Name = "Well"
+	local stone = Color3.fromRGB(135, 130, 128)
+	local y = Props.groundY(pos.X, pos.Z)
+	local base = Vector3.new(pos.X, y, pos.Z)
+	Props.column(model, base - Vector3.new(0, 1, 0), 4, 8, stone, Enum.Material.Cobblestone)
+	Props.column(model, base + Vector3.new(0, 3, 0), 0.5, 8.4, stone:Lerp(Color3.new(1, 1, 1), 0.15), Enum.Material.Slate)
+	local water = Props.column(model, base + Vector3.new(0, 3.5, 0), 0.12, 6.8, Color3.fromRGB(70, 140, 205), Enum.Material.Glass)
+	water.Name = "Water"
+	water.Transparency = 0.15
+	water.CanCollide = false
+	for _, side in ipairs({ -1, 1 }) do
+		Props.part(model, Vector3.new(0.8, 7, 0.8), CFrame.new(base + Vector3.new(side * 3.6, 6, 0)), DARK_WOOD, Enum.Material.Wood)
+	end
+	Props.roof(model, CFrame.new(base), 9, 6, 9.4, 2.6, Color3.fromRGB(150, 70, 55), Enum.Material.WoodPlanks)
+	Props.beam(model, base + Vector3.new(-3.6, 7.6, 0), base + Vector3.new(3.6, 7.6, 0), 0.6, WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(0.12, 3.2, 0.12), CFrame.new(base + Vector3.new(0.6, 5.9, 0)), Color3.fromRGB(200, 180, 130), Enum.Material.Fabric).CanCollide = false
+	local bucket = Props.column(model, base + Vector3.new(0.6, 3.6, 0), 1.3, 1.2, Color3.fromRGB(120, 80, 45), Enum.Material.Wood)
+	bucket.CanCollide = false
+	-- "Water here!", shown while a house is burning
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "WellTag"
+	gui.Size = UDim2.fromOffset(120, 32)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 15, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 300
+	gui.LightInfluence = 0
+	gui.Enabled = false
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundColor3 = Color3.fromRGB(20, 60, 110)
+	label.BackgroundTransparency = 0.2
+	label.TextColor3 = Color3.fromRGB(190, 230, 255)
+	label.Font = Enum.Font.FredokaOne
+	label.TextScaled = true
+	label.Text = "💧 Water"
+	label.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = label
+	gui.Parent = water
+	model.Parent = parent
+	return model
+end
+
 -- A viking longship floating with its waterline at `cf` (bow toward -Z). The hull is built
 -- from curved plank strakes around a flat deck, with a rising prow (dragon head) and stern.
 function Props.longship(parent: Instance, cf: CFrame)

@@ -505,6 +505,9 @@ local function buildTown(map: Folder)
 		local model = Props.dragonHouse(town, facingCF(house.pos, house.facing), size.X, size.Z, size.Y, walls[i % 3 + 1], roofs[i % 3 + 1])
 		model.Name = "House" .. i
 	end
+	for i, pos in ipairs(Zones.Wells) do
+		Props.well(town, pos).Name = "Well" .. i
+	end
 
 	-- Lamps along the main road: one at the top of the street, then one in each gap between houses
 	-- (clear of the paths to their doors)
