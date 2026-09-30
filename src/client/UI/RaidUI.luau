@@ -12,6 +12,7 @@ local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
+local Raids = require(Shared.Config.Raids)
 local Util = require(Shared.Util)
 
 local Theme = require(script.Parent.Theme)
@@ -77,7 +78,8 @@ local function burningHouses(): number
 	return n
 end
 
--- The water chip: under the raid bar (or its pill) on desktop, above it on phones.
+-- The water chip: under the raid bar (or its pill) on desktop, above it on phones. A gauge along
+-- its bottom shows how much water you carry (it runs down as you pour).
 local function updateWater()
 	local water = Players.LocalPlayer:GetAttribute("Water") or 0
 	local fires = burningHouses()
@@ -85,8 +87,14 @@ local function updateWater()
 	if not waterChip.Visible then
 		return
 	end
-	if water > 0 then
-		waterChip.Text = string.format("💧 %d splash%s of water: fly over a burning house!", water, water == 1 and "" or "es")
+	local gauge = waterChip:FindFirstChild("Gauge")
+	gauge.Visible = water > 0
+	gauge.Fill.Size = UDim2.fromScale(math.clamp(water / Raids.WATER_LOADS, 0, 1), 1)
+	if Players.LocalPlayer:GetAttribute("Pouring") then
+		waterChip.Text = "💧 Pouring! Stay over the fire until it's out"
+		waterChip.BackgroundColor3 = Color3.fromRGB(20, 80, 140)
+	elseif water > 0 then
+		waterChip.Text = "💧 Water! Hover over a burning house to pour it"
 		waterChip.BackgroundColor3 = Color3.fromRGB(20, 60, 110)
 	else
 		waterChip.Text = string.format("🔥 %d house%s on fire! Dive into the river or a well for water", fires, fires == 1 and "" or "s")
@@ -95,11 +103,11 @@ local function updateWater()
 	local above = (bar.Visible and bar) or (pill.Visible and pill) or nil
 	if App.Windows.mobile then
 		waterChip.AnchorPoint = Vector2.new(0, 1)
-		waterChip.Size = UDim2.fromOffset(372, 28)
+		waterChip.Size = UDim2.fromOffset(372, 30)
 		waterChip.Position = UDim2.new(0, 130, 1, above and -(14 + above.Size.Y.Offset) or -8)
 	else
 		waterChip.AnchorPoint = Vector2.new(0.5, 0)
-		waterChip.Size = UDim2.fromOffset(420, 28)
+		waterChip.Size = UDim2.fromOffset(420, 30)
 		local y = above and (above.Position.Y.Offset + above.Size.Y.Offset + 6) or 8
 		waterChip.Position = UDim2.new(0.5, 0, 0, y)
 	end
@@ -232,6 +240,23 @@ function RaidUI.init(app)
 	})
 	Theme.corner(waterChip, 10)
 	Theme.stroke(waterChip, Color3.fromRGB(140, 200, 255), 1.5)
+	local gauge = Theme.make("Frame", {
+		Name = "Gauge",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -3),
+		Size = UDim2.new(1, -24, 0, 4),
+		BackgroundColor3 = Color3.fromRGB(10, 25, 45),
+		BorderSizePixel = 0,
+		Visible = false,
+		Parent = waterChip,
+	})
+	Theme.make("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(120, 200, 255),
+		BorderSizePixel = 0,
+		Parent = gauge,
+	})
 	place()
 	RunService.RenderStepped:Connect(function(dt)
 		accumulated += dt

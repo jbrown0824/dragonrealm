@@ -87,14 +87,23 @@ Raids.DIE_DOWN = 16
 Raids.SMOLDER = 60
 
 -- Putting fires out: dragons breathe fire, so they need water. Skim low over any water (the river
--- below town, a lake) or dip into a town well (Zones.Wells) to scoop up WATER_LOADS splashes, then
--- fly over a burning house to drop one on it. One splash puts one fire out.
-Raids.WATER_LOADS = 3
+-- below town, a lake) or dip into a town well (Zones.Wells) to scoop up WATER_LOADS loads, then
+-- hover over a burning house to pour: a load lasts POUR_TIME seconds of pouring, and a fire needs
+-- DOUSE_TIME seconds of it (from one dragon, or less each from several pouring together). A fire
+-- nobody's poured on for REGROW_DELAY seconds creeps back, losing all its water over DOUSE_REGROW.
+-- Once it's out the flames die away over FLAMES_FADE seconds and the steam lingers STEAM_TIME more.
+Raids.WATER_LOADS = 2
+Raids.POUR_TIME = 4
+Raids.DOUSE_TIME = 4
+Raids.REGROW_DELAY = 2
+Raids.DOUSE_REGROW = 15
+Raids.FLAMES_FADE = 3
+Raids.STEAM_TIME = 5
 Raids.SCOOP_REACH = 5 -- how far below a dragon's belly the water can be
 Raids.WELL_REACH = 11 -- flat distance from a well's middle
 Raids.WELL_HEIGHT = 18 -- ...and at most this high above it
-Raids.SPLASH_REACH = 24 -- flat distance from a burning house's middle that counts as over it
-Raids.SPLASH_HEIGHT = 50 -- ...and at most this high above its floor
+Raids.POUR_REACH = 22 -- flat distance from a burning house's middle that counts as over it
+Raids.POUR_HEIGHT = 50 -- ...and at most this high above its floor
 
 -- Villagers join the fight: they puff small bursts of fire at raiders near them. A raider fresh
 -- off the boat can't be finished by villagers (their fire stops at VILLAGER_FLOOR of its health),
@@ -147,6 +156,9 @@ Raids.SHIP_ROW_TIME = 19 -- seconds the longships take to row in (the vikings le
 Raids.SHIP_SLOWDOWN = 0.15 -- they row at full speed and only slow down for this last part of the trip
 Raids.SHIP_SPEED = 22 -- studs a second, for trips that aren't timed (coming back for the raiders)
 Raids.PASSENGERS = 10 -- room on each ship's deck (the wave rides in standing up, then leaps ashore)
+-- Packed together on deck the vikings huddle behind their shields: they take this share of the
+-- damage (they're easy to catch in one blast, so without it a wave barely made it ashore).
+Raids.DECK_DAMAGE_TAKEN = 0.55
 Raids.HOP_GAP = 0.45 -- seconds between raiders leaping ashore
 Raids.LEAP_TIME = 0.8 -- seconds a leap from the deck to the beach takes
 Raids.LEAP_HEIGHT = 9 -- studs above the straight line at the top of the leap

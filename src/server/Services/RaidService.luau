@@ -134,12 +134,19 @@ local function clearFx(h)
 	h.fx = nil
 	h.fires = nil
 	h.lights = nil
+	h.smokes = nil
 	h.tag = nil
+	h.tagBar = nil
 end
 
 -- The effects on a house: invisible anchors on the roof carrying flames (`kind` "burning", with
--- the countdown everyone can see), a puff of steam that clears ("steam", a fire just put out), or
--- smoke and a few embers that smolder for a while ("burned").
+-- the countdown everyone can see and a bar that fills as dragons pour water on it), or smoke and a
+-- few embers that smolder for a while ("burned").
+local SMOKE_DARK = Color3.fromRGB(70, 60, 55)
+local STEAM = Color3.fromRGB(235, 240, 245)
+local FLAME_SIZE = 14
+local FLAME_LIGHT = 3
+
 local function addFx(index: number, kind: string)
 	local h = houses[index]
 	clearFx(h)
@@ -147,7 +154,7 @@ local function addFx(index: number, kind: string)
 	local cf = houseCF(index) + Vector3.new(0, h.baseY, 0)
 	local fx = Instance.new("Folder")
 	fx.Name = "FireFX"
-	local fires, lights = {}, {}
+	local fires, lights, smokes = {}, {}, {}
 	local spots = kind == "burned" and { Vector3.new(-size.X * 0.2, size.Y + 3, 0), Vector3.new(size.X * 0.25, size.Y + 2, 3) }
 		or { Vector3.new(-size.X * 0.28, size.Y + 5, 0), Vector3.new(size.X * 0.28, size.Y + 5, 2), Vector3.new(0, size.Y - 3, -size.Z / 2) }
 	for _, off in ipairs(spots) do
@@ -163,30 +170,29 @@ local function addFx(index: number, kind: string)
 		local smoke = Instance.new("Smoke")
 		smoke.RiseVelocity = 8
 		if kind == "burning" then
-			smoke.Color, smoke.Size, smoke.Opacity = Color3.fromRGB(70, 60, 55), 12, 0.35
-			table.insert(fires, Props.fire(anchor, 14, Color3.fromRGB(255, 120, 40)))
-			table.insert(lights, Props.light(anchor, Color3.fromRGB(255, 140, 60), 40, 3))
-		elseif kind == "steam" then
-			smoke.Color, smoke.Size, smoke.Opacity, smoke.RiseVelocity = Color3.fromRGB(235, 240, 245), 10, 0.3, 12
+			smoke.Color, smoke.Size, smoke.Opacity = SMOKE_DARK, 12, 0.35
+			table.insert(fires, Props.fire(anchor, FLAME_SIZE, Color3.fromRGB(255, 120, 40)))
+			table.insert(lights, Props.light(anchor, Color3.fromRGB(255, 140, 60), 40, FLAME_LIGHT))
 		else
 			smoke.Color, smoke.Size, smoke.Opacity = Color3.fromRGB(110, 105, 100), 7, 0.2
 			table.insert(fires, Props.fire(anchor, 3, Color3.fromRGB(200, 60, 20)))
 			table.insert(lights, Props.light(anchor, Color3.fromRGB(255, 90, 30), 14, 0.8))
 		end
 		smoke.Parent = anchor
+		table.insert(smokes, smoke)
 	end
 	if kind == "burning" then
-		-- a countdown everyone can see from across town
+		-- a countdown everyone can see from across town, and under it how much water it's had
 		local gui = Instance.new("BillboardGui")
 		gui.Name = "FireTag"
-		gui.Size = UDim2.fromOffset(170, 36)
+		gui.Size = UDim2.fromOffset(170, 48)
 		gui.StudsOffsetWorldSpace = Vector3.new(0, size.Y + 14, 0)
 		gui.AlwaysOnTop = true
 		gui.MaxDistance = 400
 		gui.LightInfluence = 0
 		local label = Instance.new("TextLabel")
 		label.Name = "Text"
-		label.Size = UDim2.fromScale(1, 1)
+		label.Size = UDim2.new(1, 0, 0, 36)
 		label.BackgroundColor3 = Color3.fromRGB(80, 20, 10)
 		label.BackgroundTransparency = 0.25
 		label.TextColor3 = Color3.fromRGB(255, 200, 120)
@@ -197,6 +203,21 @@ local function addFx(index: number, kind: string)
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0, 10)
 		corner.Parent = label
+		local bar = Instance.new("Frame")
+		bar.Name = "Water"
+		bar.Position = UDim2.fromOffset(10, 40)
+		bar.Size = UDim2.new(1, -20, 0, 7)
+		bar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+		bar.BackgroundTransparency = 0.3
+		bar.BorderSizePixel = 0
+		bar.Visible = false
+		bar.Parent = gui
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.fromScale(0, 1)
+		fill.BackgroundColor3 = Color3.fromRGB(120, 200, 255)
+		fill.BorderSizePixel = 0
+		fill.Parent = bar
 		local base = Instance.new("Part")
 		base.Name = "TagAnchor"
 		base.Anchored = true
@@ -209,29 +230,107 @@ local function addFx(index: number, kind: string)
 		base.Parent = fx
 		gui.Parent = base
 		h.tag = label
+		h.tagBar = bar
 	end
 	fx.Parent = h.model
 	h.fx = fx
 	h.fires = fires
 	h.lights = lights
-	if kind ~= "burning" then
-		-- steam clears in a few seconds; embers go cold after a while (the smoke lingers)
-		task.delay(kind == "steam" and 6 or Raids.SMOLDER, function()
+	h.smokes = smokes
+	h.shown = nil
+	if kind == "burned" then
+		-- the embers go cold after a while (the smoke lingers)
+		task.delay(Raids.SMOLDER, function()
 			if h.fx ~= fx then
 				return
 			end
-			if kind == "steam" then
-				clearFx(h)
-			else
-				for _, f in ipairs(fires) do
-					f.Enabled = false
-				end
-				for _, l in ipairs(lights) do
-					l.Enabled = false
-				end
+			for _, f in ipairs(fires) do
+				f.Enabled = false
+			end
+			for _, l in ipairs(lights) do
+				l.Enabled = false
 			end
 		end)
 	end
+end
+
+-- How a burning house looks with `k` of the water it needs poured on it: the flames shrink and the
+-- smoke turns to steam as the water goes on.
+local function soak(h, k: number)
+	for _, f in ipairs(h.fires or {}) do
+		f.Size = math.max(2, FLAME_SIZE * (1 - 0.7 * k))
+		f.Heat = 9 * (1 - 0.6 * k)
+	end
+	for _, l in ipairs(h.lights or {}) do
+		l.Brightness = FLAME_LIGHT * (1 - 0.6 * k)
+	end
+	for _, smoke in ipairs(h.smokes or {}) do
+		smoke.Color = SMOKE_DARK:Lerp(STEAM, k)
+		smoke.Size = 12 + 4 * k
+		smoke.RiseVelocity = 8 + 5 * k
+	end
+	if h.tagBar then
+		h.tagBar.Visible = k > 0
+		h.tagBar.Fill.Size = UDim2.fromScale(math.clamp(k, 0, 1), 1)
+	end
+end
+
+-- A fire that's been put out doesn't just blink off: the flames die away over Raids.FLAMES_FADE
+-- seconds while the steam billows, then the steam thins out and clears.
+local function fadeOut(h)
+	local fx = h.fx
+	if not fx then
+		return
+	end
+	if h.tag then
+		h.tag.Parent.Parent:Destroy() -- (the countdown's anchor)
+	end
+	h.tag = nil
+	h.tagBar = nil
+	local fires, lights, smokes = h.fires or {}, h.lights or {}, h.smokes or {}
+	for _, smoke in ipairs(smokes) do
+		smoke.Color = STEAM
+		smoke.Size = 18
+		smoke.Opacity = 0.4
+		smoke.RiseVelocity = 14
+	end
+	local sizes, brights = {}, {}
+	for i, f in ipairs(fires) do
+		sizes[i] = f.Size
+	end
+	for i, l in ipairs(lights) do
+		brights[i] = l.Brightness
+	end
+	task.spawn(function()
+		local steps = 10
+		for i = 1, steps do
+			task.wait(Raids.FLAMES_FADE / steps)
+			if h.fx ~= fx then
+				return -- lit again, or rebuilt
+			end
+			local k = 1 - i / steps
+			for j, f in ipairs(fires) do
+				f.Size = math.max(2, sizes[j] * k)
+				f.Heat = 9 * k
+				f.Enabled = k > 0.1
+			end
+			for j, l in ipairs(lights) do
+				l.Brightness = brights[j] * k
+				l.Enabled = k > 0.1
+			end
+		end
+		task.wait(Raids.STEAM_TIME)
+		if h.fx ~= fx then
+			return
+		end
+		for _, smoke in ipairs(smokes) do
+			smoke.Enabled = false -- (the last puffs drift off)
+		end
+		task.wait(4)
+		if h.fx == fx then
+			clearFx(h)
+		end
+	end)
 end
 
 -- Remember every part's look and place (and switch off the fireplace and lanterns) before a
@@ -265,18 +364,43 @@ local function blacken(h, k: number)
 	end
 end
 
--- The roof (everything above the wall tops but the brick chimney) caves in: it drops into the
--- house, tipping this way and that, speeding up as it falls.
+-- The roof (everything above the wall tops but the brick chimney) caves in: the two halves drop
+-- into the house, tipping this way and that, and the ridge beam with its carved dragon heads comes
+-- down in one piece, one end on the floor and the other leaning on a wall (falling on their own,
+-- the heads used to end up hanging in the air beside the house). It speeds up as it falls.
 local function caveIn(index: number, token)
 	local h = houses[index]
 	local frame = houseCF(index) + Vector3.new(0, h.baseY, 0)
-	local falling = {}
 	local rng = Random.new(index * 31)
+	local roof = {}
+	local top = -math.huge
 	for d, look in pairs(h.original) do
-		if look.cf and d.Material ~= Enum.Material.Brick and frame:PointToObjectSpace(look.cf.Position).Y > Zones.HouseSize.Y + 0.8 then
+		if look.cf and d.Material ~= Enum.Material.Brick then
+			local y = frame:PointToObjectSpace(look.cf.Position).Y
+			if y > Zones.HouseSize.Y + 0.8 then
+				table.insert(roof, { part = d, from = look.cf, y = y })
+				top = math.max(top, y)
+			end
+		end
+	end
+	-- the ridge: the beam along the peak and the heads on its ends (the highest parts)
+	local center, n = Vector3.zero, 0
+	for _, f in ipairs(roof) do
+		if f.y >= top - 1.5 then
+			f.ridge = true
+			center += f.from.Position
+			n += 1
+		end
+	end
+	center /= math.max(1, n)
+	local target = (frame * CFrame.new(0, Zones.HouseSize.Y * 0.6, 0)).Position
+	local axis = frame.LookVector -- the beam runs across the house, so it tips about the front-back axis
+	local tilt = (rng:NextNumber() < 0.5 and -1 or 1) * 0.5
+	for _, f in ipairs(roof) do
+		if not f.ridge then
 			local drop = Zones.HouseSize.Y * 0.5 + rng:NextNumber(0, 3)
 			local tip = CFrame.Angles(rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.1, 0.1), rng:NextNumber(-0.2, 0.2))
-			table.insert(falling, { part = d, from = look.cf, to = (look.cf - Vector3.new(0, drop, 0)) * tip })
+			f.to = (f.from - Vector3.new(0, drop, 0)) * tip
 		end
 	end
 	for i = 1, 6 do
@@ -284,9 +408,10 @@ local function caveIn(index: number, token)
 			return
 		end
 		local k = (i / 6) ^ 2
-		for _, f in ipairs(falling) do
+		local pose = CFrame.new(center:Lerp(target, k)) * CFrame.fromAxisAngle(axis, tilt * k) * CFrame.new(-center)
+		for _, f in ipairs(roof) do
 			if f.part.Parent then
-				f.part.CFrame = f.from:Lerp(f.to, k)
+				f.part.CFrame = f.ridge and pose * f.from or f.from:Lerp(f.to, k)
 			end
 		end
 		task.wait(0.08)
@@ -313,6 +438,12 @@ local function collapse(index: number)
 	for _, l in ipairs(h.lights) do
 		l.Brightness = 5
 	end
+	for _, smoke in ipairs(h.smokes or {}) do
+		smoke.Color = SMOKE_DARK
+	end
+	if h.tagBar then
+		h.tagBar.Visible = false
+	end
 	remember(h)
 	for i = 1, 5 do
 		blacken(h, i / 5)
@@ -324,6 +455,7 @@ local function collapse(index: number)
 	if h.tag then
 		h.tag.Parent.Parent:Destroy() -- (the countdown's anchor)
 		h.tag = nil
+		h.tagBar = nil
 	end
 	caveIn(index, token)
 	if h.collapsing ~= token then
@@ -386,7 +518,7 @@ function RaidService.ignite(index: number): boolean
 	h.model:SetAttribute("Fire", "burning")
 	h.model:SetAttribute("BurnsAt", h.burnsAt)
 	addFx(index, "burning")
-	notifyAll(string.format("A house is on fire! Scoop up water from the river or a well and fly over it (%ds).", burnTime), Color3.fromRGB(255, 150, 70), "🔥")
+	notifyAll(string.format("A house is on fire! Scoop up water from the river or a well and hover over it to pour (%ds).", burnTime), Color3.fromRGB(255, 150, 70), "🔥")
 	return true
 end
 
@@ -394,9 +526,11 @@ local function extinguish(index: number)
 	local h = houses[index]
 	h.state = "ok"
 	h.burnsAt = nil
+	h.douse = nil
+	h.pourers = nil
 	h.model:SetAttribute("Fire", nil)
 	h.model:SetAttribute("BurnsAt", nil)
-	addFx(index, "steam")
+	fadeOut(h)
 end
 
 local function burnDown(index: number)
@@ -406,6 +540,8 @@ local function burnDown(index: number)
 	end
 	h.state = "burned"
 	h.burnsAt = nil
+	h.douse = nil
+	h.pourers = nil
 	h.model:SetAttribute("Fire", "burned")
 	h.model:SetAttribute("BurnsAt", nil)
 	task.spawn(collapse, index)
@@ -445,19 +581,24 @@ function RaidService.houseState(index: number): string?
 end
 
 ---------------------------------------------------------------- water
--- Dragons carry up to Raids.WATER_LOADS splashes (player attribute "Water"; drops drip off them
--- while they do). They scoop it up skimming low over any water or at a town well, and drop a
--- splash on any burning house they fly over.
+-- Dragons carry up to Raids.WATER_LOADS loads of water (player attribute "Water", a number that
+-- runs down as they pour; drops drip off them while they carry any). They scoop it up skimming
+-- low over any water or at a town well. Hovering over a burning house pours it: a stream falls
+-- from the dragon (player attribute "Pouring", emitter "WaterPour") and the house's progress
+-- (h.douse, the blue bar under its countdown) goes up. Every dragon pouring adds to the same
+-- house, so a few together put a fire out much faster; left alone, a half-soaked fire creeps back.
+
+local TICK = 0.2 -- seconds between water ticks
 
 local function waterOf(player: Player): number
 	return player:GetAttribute("Water") or 0
 end
 
 local function setWater(player: Player, n: number)
-	player:SetAttribute("Water", n > 0 and n or nil)
+	player:SetAttribute("Water", n > 0.001 and n or nil)
 	local _, _, root = S.PlayerService.getCharacter(player)
 	local drips = root and root:FindFirstChild("WaterDrips")
-	if n > 0 and root and not drips then
+	if n > 0.001 and root and not drips then
 		drips = Instance.new("ParticleEmitter")
 		drips.Name = "WaterDrips"
 		drips.Texture = "rbxasset://textures/particles/sparkles_main.dds"
@@ -471,8 +612,37 @@ local function setWater(player: Player, n: number)
 		drips.Acceleration = Vector3.new(0, -50, 0)
 		drips.Size = NumberSequence.new(0.5, 0.2)
 		drips.Parent = root
-	elseif n <= 0 and drips then
+	elseif n <= 0.001 and drips then
 		drips:Destroy()
+	end
+end
+
+-- The stream of water falling from a dragon while it pours.
+local function setPouring(player: Player, on: boolean)
+	if (player:GetAttribute("Pouring") == true) == on then
+		return
+	end
+	player:SetAttribute("Pouring", on or nil)
+	local _, _, root = S.PlayerService.getCharacter(player)
+	local stream = root and root:FindFirstChild("WaterPour")
+	if on and root and not stream then
+		stream = Instance.new("ParticleEmitter")
+		stream.Name = "WaterPour"
+		stream.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		stream.Color = ColorSequence.new(Color3.fromRGB(190, 230, 255), Color3.fromRGB(60, 130, 220))
+		stream.LightEmission = 0.25
+		stream.Rate = 110
+		stream.Lifetime = NumberRange.new(0.7, 1.1)
+		stream.Speed = NumberRange.new(14, 22)
+		stream.SpreadAngle = Vector2.new(12, 12)
+		stream.EmissionDirection = Enum.NormalId.Bottom
+		stream.Acceleration = Vector3.new(0, -60, 0)
+		stream.Size = NumberSequence.new(1.3, 0.7)
+		stream.Transparency = NumberSequence.new(0.1, 0.5)
+		stream.Parent = root
+	end
+	if stream then
+		stream.Enabled = on
 	end
 end
 
@@ -481,6 +651,7 @@ local function clearWater()
 		if player:GetAttribute("Water") then
 			setWater(player, 0)
 		end
+		setPouring(player, false)
 	end
 end
 
@@ -502,63 +673,125 @@ local function scoopSpot(humanoid: Humanoid, root: BasePart): Vector3?
 end
 
 local function overHouse(root: BasePart, index: number): boolean
-	return flat(root.Position, Zones.Houses[index].pos) <= Raids.SPLASH_REACH and root.Position.Y - houses[index].baseY <= Raids.SPLASH_HEIGHT
-end
-
--- A dragon carrying water flew over a burning house: splash!
-function RaidService.pour(index: number, player: Player): boolean
-	local h = houses[index]
-	local _, _, root = S.PlayerService.getCharacter(player)
-	if not h or h.state ~= "burning" or waterOf(player) <= 0 or not root or not overHouse(root, index) then
-		return false
-	end
-	local left = waterOf(player) - 1
-	setWater(player, left)
-	extinguish(index)
-	S.CombatService.broadcastVFX({ kind = "pour", from = root.Position, pos = roofTop(index) })
-	if raid then
-		raid.contrib[player] = (raid.contrib[player] or 0) + 1
-	end
-	S.PlayerService.notify(player, left > 0 and string.format("Splash! The fire's out. (%d splash%s of water left)", left, left == 1 and "" or "es")
-		or "Splash! The fire's out. Scoop up more water for the next one.", Color3.fromRGB(140, 230, 140), "💧")
-	return true
+	return flat(root.Position, Zones.Houses[index].pos) <= Raids.POUR_REACH and root.Position.Y - houses[index].baseY <= Raids.POUR_HEIGHT
 end
 
 local function scoop(player: Player, at: Vector3)
 	local had = waterOf(player)
 	setWater(player, Raids.WATER_LOADS)
 	S.CombatService.broadcastVFX({ kind = "splash", pos = at })
-	if had == 0 then
-		S.PlayerService.notify(player, string.format("You scooped up water (%d splashes)! Fly over a burning house to drop it.", Raids.WATER_LOADS), WATER_COLOR, "💧")
+	if had <= 0 then
+		S.PlayerService.notify(player, string.format("You scooped up water (enough for %d fire%s)! Hover over a burning house to pour it.", Raids.WATER_LOADS, Raids.WATER_LOADS == 1 and "" or "s"), WATER_COLOR, "💧")
 	end
 end
 
--- Several times a second: scoop for dragons at the water, splash for dragons over a fire. Only
--- while there's a raid or a fire (otherwise nobody carries water).
+-- Enough water went on: the fire's out. Everyone who poured some gets the credit.
+local function putOut(index: number)
+	local h = houses[index]
+	local pourers = h.pourers or {}
+	extinguish(index)
+	S.CombatService.broadcastVFX({ kind = "putOut", pos = roofTop(index) })
+	for player in pairs(pourers) do
+		if player.Parent then
+			if raid then
+				raid.contrib[player] = (raid.contrib[player] or 0) + 1
+			end
+			S.PlayerService.notify(player, "The fire's out! The house is saved.", Color3.fromRGB(140, 230, 140), "💧")
+		end
+	end
+end
+
+-- One dragon pours for a tick onto the house under it (the one nearest to going out, if it's over
+-- more than one). Returns the house it poured on.
+local function pourTick(player: Player, root: BasePart, t: number): number?
+	local best, bestK = nil, -1
+	for index, h in pairs(houses) do
+		if h.state == "burning" and overHouse(root, index) and (h.douse or 0) > bestK then
+			best, bestK = index, h.douse or 0
+		end
+	end
+	if not best then
+		return nil
+	end
+	local h = houses[best]
+	local water = waterOf(player)
+	local use = math.min(water, TICK / Raids.POUR_TIME)
+	setWater(player, water - use)
+	h.douse = (h.douse or 0) + use * Raids.POUR_TIME / Raids.DOUSE_TIME
+	h.pourers = h.pourers or {}
+	h.pourers[player] = true
+	h.lastPour = t
+	if water - use <= 0.001 and h.douse < 1 then
+		S.PlayerService.notify(player, "Out of water! Scoop up more from the river or a well.", WATER_COLOR, "💧")
+	end
+	return best
+end
+
+-- Five times a second: dragons at the water scoop, dragons over a fire pour, and every burning
+-- house shows how soaked it is (or creeps back if nobody's pouring). Only while there's a raid or
+-- a fire (otherwise nobody carries water).
 local function waterTick()
 	local burning = anyBurning()
 	if not raid and not burning then
 		clearWater()
 		return
 	end
+	local t = os.clock()
+	local poured = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		local _, humanoid, root = S.PlayerService.getCharacter(player)
+		local index = nil
 		if root then
 			if burning and waterOf(player) > 0 then
-				for index, h in pairs(houses) do
-					if h.state == "burning" and waterOf(player) > 0 and overHouse(root, index) then
-						RaidService.pour(index, player)
-					end
-				end
+				index = pourTick(player, root, t)
 			end
-			if waterOf(player) < Raids.WATER_LOADS then
+			if index then
+				poured[index] = true
+			elseif waterOf(player) < Raids.WATER_LOADS then
 				local at = scoopSpot(humanoid, root)
 				if at then
 					scoop(player, at)
 				end
 			end
 		end
+		setPouring(player, index ~= nil)
 	end
+	local now_ = now()
+	for index, h in pairs(houses) do
+		if h.state == "burning" then
+			if (h.douse or 0) >= 1 then
+				putOut(index)
+			else
+				if h.douse and not poured[index] and t - (h.lastPour or 0) > Raids.REGROW_DELAY then
+					h.douse = h.douse - TICK / Raids.DOUSE_REGROW
+					if h.douse <= 0 then
+						h.douse = nil
+						h.pourers = nil
+					end
+				end
+				local k = h.douse or 0
+				if math.abs(k - (h.shown or 0)) > 0.015 or (k == 0 and (h.shown or 0) ~= 0) then
+					h.shown = k
+					soak(h, k)
+				end
+				if poured[index] and t - (h.lastSizzle or 0) >= 0.6 then
+					h.lastSizzle = t
+					S.CombatService.broadcastVFX({ kind = "sizzle", pos = roofTop(index) })
+				end
+				if h.tag then
+					local text = poured[index] and "💧 Putting it out!" or string.format("🔥 On fire! %ds", math.max(0, math.ceil((h.burnsAt or now_) - now_)))
+					if h.tag.Text ~= text then
+						h.tag.Text = text
+					end
+				end
+			end
+		end
+	end
+end
+
+-- How much water a burning house has had (0 to 1).
+function RaidService.douseProgress(index: number): number
+	return houses[index] and houses[index].douse or 0
 end
 
 ---------------------------------------------------------------- longships
@@ -711,7 +944,8 @@ local function dropShipWelds(e)
 end
 
 -- Stand a raider on a ship's deck (facing town, cheering: model attribute "Aboard"), welded to
--- the keel by its root. It doesn't think while it's aboard, and if it's beaten there it tumbles
+-- the keel by its root. It doesn't think while it's aboard, huddles behind its shield (takes
+-- Raids.DECK_DAMAGE_TAKEN of the damage, 🛡️ on its nametag), and if it's beaten there it tumbles
 -- overboard (keepBody: see onRaiderDeath) instead of toppling onto the deck.
 local function putAboard(e, ship: Model, deck: Vector3)
 	local keel = ship.PrimaryPart
@@ -729,8 +963,10 @@ local function putAboard(e, ship: Model, deck: Vector3)
 	e.customAI = true
 	e.keepBody = true
 	e.target = nil
+	e.damageTakenMult = Raids.DECK_DAMAGE_TAKEN
 	e.humanoid.BreakJointsOnDeath = false
 	e.model:SetAttribute("Aboard", true)
+	e.model:SetAttribute("Shielded", true)
 end
 
 -- A leap in an arc from `from` to `dest` (where the root ends up) over Raids.LEAP_TIME, then `done`
@@ -769,6 +1005,8 @@ local function leapAshore(r, e, spot: Vector3)
 	arc(e, e.root.Position, spot + Vector3.new(0, lift, 0), function()
 		S.CombatService.broadcastVFX({ kind = "thud", pos = spot })
 		e.model:SetAttribute("Aboard", nil)
+		e.model:SetAttribute("Shielded", nil)
+		e.damageTakenMult = nil
 		e.keepBody = false
 		e.root.Anchored = false
 		pcall(function()
@@ -1799,7 +2037,7 @@ function RaidService.start()
 	end)
 	task.spawn(function()
 		while true do
-			task.wait(0.2)
+			task.wait(TICK)
 			local ok, err = pcall(waterTick)
 			if not ok then
 				warn("[RaidService] water:", err)
@@ -1814,8 +2052,6 @@ function RaidService.start()
 			if h.state == "burning" and h.burnsAt then
 				if t >= h.burnsAt then
 					burnDown(index)
-				elseif h.tag then
-					h.tag.Text = string.format("🔥 On fire! %ds", math.ceil(h.burnsAt - t))
 				end
 			elseif h.state == "burned" and h.rebuildAt and t >= h.rebuildAt then
 				rebuild(index)

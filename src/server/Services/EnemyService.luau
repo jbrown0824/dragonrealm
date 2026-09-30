@@ -53,6 +53,9 @@ end
 
 local function statusIcons(model: Model): string
 	local icons = ""
+	if model:GetAttribute("Shielded") then
+		icons ..= "🛡️" -- (raiders huddled on a longship's deck take less damage)
+	end
 	if model:GetAttribute("Blowing") then
 		icons ..= "📯"
 	end
@@ -161,7 +164,7 @@ local function createNametag(e)
 
 	gui.Parent = head
 	e.nametag = gui
-	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing" }) do
+	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing", "Shielded" }) do
 		e.model:GetAttributeChangedSignal(attr):Connect(function()
 			updateNametag(e)
 		end)

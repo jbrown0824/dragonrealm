@@ -172,14 +172,15 @@ local function rest(v, range)
 	end
 end
 
--- Go through the door, potter about a spot or two inside, and come back out.
+-- Go through the door, potter about a spot or two inside, and come back out. Nobody goes into a
+-- burning or burned-down house (it stays a ruin until it's rebuilt after a raid).
 local function visitHouse(v, index: number)
 	local house = Zones.Houses[index]
 	goToNode(v, "Door" .. index)
 	local floor = Vector3.new(0, Zones.HOUSE_FLOOR, 0)
 	local entry = Zones.housePoint(house, Zones.HouseEntry.X, Zones.HouseEntry.Z) + floor
-	if called(v) then
-		return
+	if called(v) or S.RaidService.houseState(index) ~= "ok" then
+		return -- (it caught fire while they were on their way)
 	end
 	v.inside = index
 	walkTo(v, entry)
@@ -394,9 +395,13 @@ local function live(v)
 				task.wait(0.5)
 			elseif raiding then
 				defend(v)
-			elseif math.random() < Civilians.HOME_CHANCE then
+			elseif math.random() < Civilians.HOME_CHANCE and S.RaidService.houseState(v.def.home) == "ok" then
 				local index = math.random() < 0.7 and v.def.home or math.random(1, #Zones.Houses)
-				visitHouse(v, index)
+				if S.RaidService.houseState(index) == "ok" then
+					visitHouse(v, index)
+				else
+					rest(v, Civilians.LINGER) -- (not going in there: it's on fire, or burned down)
+				end
 			else
 				goToNode(v, streetNodes[math.random(1, #streetNodes)])
 				rest(v, Civilians.LINGER)

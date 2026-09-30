@@ -228,6 +228,7 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 		return 0
 	end
 	local humanoid = info.humanoid
+	amount *= info.damageTakenMult or 1 -- (raiders shielded on a longship's deck)
 	amount = math.max(1, math.floor(amount + 0.5))
 	local before = humanoid.Health
 	humanoid.Health = math.max(0, before - amount)

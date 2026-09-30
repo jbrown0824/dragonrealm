@@ -277,12 +277,24 @@ end
 
 function Props.watchtower(parent: Instance, base: Vector3)
 	local h = 18
+	local top = h + 5 -- where the roof sits
 	for _, o in ipairs({ Vector3.new(-3, 0, -3), Vector3.new(3, 0, -3), Vector3.new(-3, 0, 3), Vector3.new(3, 0, 3) }) do
 		Props.column(parent, base + o, h, 1, DARK_WOOD, Enum.Material.Wood)
 	end
 	Props.part(parent, Vector3.new(9, 1, 9), CFrame.new(base + Vector3.new(0, h, 0)), WOOD, Enum.Material.WoodPlanks)
-	Props.roof(parent, CFrame.new(base + Vector3.new(0, h + 5, 0)), 9, 9, 0, 4, Color3.fromRGB(80, 55, 35), Enum.Material.WoodPlanks)
-	Props.torch(parent, base + Vector3.new(4, h + 0.5, -4))
+	-- a post at each corner holds up the roof, with a railing between them
+	local corners = { Vector3.new(-4, 0, -4), Vector3.new(4, 0, -4), Vector3.new(4, 0, 4), Vector3.new(-4, 0, 4) }
+	for i, c in ipairs(corners) do
+		Props.column(parent, base + c + Vector3.new(0, h + 0.5, 0), top - h - 0.3, 0.6, DARK_WOOD, Enum.Material.Wood)
+		local nextC = corners[i % 4 + 1]
+		Props.beam(parent, base + c + Vector3.new(0, h + 2.6, 0), base + nextC + Vector3.new(0, h + 2.6, 0), 0.35, DARK_WOOD, Enum.Material.Wood)
+	end
+	Props.roof(parent, CFrame.new(base + Vector3.new(0, top, 0)), 9, 9, 0, 4, Color3.fromRGB(80, 55, 35), Enum.Material.WoodPlanks)
+	-- a fire basket on the lookout's platform
+	Props.part(parent, Vector3.new(1.3, 0.8, 1.3), CFrame.new(base + Vector3.new(2.8, h + 0.9, -2.8)), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+	local coals = Props.part(parent, Vector3.new(1, 0.3, 1), CFrame.new(base + Vector3.new(2.8, h + 1.4, -2.8)), Color3.fromRGB(255, 140, 50), Enum.Material.Neon)
+	Props.fire(coals, 2.5)
+	Props.light(coals, Color3.fromRGB(255, 170, 90), 16, 1.5)
 end
 
 function Props.banner(parent: Instance, pos: Vector3, color: Color3, facing: Vector3?)

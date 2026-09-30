@@ -608,8 +608,10 @@ task.spawn(function()
 	end
 	check(okTargets, "a viking on deck is something dragons can hit")
 	if onDeck then
+		check(onDeck.model:GetAttribute("Shielded") == true, "vikings on deck huddle behind their shields")
 		S.CombatService.damageEnemy(p1, onDeck, onDeck.humanoid.MaxHealth * 0.4, false)
 		hitHard = onDeck.humanoid.MaxHealth - onDeck.humanoid.Health
+		check(math.abs(hitHard - onDeck.humanoid.MaxHealth * 0.4 * Raids.DECK_DAMAGE_TAKEN) <= 1, "...and take less damage there (" .. math.floor(hitHard) .. ")")
 	end
 	local leftBefore = workspace:GetAttribute("RaidLeft") or 0
 	if overboardOne then
@@ -634,6 +636,7 @@ task.spawn(function()
 	if onDeck then
 		check(not onDeck.dead and onDeck.humanoid.MaxHealth - onDeck.humanoid.Health >= hitHard * 0.99 and not onDeck.customAI and not onDeck.root.Anchored,
 			"a viking hurt on deck lands still hurt, and fights like any raider")
+		check(onDeck.model:GetAttribute("Shielded") == nil and onDeck.damageTakenMult == nil, "...without its deck shield")
 	end
 	local ship1 = workspace.RaidShips:GetChildren()[1]
 	local moored = ship1 and ship1.PrimaryPart.Position
@@ -749,26 +752,70 @@ task.spawn(function()
 	end
 	check(lit ~= nil, "a torchbearer walked to a house and set it alight")
 	if lit then
-		-- dragons breathe fire, so they need water: skim the river, then fly over the fire
+		-- dragons breathe fire, so they need water: skim the river, then hover over the fire
 		local house = workspace.Map.Town:FindFirstChild("House" .. lit)
 		check(house:FindFirstChildWhichIsA("ProximityPrompt", true) == nil, "no \"beat out the flames\" prompt any more")
-		tp(p1, Zones.Houses[lit].pos + Vector3.new(0, 30, 0))
+		local over = Zones.Houses[lit].pos + Vector3.new(4, 30, 0)
+		tp(p1, over)
 		task.wait(0.5)
-		check(S.RaidService.houseState(lit) == "burning", "flying over a fire without water does nothing")
+		check(S.RaidService.houseState(lit) == "burning" and S.RaidService.douseProgress(lit) == 0, "hovering over a fire without water does nothing")
 		tp(p1, Vector3.new(0, Zones.WATER_LEVEL + 3, 280))
 		task.wait(0.5)
 		check(p1:GetAttribute("Water") == Raids.WATER_LOADS, "skimming the river scoops up water (" .. tostring(p1:GetAttribute("Water")) .. ")")
 		check(rootOf(p1):FindFirstChild("WaterDrips") ~= nil, "water drips off a dragon carrying it")
-		tp(p1, Zones.Houses[lit].pos + Vector3.new(4, 30, 0))
-		task.wait(0.5)
-		check(S.RaidService.houseState(lit) == "ok", "a splash of water puts the fire out")
-		check(p1:GetAttribute("Water") == Raids.WATER_LOADS - 1, "one splash used (" .. tostring(p1:GetAttribute("Water")) .. ")")
-		-- the wells in town fill you up too
 		tp(p2, Zones.Wells[1] + Vector3.new(5, 4, 0))
 		task.wait(0.5)
 		check(p2:GetAttribute("Water") == Raids.WATER_LOADS, "a dragon at a town well scoops up water")
+		-- pouring takes a while: one dragon alone needs Raids.DOUSE_TIME seconds over the fire
+		local started = SIM.now
+		tp(p1, over)
+		task.wait(1.3)
+		local soaked = S.RaidService.douseProgress(lit)
+		check(S.RaidService.houseState(lit) == "burning" and soaked > 0.15 and soaked < 0.6, "a quick pass isn't enough: the fire is only part soaked (" .. string.format("%.2f", soaked) .. ")")
+		local stream = rootOf(p1):FindFirstChild("WaterPour")
+		check(p1:GetAttribute("Pouring") == true and stream ~= nil and stream.Enabled, "water pours out of the dragon while it hovers there")
+		-- ...and a second dragon pouring on the same house puts it out sooner
+		tp(p2, Zones.Houses[lit].pos + Vector3.new(-4, 32, 2))
+		for _ = 1, 40 do
+			task.wait(0.2)
+			if S.RaidService.houseState(lit) ~= "burning" then
+				break
+			end
+		end
+		check(S.RaidService.houseState(lit) == "ok", "enough water puts the fire out")
+		check(SIM.now - started < Raids.DOUSE_TIME, "two dragons pouring together were quicker than one (" .. string.format("%.1f", SIM.now - started) .. "s)")
+		local left1 = p1:GetAttribute("Water") or 0
+		check(left1 < Raids.WATER_LOADS and left1 > Raids.WATER_LOADS - 1, "they shared the work: less than one load of water used (" .. string.format("%.2f", left1) .. " left)")
+		task.wait(0.3)
+		check(not p1:GetAttribute("Pouring") and not (stream and stream.Enabled), "the pouring stops when the fire's out")
+		-- the flames die away rather than blinking off, and the steam lingers
+		local function flames(): number
+			local n = 0
+			for _, d in ipairs(house:GetDescendants()) do
+				if d:IsA("Fire") and d.Enabled and d:FindFirstAncestor("FireFX") then
+					n += 1
+				end
+			end
+			return n
+		end
+		check(flames() > 0, "the flames are still dying down just after it's put out")
+		task.wait(Raids.FLAMES_FADE + 0.5)
+		check(flames() == 0 and house:FindFirstChild("FireFX") ~= nil, "...then they're gone and the steam lingers")
+		-- a half-soaked fire left alone creeps back
+		local other = nil
+		for i = 1, #Zones.Houses do
+			if not other and i ~= lit and S.RaidService.ignite(i) then
+				other = i
+			end
+		end
 		tp(p2, S.FarmService.getHomeCFrame(p2).Position)
+		tp(p1, Zones.Houses[other].pos + Vector3.new(0, 30, 0))
+		task.wait(1.4)
+		local wet = S.RaidService.douseProgress(other)
 		tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+		task.wait(Raids.REGROW_DELAY + 2)
+		check(wet > 0 and S.RaidService.douseProgress(other) < wet - 0.05, "a fire nobody's pouring on creeps back (" .. string.format("%.2f -> %.2f", wet, S.RaidService.douseProgress(other)) .. ")")
+		tp(p2, S.FarmService.getHomeCFrame(p2).Position)
 	end
 	local repelled = profile.raidsRepelled
 	local buddyRepelled = S.PlayerService.getProfile(p2).raidsRepelled
@@ -783,7 +830,7 @@ task.spawn(function()
 	end
 	check(not S.RaidService.isActive() and workspace:GetAttribute("RaidPhase") == nil, "the raid is over")
 	check(profile.raidsRepelled == repelled + 1, "the defender got the raid reward")
-	check(S.PlayerService.getProfile(p2).raidsRepelled == buddyRepelled, "dragons who didn't help get nothing")
+	check(S.PlayerService.getProfile(p2).raidsRepelled == buddyRepelled + 1, "a dragon who only helped pour water on a fire gets the reward too")
 	check(S.ShopService.closedMessage() == nil, "shops stay open after a win")
 	task.wait(0.5)
 	check(p1:GetAttribute("Water") == nil, "the water's gone when the raid ends")
@@ -813,6 +860,14 @@ task.spawn(function()
 		end
 	end
 	local roofColor = roofPart.Color
+	-- the carved dragon heads on the ends of the ridge beam
+	local heads = {}
+	for _, d in ipairs(ruin:GetDescendants()) do
+		if d:IsA("BasePart") and d:FindFirstChildOfClass("SpecialMesh") and d.Position.Y > roofY + 4 then
+			table.insert(heads, { part = d, y = d.Position.Y })
+		end
+	end
+	local headGap = #heads == 2 and (heads[1].part.Position - heads[2].part.Position).Magnitude or 0
 	task.wait(Raids.Tiers[#Raids.Tiers].burnTime + 0.6)
 	check(not S.RaidService.isActive(), "the raid is lost when " .. Raids.MAX_BURNED .. " houses burn")
 	check(S.RaidService.houseState(torched[1]) == "burned", "burned houses stay burned for a while")
@@ -828,6 +883,9 @@ task.spawn(function()
 	task.wait(Raids.COLLAPSE_TIME + 1.5)
 	check(roofPart.Position.Y < roofY - 4, "the roof caves in (" .. string.format("%.1f", roofY - roofPart.Position.Y) .. " studs)")
 	check(roofPart.Color ~= roofColor, "the walls and roof are charred")
+	check(#heads == 2 and math.abs((heads[1].part.Position - heads[2].part.Position).Magnitude - headGap) < 0.05
+		and heads[1].part.Position.Y < heads[1].y - 5 and heads[2].part.Position.Y < heads[2].y - 5,
+		"the ridge beam comes down in one piece, dragon heads and all (" .. #heads .. " heads)")
 	task.wait(Raids.RETREAT_TIME + 30)
 	local stillHere = 0
 	for _, e in ipairs(S.EnemyService.alive()) do

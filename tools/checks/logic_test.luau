@@ -735,8 +735,13 @@ do
 	-- the ships row at full speed for most of the trip
 	check(Raids.SHIP_SLOWDOWN > 0 and Raids.SHIP_SLOWDOWN <= 0.3 and Raids.SHIP_ROW_TIME < Raids.WARNING, "the longships don't crawl up to the beach")
 	-- water for the fires
-	check(Raids.WATER_LOADS >= 2, "one scoop of water is good for more than one fire")
-	check(Raids.SPLASH_REACH >= Zones.HouseSize.X / 2 and Raids.SPLASH_HEIGHT > Zones.HouseSize.Y + 10, "flying over any part of a house's roof drops the water")
+	check(Raids.WATER_LOADS >= 1 and Raids.POUR_TIME > 0 and Raids.DOUSE_TIME > 0, "water loads and pouring")
+	-- one dragon has to stay over a fire a while; a load of water is enough for a whole fire alone
+	check(Raids.DOUSE_TIME >= 2 and Raids.POUR_TIME >= Raids.DOUSE_TIME, "putting a fire out takes a few seconds, and one load does it")
+	check(Raids.DOUSE_REGROW > Raids.DOUSE_TIME and Raids.REGROW_DELAY > 0, "a fire creeps back slower than it's put out")
+	check(Raids.FLAMES_FADE > 0 and Raids.STEAM_TIME > 0, "put-out flames die away slowly")
+	check(Raids.POUR_REACH >= Zones.HouseSize.X / 2 and Raids.POUR_HEIGHT > Zones.HouseSize.Y + 10, "hovering over any part of a house's roof pours the water on it")
+	check(Raids.DECK_DAMAGE_TAKEN > 0.2 and Raids.DECK_DAMAGE_TAKEN < 1, "vikings on deck take less damage, but can still be beaten")
 	check(#Zones.Wells >= 2, "town wells")
 	for i, well in ipairs(Zones.Wells) do
 		check(Zones.isIn("Town", well), "well " .. i .. " is in town")
