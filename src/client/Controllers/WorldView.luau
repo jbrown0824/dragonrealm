@@ -6,7 +6,8 @@
 --   * shows ❗ / ❓ quest markers over village dragons (⚔️ while they fight a raid)
 --   * renders stealthed dragons as see-through (or almost invisible to others)
 --   * camp chests: each dragon has their own chest timer, so the lid, the treasure inside and
---     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute
+--     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute (a
+--     dungeon's hidden hoard, tag DungeonChest, the same way: open and "Looted" once you've had it)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -121,7 +122,12 @@ local function updateChest(view)
 			view.prompt.Enabled = not open
 		end
 	end
-	view.label.Text = open and ("Empty for you  •  refills in " .. Util.formatTime(left)) or "💰 Treasure Chest"
+	if view.oneTime then
+		-- a dungeon's hidden hoard: once per run
+		view.label.Text = open and "Looted" or "💰 Hidden hoard"
+	else
+		view.label.Text = open and ("Empty for you  •  refills in " .. Util.formatTime(left)) or "💰 Treasure Chest"
+	end
 	view.label.TextColor3 = open and Color3.fromRGB(200, 200, 200) or Color3.fromRGB(255, 215, 90)
 end
 
@@ -158,6 +164,7 @@ local function addChest(model: Instance)
 		treasure = model:FindFirstChild("Treasure"),
 		label = label,
 		open = false,
+		oneTime = model:GetAttribute("OneTime") == true,
 	}
 	table.insert(chestViews, view)
 	updateChest(view)
@@ -367,6 +374,10 @@ function WorldView.init(app)
 	end
 	CollectionService:GetInstanceAddedSignal("Dragon"):Connect(watchDragon)
 
+	for _, model in ipairs(CollectionService:GetTagged("DungeonChest")) do
+		addChest(model)
+	end
+	CollectionService:GetInstanceAddedSignal("DungeonChest"):Connect(addChest)
 	for _, model in ipairs(CollectionService:GetTagged("CampChest")) do
 		addChest(model)
 	end

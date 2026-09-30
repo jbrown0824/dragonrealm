@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Quests = require(Shared.Config.Quests)
+local Dungeons = require(Shared.Config.Dungeons)
 local Zones = require(Shared.Config.Zones)
 local Signal = require(Shared.Signal)
 
@@ -69,6 +70,17 @@ local function nearestFishingSpot(from: Vector3): Vector3
 	return best
 end
 
+-- Where a quest giver stands: a dungeon keeper also stands inside its dungeon, so while you're in
+-- that dungeon it's the one by the entrance in there.
+local function giverPosition(giverId: string): Vector3
+	local giver = Quests.Givers[giverId]
+	local run = App.State.dungeon and App.State.dungeon.run
+	if giver.dungeon and run and run.dungeonId == giver.dungeon and run.origin then
+		return run.origin + Dungeons.get(giver.dungeon).keeper.at
+	end
+	return Zones.QuestGivers[giverId].position
+end
+
 -- Where to go for a quest right now: returns position, label (or nil if it can be done anywhere).
 function Waypoint.questTarget(questId: string)
 	local p = App.State.profile
@@ -79,7 +91,7 @@ function Waypoint.questTarget(questId: string)
 	end
 	local giver = Quests.Givers[quest.giver]
 	if progress >= quest.objective.count then
-		return Zones.QuestGivers[quest.giver].position, "Return to " .. giver.name
+		return giverPosition(quest.giver), "Return to " .. giver.name
 	end
 	local o = quest.objective
 	local level = p.level
@@ -115,6 +127,12 @@ function Waypoint.questTarget(questId: string)
 		end
 	elseif o.type == "bossJoin" or o.type == "bossKill" then
 		return Zones.WarHorn, "War Horn"
+	elseif o.type == "dungeonClear" or o.type == "dungeonKill" then
+		-- the cave's mouth (nothing to point at once you're inside)
+		local dungeon = Dungeons.get(o.target)
+		if dungeon and player:GetAttribute("InDungeon") ~= dungeon.id then
+			return dungeon.entrance, dungeon.name
+		end
 	end
 	return nil
 end

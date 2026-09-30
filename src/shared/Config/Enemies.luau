@@ -110,23 +110,26 @@ Enemies.MiniBosses = {
 Enemies.MINI_BOSS_LOOT = { minRarity = "Rare", seedChance = 0.3, eggChance = 0.12, goldMult = 10, xpMult = 8 }
 
 -- Dungeon monsters (Config/Dungeons). Tougher than camp vikings of the same level, and worth more.
+-- `slam` (like the camp champions): a telegraphed ring they stamp now and then. `idle`: "stand"
+-- keeps watch at its spot, "wander" ambles about it (Dungeons.WANDER_RADIUS).
 -- `builder = "animal"` ones are four-legged (AnimalBuilder; `look` like Config/Animals).
 local GRAVE = rgb(120, 255, 190)
 local DRAUGR = rgb(150, 178, 168)
 Enemies.Dungeon = {
 	---------------------------------------------------------------- the Draugr Barrow
 	DraugrRaider = {
-		id = "DraugrRaider", name = "Draugr Raider", dungeon = "Barrow",
-		health = 330, damage = 8, speed = 13, defense = 4,
+		id = "DraugrRaider", name = "Draugr Raider", dungeon = "Barrow", idle = "wander",
+		health = 400, damage = 12, speed = 13, defense = 4,
 		attackRange = 7, attackCooldown = 1.6,
 		throwDamage = 0.6, throwCooldown = 5, throwRange = 55, preferredRange = 0,
 		xpMult = 2, gearChance = 0.2, seedChance = 0.03, goldMult = 2,
 		scale = 1.05, aggroRange = 38,
+		slam = { radius = 12, mult = 1.8, cooldown = 10, delay = 1.2 }, -- (a grave-stomp)
 		look = { shirt = rgb(60, 80, 78), pants = rgb(45, 52, 52), beard = rgb(160, 170, 160), skin = DRAUGR, eyes = GRAVE, weapon = "axe", shield = true },
 	},
 	DraugrThrower = {
-		id = "DraugrThrower", name = "Draugr Axe-Thrower", dungeon = "Barrow",
-		health = 270, damage = 9, speed = 12, defense = 2,
+		id = "DraugrThrower", name = "Draugr Axe-Thrower", dungeon = "Barrow", idle = "stand",
+		health = 320, damage = 13, speed = 12, defense = 2,
 		attackRange = 6, attackCooldown = 1.8,
 		throwDamage = 1.0, throwCooldown = 2.6, throwRange = 70, preferredRange = 30,
 		xpMult = 2, gearChance = 0.2, seedChance = 0.03, goldMult = 2,
@@ -134,8 +137,8 @@ Enemies.Dungeon = {
 		look = { shirt = rgb(70, 70, 90), pants = rgb(45, 45, 55), hair = rgb(190, 200, 190), skin = DRAUGR, eyes = GRAVE, weapon = "axe", shield = false, quiver = true },
 	},
 	BarrowHound = {
-		id = "BarrowHound", name = "Barrow Hound", dungeon = "Barrow", builder = "animal",
-		health = 300, damage = 10, speed = 21, defense = 3,
+		id = "BarrowHound", name = "Barrow Hound", dungeon = "Barrow", idle = "wander", builder = "animal",
+		health = 360, damage = 15, speed = 21, defense = 3,
 		attackRange = 5, attackCooldown = 1.3,
 		xpMult = 1.8, gearChance = 0.15, seedChance = 0.02, goldMult = 1.6,
 		scale = 1.15, aggroRange = 40,
@@ -145,17 +148,18 @@ Enemies.Dungeon = {
 	},
 	---------------------------------------------------------------- the Rune Forge
 	ForgeGuard = {
-		id = "ForgeGuard", name = "Forge Guard", dungeon = "Forge",
-		health = 380, damage = 9, speed = 11, defense = 18,
+		id = "ForgeGuard", name = "Forge Guard", dungeon = "Forge", idle = "stand",
+		health = 460, damage = 14, speed = 11, defense = 18,
 		attackRange = 7, attackCooldown = 1.8,
 		throwDamage = 0.5, throwCooldown = 5, throwRange = 45, preferredRange = 0,
 		xpMult = 2.2, gearChance = 0.22, seedChance = 0.03, goldMult = 2.2,
 		scale = 1.15, aggroRange = 38,
+		slam = { radius = 13, mult = 1.8, cooldown = 10, delay = 1.3 }, -- (a shield-bash shockwave)
 		look = { shirt = rgb(60, 55, 55), pants = rgb(40, 35, 35), beard = rgb(60, 40, 30), weapon = "hammer", shield = true, bigShield = true, cape = rgb(120, 40, 20) },
 	},
 	RuneSmith = {
-		id = "RuneSmith", name = "Rune-Smith", dungeon = "Forge",
-		health = 280, damage = 9, speed = 12, defense = 4,
+		id = "RuneSmith", name = "Rune-Smith", dungeon = "Forge", idle = "stand",
+		health = 340, damage = 13, speed = 12, defense = 4,
 		attackRange = 6, attackCooldown = 1.8,
 		throwDamage = 1.1, throwCooldown = 2.4, throwRange = 75, preferredRange = 34,
 		xpMult = 2.2, gearChance = 0.22, seedChance = 0.03, goldMult = 2.2,
@@ -163,8 +167,8 @@ Enemies.Dungeon = {
 		look = { shirt = rgb(90, 50, 30), pants = rgb(55, 40, 30), beard = rgb(120, 60, 30), weapon = "hammer", shield = false, glow = rgb(255, 140, 60) },
 	},
 	EmberBerserker = {
-		id = "EmberBerserker", name = "Ember Berserker", dungeon = "Forge",
-		health = 340, damage = 11, speed = 18, defense = 2,
+		id = "EmberBerserker", name = "Ember Berserker", dungeon = "Forge", idle = "wander",
+		health = 410, damage = 16, speed = 18, defense = 2,
 		attackRange = 7, attackCooldown = 1.25,
 		throwDamage = 0.6, throwCooldown = 4, throwRange = 50, preferredRange = 0,
 		xpMult = 2.2, gearChance = 0.22, seedChance = 0.03, goldMult = 2.2,
@@ -172,8 +176,8 @@ Enemies.Dungeon = {
 		look = { shirt = rgb(140, 60, 30), pants = rgb(60, 30, 20), beard = rgb(255, 120, 40), weapon = "twinAxe", shield = false, warpaint = true, glow = rgb(255, 110, 40) },
 	},
 	LavaHound = {
-		id = "LavaHound", name = "Lava Hound", dungeon = "Forge", builder = "animal",
-		health = 320, damage = 11, speed = 22, defense = 4,
+		id = "LavaHound", name = "Lava Hound", dungeon = "Forge", idle = "wander", builder = "animal",
+		health = 380, damage = 16, speed = 22, defense = 4,
 		attackRange = 5, attackCooldown = 1.2,
 		xpMult = 2, gearChance = 0.15, seedChance = 0.02, goldMult = 1.8,
 		scale = 1.2, aggroRange = 42,

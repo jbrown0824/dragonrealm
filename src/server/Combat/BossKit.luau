@@ -21,11 +21,20 @@
 --   RuneStrikes { radius, delay, count, style? }   telegraphed circles under the dragons
 --   AxeVolley { count, style? }             thrown axes (or "hammer"s)
 --   Leap { radius, delay, pick? }           crouch, then jump an inhuman distance onto a dragon
---                                           ("far": the farthest one) and slam down where it lands
+--                                           ("far": the farthest one, if anyone's over 30 studs
+--                                           away) and slam down where it lands; any range
 --   Charge { length, width, delay }         a telegraphed line, then a rush along it
---   Whirlwind { radius, duration, tick }    spins after the nearest dragon, hurting everyone close
---   Harpoon { minHeight }                   a chain drags the highest flyer down to the ground
+--   Whirlwind { radius, duration, tick,     spins after the nearest dragon in a firestorm, hurting
+--     cyclones?, cycloneRadius, cycloneMult }  everyone close; `cyclones` little ones spiral out
+--                                           across the room (Dungeons.cyclonePos)
+--   Harpoon { minHeight, far? }             a chain drags a dragon in: the highest one hovering
+--                                           minHeight off the floor, or the farthest past `far`
 --   Lane { width, delay }                   a row of fire across the room through a dragon
+-- brain.hold = a floor point: the boss walks there and casts from it instead of chasing (a rune
+-- shield phase).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Dungeons = require(ReplicatedStorage:WaitForChild("Shared").Config.Dungeons)
 
 local BossKit = {}
 
@@ -231,12 +240,16 @@ MOVE.Leap = function(brain, cfg, target)
 	local root = boss.root
 	local players = brain.participants()
 	if cfg.pick == "far" then
-		local best = -1
+		-- the farthest dragon, if anyone's hanging back; otherwise straight up and down on its target
+		local best, far = -1, nil
 		for _, p in ipairs(players) do
 			local d = flat(p.root.Position - root.Position).Magnitude
 			if d > best then
-				best, target = d, p
+				best, far = d, p
 			end
+		end
+		if far and best > 30 then
+			target = far
 		end
 	end
 	local land = brain.ground(inRoom(brain, target.root.Position, 8))
@@ -320,6 +333,22 @@ MOVE.Whirlwind = function(brain, cfg)
 	pcall(function()
 		boss.humanoid.AutoRotate = false
 	end)
+	vfx(brain, { kind = "bossCyclone", model = boss.model, duration = cfg.duration, radius = cfg.radius, color = brain.color })
+	if cfg.cyclones then
+		local center = brain.ground(boss.root.Position)
+		local maxR = brain.radius and math.max(10, brain.radius - 6) or 60
+		brain.cyclones = {
+			center = center,
+			start = os.clock(),
+			count = cfg.cyclones,
+			radius = cfg.cycloneRadius or 7,
+			amount = hitOf(brain, cfg) * (cfg.cycloneMult or 1),
+			duration = cfg.duration,
+			maxR = maxR,
+			hit = {},
+		}
+		vfx(brain, { kind = "cyclones", center = center, count = cfg.cyclones, start = workspace:GetServerTimeNow(), duration = cfg.duration, radius = cfg.cycloneRadius or 7, maxR = maxR, color = brain.color })
+	end
 	return cfg.duration
 end
 
@@ -409,16 +438,59 @@ end
 
 ---------------------------------------------------------------- the fight loop
 
+-- The highest dragon flying at least minHeight off the floor (by its own standing height).
 local function highestFlyer(brain, players, minHeight: number)
-	local best, bestY = nil, minHeight
-	local y = brain.boss.root.Position.Y
+	local boss = brain.boss
+	local floorY = boss.root.Position.Y - (boss.humanoid.HipHeight + boss.root.Size.Y / 2)
+	local best, bestUp = nil, minHeight
 	for _, p in ipairs(players) do
-		local up = p.root.Position.Y - y
-		if up >= bestY then
-			best, bestY = p, up
+		if p.character:GetAttribute("Flying") then
+			local hum = p.character:FindFirstChildOfClass("Humanoid")
+			local stand = hum and (hum.HipHeight + p.root.Size.Y / 2) or 4
+			local up = p.root.Position.Y - floorY - stand
+			if up >= bestUp then
+				best, bestUp = p, up
+			end
 		end
 	end
 	return best
+end
+
+-- The farthest dragon past `far` studs (hanging back out of reach).
+local function farthest(brain, players, far: number?)
+	if not far then
+		return nil
+	end
+	local best, bestD = nil, far
+	for _, p in ipairs(players) do
+		local d = flat(p.root.Position - brain.boss.root.Position).Magnitude
+		if d > bestD then
+			best, bestD = p, d
+		end
+	end
+	return best
+end
+
+-- The whirlwind's little cyclones: each one hurts (and slows) a dragon it runs into, once.
+local function cycloneTick(brain, players)
+	local c = brain.cyclones
+	local t = os.clock() - c.start
+	if t > c.duration or brain.over() then
+		brain.cyclones = nil
+		return
+	end
+	for i = 1, c.count do
+		local pos = Dungeons.cyclonePos(c.center, i, c.count, t, c.maxR)
+		for _, p in ipairs(players) do
+			local key = tostring(i) .. ":" .. p.player.UserId
+			local off = p.root.Position - pos
+			if not c.hit[key] and flat(off).Magnitude <= c.radius + 3 and off.Y < 16 then
+				c.hit[key] = true
+				damage(brain, p.player, c.amount)
+				brain.S.CombatService.applySlow(p.character, 30, 2)
+			end
+		end
+	end
 end
 
 local function spinTick(brain, t: number, players)
@@ -460,6 +532,9 @@ function BossKit.think(brain, t: number)
 		return
 	end
 	local players = brain.participants()
+	if brain.cyclones then
+		cycloneTick(brain, players)
+	end
 	if brain.spin then
 		if t < brain.spin.untilT and #players > 0 then
 			spinTick(brain, t, players)
@@ -510,7 +585,15 @@ function BossKit.think(brain, t: number)
 	local cleave = brain.moves.Cleave
 	local cleaveRange = cleave and cleave.range * (boss.scale / 3) or 14
 
-	if dist > cleaveRange * 0.8 then
+	if brain.hold then
+		-- casting from its spot (a rune shield phase): walk there, then stand and face its target
+		if flat(brain.hold - boss.root.Position).Magnitude > 4 then
+			boss.humanoid:MoveTo(brain.hold)
+		else
+			boss.humanoid:MoveTo(boss.root.Position)
+			face(brain, target.root.Position)
+		end
+	elseif dist > cleaveRange * 0.8 then
 		boss.humanoid:MoveTo(Vector3.new(target.root.Position.X, boss.root.Position.Y, target.root.Position.Z))
 	else
 		boss.humanoid:MoveTo(boss.root.Position)
@@ -539,21 +622,15 @@ function BossKit.think(brain, t: number)
 	end
 
 	if ready("Harpoon") then
-		local flyer = highestFlyer(brain, players, moves.Harpoon.minHeight)
-		if flyer then
-			BossKit.use(brain, "Harpoon", target, flyer)
+		local victim = highestFlyer(brain, players, moves.Harpoon.minHeight) or farthest(brain, players, moves.Harpoon.far)
+		if victim then
+			BossKit.use(brain, "Harpoon", target, victim)
 			return
 		end
 	end
 	if ready("Leap") then
-		local far = 0
-		for _, p in ipairs(players) do
-			far = math.max(far, flat(p.root.Position - boss.root.Position).Magnitude)
-		end
-		if far > 30 then
-			BossKit.use(brain, "Leap", target)
-			return
-		end
+		BossKit.use(brain, "Leap", target)
+		return
 	end
 	if ready("Charge") and dist > 16 and dist < moves.Charge.length then
 		BossKit.use(brain, "Charge", target)
@@ -594,6 +671,7 @@ function BossKit.reset(brain)
 	if brain.spin then
 		endSpin(brain)
 	end
+	brain.cyclones = nil
 	brain.busyUntil = 0
 	brain.holdUntil = nil
 	brain.target = nil

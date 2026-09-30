@@ -129,6 +129,16 @@ end
 function CFm.PointToObjectSpace(c, v)
 	return c:Inverse() * v
 end
+function CFm.PointToWorldSpace(c, v)
+	return c * v
+end
+function CFm.VectorToWorldSpace(c, v)
+	return mulRV(c.r, v)
+end
+function CFm.VectorToObjectSpace(c, v)
+	local r = c.r
+	return mulRV({ r[1], r[4], r[7], r[2], r[5], r[8], r[3], r[6], r[9] }, v)
+end
 function CFm.ToObjectSpace(c, o)
 	return c:Inverse() * o
 end

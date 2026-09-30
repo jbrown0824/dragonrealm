@@ -884,6 +884,7 @@ end
 ---------------------------------------------------------------- dungeons
 do
 	local Dungeons = require(Config.Dungeons)
+	local DungeonNav = require(Shared.DungeonNav)
 	local BOSS_MOVES = { Cleave = 1, GroundSlam = 1, RuneStrikes = 1, AxeVolley = 1, Leap = 1, Charge = 1, Whirlwind = 1, Harpoon = 1, Lane = 1 }
 	local function flatDist(a, b)
 		return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
@@ -1059,21 +1060,41 @@ do
 
 	-- balance: an average dragon of the dungeon's level (Rare gear, no talents) against its boss and
 	-- packs, for groups of 1-4. StatCalc.dps is the same yardstick the world bosses are sized by.
-	print("Dungeon | dragons | boss HP   kill(s) | pack HP kill(s) | a pack's hits/s on one dragon, lasts(s)")
+	-- Real play is kinder than that bare dragon: talents, pets and potions (REAL_DPS, REAL_HP),
+	-- breath and area spells hitting most of a pack (AOE), not every monster hitting all the time
+	-- (SPREAD), and a boss's telegraphed moves dodged about half the time (DODGE). The targets, for
+	-- that fight (the first playtest found a lone dragon cruising through at the old numbers):
+	--   * a lone dragon of the dungeon's level beats a pack, but comes out hurt (it lasts 1.2-2.2x
+	--     as long as the fight: half to most of its health gone)
+	--   * a lone dragon of the dungeon's level loses to the final boss (it needs better gear, or
+	--     lifesteal / regen, or friends)
+	--   * four dragons beat the boss in 60-150 s
+	local REAL_DPS, REAL_HP, AOE, SPREAD, DODGE = 1.3, 1.2, 1.8, 0.8, 0.5
+	print("Dungeon | dragons | boss HP  kill(s) lasts(s) | pack HP kill(s) lasts(s)")
 	for _, id in ipairs(Dungeons.Order) do
 		local def = Dungeons.List[id]
 		local level = def.minLevel + 1
 		local dps, hp, defense = 0, 0, 0
 		for _, classId in ipairs(Classes.Order) do
-			local s = StatCalc.compute(classId, level, gearAt(level, "Rare"), {}, {})
-			dps += StatCalc.dps(s) / #Classes.Order
-			hp += s.maxHealth / #Classes.Order
-			defense += s.defense / #Classes.Order
+			local st = StatCalc.compute(classId, level, gearAt(level, "Rare"), {}, {})
+			dps += StatCalc.dps(st) / #Classes.Order
+			hp += st.maxHealth / #Classes.Order
+			defense += st.defense / #Classes.Order
 		end
+		dps *= REAL_DPS
+		hp *= REAL_HP
 		local boss = Dungeons.Bosses[def.boss.id]
+		local bossLevel = def.level + 2
+		local bossBlock = 1 - defense / (defense + Game.DEFENSE_CONSTANT + 5 * bossLevel)
+		local perHit = 0 -- the boss's damage per second on the dragon it's fighting (per unit of `hit`)
+		for name, cfg in pairs(boss.moves) do
+			perHit += (cfg.mult or 1) / cfg.cooldown * (name == "Cleave" and 1 or DODGE)
+		end
 		for n = 1, 4 do
 			local bossHp = boss.health * Dungeons.groupHealth(n) * (1 + (boss.secondLife and boss.secondLife.health or 0))
 			local bossTime = bossHp / (dps * n)
+			local bossDps = boss.hit * Dungeons.groupDamage(n) * perHit * bossBlock
+			local bossLasts = hp * n / bossDps -- (it turns on each dragon in turn)
 			local packHp, packHit = 0, 0
 			for _, pack in ipairs(def.packs) do
 				for _, m in ipairs(Dungeons.packMobs(pack)) do
@@ -1082,20 +1103,59 @@ do
 					packHp += mdef.health * (1 + Enemies.HEALTH_PER_LEVEL * (mob - 1)) * Dungeons.groupHealth(n) / #def.packs
 					local hit = mdef.damage * (1 + Enemies.DAMAGE_PER_LEVEL * (mob - 1)) * Dungeons.groupDamage(n)
 					hit *= 1 - defense / (defense + Game.DEFENSE_CONSTANT + 5 * mob)
-					packHit += hit / mdef.attackCooldown / #def.packs
+					packHit += hit / mdef.attackCooldown * SPREAD / #def.packs
 				end
 			end
-			local packTime = packHp / (dps * n)
-			local lasts = hp / packHit
-			print(string.format("%-7s | %7d | %8d %7.0f | %7d %7.1f | %6.1f  %6.1f", id, n, bossHp, bossTime, packHp, packTime, packHit, lasts))
+			local packTime = packHp / (dps * n * AOE)
+			local lasts = hp * n / packHit
+			print(string.format("%-7s | %7d | %7d %6.0f %6.0f | %7d %6.1f %6.1f", id, n, bossHp, bossTime, bossLasts, packHp, packTime, lasts))
 			if n == 4 then
-				check(bossTime >= 45 and bossTime <= 200, id .. ": four dragons beat the boss in 45-200 s (" .. math.floor(bossTime) .. ")")
+				check(bossTime >= 60 and bossTime <= 150, id .. ": four dragons beat the boss in 60-150 s (" .. math.floor(bossTime) .. ")")
 			end
 			if n == 1 then
-				check(packTime < 60 and lasts > packTime, id .. ": one dragon can beat a pack before it falls (" .. math.floor(packTime) .. "s vs " .. math.floor(lasts) .. "s)")
-				check(bossTime < 900, id .. ": a lone dragon can still beat the boss, slowly (" .. math.floor(bossTime) .. ")")
+				local ratio = lasts / packTime
+				check(ratio >= 1.2 and ratio <= 2.2, string.format("%s: a lone dragon beats a pack but comes out hurt (lasts %.1fx the fight)", id, ratio))
+				check(bossLasts < bossTime, string.format("%s: a lone dragon of the dungeon's level loses to the boss (%.0fs vs %.0fs to win)", id, bossLasts, bossTime))
 			end
 		end
+	end
+	-- the first clear pays far more XP than the ones after; bosses leap at any range
+	check(Dungeons.FIRST_CLEAR_XP >= Dungeons.BOSS_XP * 3, "the first clear's XP bonus is big")
+	check(Dungeons.GROUP_DAMAGE[1] >= 0.9, "a dragon on its own takes nearly full hits")
+	-- the monsters' map: every pack, boss and the hoard can be reached from the entrance, never
+	-- through lava; wanderers and patrols
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		local reachable = true
+		for _, pack in ipairs(def.packs) do
+			for _, m in ipairs(Dungeons.packMobs(pack)) do
+				local path = DungeonNav.route(def, def.spawn, m[2])
+				if not path then
+					reachable = false
+				else
+					local last = def.spawn
+					for _, node in ipairs(path) do
+						if DungeonNav.crossesHazard(def, last, node) then
+							reachable = false
+						end
+						last = node
+					end
+				end
+			end
+		end
+		check(reachable and DungeonNav.route(def, def.spawn, def.boss.at) ~= nil, id .. ": every monster can be walked to from the entrance, never through lava")
+		local patrols, wanderers = 0, 0
+		for _, pack in ipairs(def.packs) do
+			if pack.patrol then
+				patrols += 1
+			end
+			for _, m in ipairs(Dungeons.packMobs(pack)) do
+				if (pack.idle or Enemies.Dungeon[m[1]].idle) == "wander" then
+					wanderers += 1
+				end
+			end
+		end
+		check(patrols >= 1 and wanderers >= 3, id .. ": a patrol and some wanderers (not all standing still)")
 	end
 end
 

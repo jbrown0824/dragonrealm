@@ -6,14 +6,21 @@
 -- ledges, ramps, lava, bridges, the spiral). Floors are terrain, so the usual ground raycasts
 -- (EnemyService.terrainGround) find them; walls and ceilings are terrain too. Decorations are
 -- parts in the returned folder (under workspace.Map, so attacks and service raycasts see them).
+-- Then it's dressed: torches along the tunnels and walls, lamps high in the rooms, glowing lava,
+-- the keeper and the provisions by the entrance, the hoard, and the boss rooms' doors. The doors
+-- are solid, so they live in workspace.Barriers (outside Map: service raycasts never see them);
+-- DungeonService opens and seals them with DungeonBuilder.setDoor.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DragonBuilder = require(Shared.DragonBuilder)
+local Dungeons = require(Shared.Config.Dungeons)
+local DungeonNav = require(Shared.DungeonNav)
 
 local Props = require(script.Parent.Props)
+local WorldUtil = require(script.Parent.WorldUtil)
 
 local DungeonBuilder = {}
 
@@ -244,10 +251,13 @@ local function standingStones(parent: Instance, center: Vector3, radius: number,
 	end
 end
 
+-- (The seat is low enough for a giant with stiff legs: Haldor sits here until he wakes. Its top is
+-- THRONE_SEAT above the floor.)
+DungeonBuilder.THRONE_SEAT = 4
 local function throne(parent: Instance, pos: Vector3, face: Vector3, theme)
 	local cf = CFrame.lookAt(pos, pos + face)
 	Props.part(parent, Vector3.new(16, 2, 12), cf * CFrame.new(0, 1, 0), DARK_STONE, Enum.Material.Slate)
-	Props.part(parent, Vector3.new(9, 3, 7), cf * CFrame.new(0, 3.5, 1), STONE, Enum.Material.Slate)
+	Props.part(parent, Vector3.new(9, 2, 7), cf * CFrame.new(0, 3, 1), STONE, Enum.Material.Slate)
 	Props.part(parent, Vector3.new(10, 14, 2), cf * CFrame.new(0, 9, 4.5), STONE, Enum.Material.Slate)
 	for _, x in ipairs({ -4.6, 4.6 }) do
 		Props.part(parent, Vector3.new(1.4, 3, 7), cf * CFrame.new(x, 6, 1), DARK_STONE, Enum.Material.Slate)
@@ -333,18 +343,38 @@ local function shields(parent: Instance, pos: Vector3, face: Vector3)
 	end
 end
 
--- The way out: a glowing arch you walk (or fly) into.
+-- The way out: a stone arch (two pillars and a round top) with the glow filling it.
 local function exitPortal(parent: Instance, pos: Vector3, theme): BasePart
 	local cf = CFrame.lookAt(pos, pos + Vector3.new(0, 0, 1))
-	for i = 0, 10 do
-		local a = math.pi * i / 10
-		local p = cf * CFrame.new(math.cos(a) * 9, math.sin(a) * 11 + 1, 0)
-		Props.part(parent, Vector3.new(3.2, 3.2, 3), CFrame.lookAt(p.Position, p.Position + cf.LookVector) * CFrame.Angles(0, 0, a), DARK_STONE, Enum.Material.Slate)
+	local HALF, LEG, R = 8, 12, 8 -- half the opening's width, the pillars' height, the arch's radius
+	for _, x in ipairs({ -HALF - 1.6, HALF + 1.6 }) do
+		Props.part(parent, Vector3.new(3.2, LEG, 3.2), cf * CFrame.new(x, LEG / 2, 0), DARK_STONE, Enum.Material.Slate)
+		Props.part(parent, Vector3.new(4, 1, 4), cf * CFrame.new(x, 0.5, 0), STONE, Enum.Material.Slate)
 	end
-	local swirl = Props.part(parent, Vector3.new(15, 20, 0.4), cf * CFrame.new(0, 7, 0.4), theme.accent, Enum.Material.Neon)
+	for i = 0, 12 do
+		local a = math.pi * i / 12
+		local p = cf * CFrame.new(math.cos(a) * (R + 1.6), LEG + math.sin(a) * (R + 1.6), 0)
+		Props.part(parent, Vector3.new(3.2, 3.2, 3.2), CFrame.lookAt(p.Position, p.Position + cf.LookVector) * CFrame.Angles(0, 0, a), DARK_STONE, Enum.Material.Slate)
+	end
+	local keystone = Props.part(parent, Vector3.new(2.2, 3.4, 3.6), cf * CFrame.new(0, LEG + R + 1.6, 0), theme.accent, Enum.Material.Neon)
+	keystone.CanCollide = false
+	-- the glow: the square part, then slices of the round top (none overlapping, none sticking out)
+	local glowParts = {}
+	local swirl = Props.part(parent, Vector3.new(HALF * 2, LEG, 0.4), cf * CFrame.new(0, LEG / 2, 0.2), theme.accent, Enum.Material.Neon)
 	swirl.Name = "ExitPortal"
-	swirl.Transparency = 0.45
-	swirl.CanCollide = false
+	table.insert(glowParts, swirl)
+	local slices = 6
+	for i = 0, slices - 1 do
+		local y0, y1 = R * i / slices, R * (i + 1) / slices
+		local ym = (y0 + y1) / 2
+		local w = 2 * math.sqrt(math.max(0, R * R - ym * ym))
+		table.insert(glowParts, Props.part(parent, Vector3.new(math.max(1, w), y1 - y0, 0.4), cf * CFrame.new(0, LEG + ym, 0.2), theme.accent, Enum.Material.Neon))
+	end
+	for _, g in ipairs(glowParts) do
+		g.Transparency = 0.45
+		g.CanCollide = false
+		g.CastShadow = false
+	end
 	Props.light(swirl, theme.light, 30, 2)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Leave dungeon"
@@ -358,28 +388,52 @@ local function exitPortal(parent: Instance, pos: Vector3, theme): BasePart
 	return swirl
 end
 
--- The bonus chest in an out-of-the-way room: every dragon in the run can open it once.
-local function bonusChest(parent: Instance, pos: Vector3, theme)
+-- The hidden hoard: a treasure chest like the camp ones (tag "DungeonChest", `OneTime`). Every
+-- dragon in the run can open it once; each client draws it open (lid up, treasure gone, no
+-- prompt) for itself from its ChestReady_<id> attribute (WorldView), like the camp chests.
+local function bonusChest(parent: Instance, pos: Vector3, chestId: string): Model
 	local ground = DungeonBuilder.floorAt(pos)
-	local cf = CFrame.lookAt(ground, ground + Vector3.new(0, 0, -1))
-	Props.part(parent, Vector3.new(6, 3.4, 4), cf * CFrame.new(0, 1.7, 0), Color3.fromRGB(110, 70, 40), Enum.Material.WoodPlanks)
-	Props.part(parent, Vector3.new(6.4, 1.4, 4.4), cf * CFrame.new(0, 4, 0), Color3.fromRGB(120, 78, 45), Enum.Material.WoodPlanks)
-	for _, x in ipairs({ -2.4, 2.4 }) do
-		Props.part(parent, Vector3.new(0.4, 5, 4.6), cf * CFrame.new(x, 2.4, 0), Color3.fromRGB(230, 190, 70), Enum.Material.Metal)
-	end
-	local glow = Props.part(parent, Vector3.new(4, 0.3, 2.4), cf * CFrame.new(0, 4.8, 0), Color3.fromRGB(255, 215, 90), Enum.Material.Neon)
-	glow.CanCollide = false
-	Props.light(glow, Color3.fromRGB(255, 210, 120), 20, 1.6)
-	local prompt = Instance.new("ProximityPrompt")
+	local model = Props.chest(parent, WorldUtil.facingCF(ground, Vector3.new(0, 0, -1)), chestId)
+	model.Name = "Hoard"
+	model:SetAttribute("OneTime", true)
+	local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
 	prompt.ActionText = "Open"
 	prompt.ObjectText = "Hidden hoard"
-	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 2
+	CollectionService:AddTag(model, "DungeonChest")
+	return model
+end
+
+-- A table of food by the entrance: eat once per run to fill up (tag "DungeonFood").
+local function provisions(parent: Instance, pos: Vector3)
+	local ground = DungeonBuilder.floorAt(pos)
+	local cf = CFrame.lookAt(ground, ground + Vector3.new(0, 0, 1))
+	local wood = Color3.fromRGB(110, 75, 45)
+	local top = Props.part(parent, Vector3.new(9, 0.8, 4.4), cf * CFrame.new(0, 3.2, 0), wood, Enum.Material.WoodPlanks)
+	for _, x in ipairs({ -3.8, 3.8 }) do
+		for _, z in ipairs({ -1.6, 1.6 }) do
+			Props.part(parent, Vector3.new(0.6, 2.8, 0.6), cf * CFrame.new(x, 1.4, z), wood, Enum.Material.Wood)
+		end
+	end
+	-- a roast, bread, apples and a mead jug
+	Props.ellipsoid(parent, Vector3.new(2.6, 1.4, 1.8), cf * CFrame.new(-2.4, 4.2, 0), Color3.fromRGB(150, 80, 40), Enum.Material.SmoothPlastic)
+	Props.part(parent, Vector3.new(0.4, 0.4, 2.6), cf * CFrame.new(-2.4, 4.4, 0) * CFrame.Angles(0, 0.4, 0), Color3.fromRGB(235, 225, 200))
+	Props.ellipsoid(parent, Vector3.new(1.8, 1, 1.2), cf * CFrame.new(0.2, 4.1, -0.6), Color3.fromRGB(215, 170, 100), Enum.Material.SmoothPlastic)
+	for i, x in ipairs({ 1.4, 2, 1.7 }) do
+		Props.ellipsoid(parent, Vector3.new(0.8, 0.8, 0.8), cf * CFrame.new(x, 4, 0.7 + i * 0.25), Color3.fromRGB(200, 50, 40), Enum.Material.SmoothPlastic)
+	end
+	Props.column(parent, (cf * CFrame.new(3.3, 3.6, -0.8)).Position, 1.8, 1.2, Color3.fromRGB(150, 120, 80), Enum.Material.Wood)
+	Props.torch(parent, (cf * CFrame.new(-6, 0, 0)).Position)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Eat"
+	prompt.ObjectText = "Provisions"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 1
 	prompt.MaxActivationDistance = 16
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = glow
-	CollectionService:AddTag(prompt, "DungeonChest")
-	return glow
+	prompt.Parent = top
+	CollectionService:AddTag(prompt, "DungeonFood")
+	return top
 end
 
 -- The elder dragon chained at the back of the Rune Forge (anchored; its fire comes from the boss
@@ -411,10 +465,391 @@ local function chainedDragon(parent: Instance, origin: Vector3, spec, theme)
 	return model, chainFolder
 end
 
+---------------------------------------------------------------- light
+
+-- An unseen lamp high in a room (a PointLight reaches 60 studs at most, so big rooms get several).
+local function lamp(parent: Instance, pos: Vector3, color: Color3, range: number, brightness: number)
+	local p = Props.part(parent, Vector3.new(1, 1, 1), CFrame.new(pos), color, Enum.Material.Neon)
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CastShadow = false
+	Props.light(p, color, range, brightness)
+	return p
+end
+
+-- A torch on an iron bracket, on the wall by the floor point `pos` (`inward` points off the wall).
+local function sconce(parent: Instance, pos: Vector3, inward: Vector3, theme)
+	local at = pos + Vector3.new(0, 8, 0)
+	local cf = CFrame.lookAt(at, at + inward)
+	local arm = Props.part(parent, Vector3.new(0.5, 0.5, 2), cf * CFrame.new(0, 0, -0.8), IRON, Enum.Material.Metal)
+	arm.CanCollide = false
+	local cup = Props.part(parent, Vector3.new(1.3, 0.7, 1.3), cf * CFrame.new(0, 0.1, -1.9), IRON, Enum.Material.Metal)
+	cup.CanCollide = false
+	local flame = Props.ellipsoid(parent, Vector3.new(1, 1.6, 1), cf * CFrame.new(0, 1.1, -1.9), theme.accent, Enum.Material.Neon)
+	flame.CanCollide = false
+	flame.CastShadow = false
+	Props.light(flame, theme.light, 30, 1.6)
+end
+
+local function nearAny(p: Vector3, spots: { Vector3 }, dist: number): boolean
+	for _, q in ipairs(spots) do
+		if flat(q - p).Magnitude < dist then
+			return true
+		end
+	end
+	return false
+end
+
+-- Torches every ~24 studs along each tunnel (alternating walls, off the bends and out of the rooms),
+-- torches around the rooms' walls every ~34, and lamps high up in a grid across each room.
+local function lightUp(parent: Instance, def, origin: Vector3, theme, keepClear: { Vector3 })
+	local rooms = {}
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind ~= "path" then
+			table.insert(rooms, sp)
+		end
+	end
+	local function inRoom(localPos: Vector3): boolean
+		for _, room in ipairs(rooms) do
+			if DungeonNav.spaceHas(room, localPos) then
+				return true
+			end
+		end
+		return false
+	end
+	local side = 1
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind == "path" then
+			for i = 1, #sp.points - 1 do
+				local a, b = sp.points[i], sp.points[i + 1]
+				local len = flat(b - a).Magnitude
+				local dir = flat(b - a).Unit
+				local across = Vector3.new(-dir.Z, 0, dir.X)
+				for d = 12, len - 10, 24 do
+					local k = d / len
+					if k > 0.12 and k < 0.88 then
+						local mid = a:Lerp(b, k)
+						local wall = mid + across * side * (sp.width / 2 - 1.2)
+						if not inRoom(mid) and not nearAny(origin + wall, keepClear, 10) then
+							sconce(parent, DungeonBuilder.floorAt(origin + wall), -across * side, theme)
+						end
+						side = -side
+					end
+				end
+			end
+		elseif sp.sconces ~= false then
+			local c = sp.at
+			local spots = {}
+			if sp.kind == "box" then
+				local hx, hz = sp.size.X / 2, sp.size.Y / 2
+				for _, edge in ipairs({ { Vector3.new(-hx, 0, -hz), Vector3.new(hx, 0, -hz) }, { Vector3.new(hx, 0, -hz), Vector3.new(hx, 0, hz) },
+					{ Vector3.new(hx, 0, hz), Vector3.new(-hx, 0, hz) }, { Vector3.new(-hx, 0, hz), Vector3.new(-hx, 0, -hz) } }) do
+					local len = (edge[2] - edge[1]).Magnitude
+					if len >= 30 then
+						local n = math.max(1, math.floor(len / 34))
+						for j = 1, n do
+							local p = edge[1]:Lerp(edge[2], (j - 0.5) / n)
+							table.insert(spots, p)
+						end
+					end
+				end
+			elseif sp.radius >= 20 then
+				local n = math.max(4, math.floor(2 * math.pi * sp.radius / 34))
+				for j = 1, n do
+					local a = (j - 0.5) / n * math.pi * 2
+					table.insert(spots, Vector3.new(math.cos(a) * sp.radius, 0, math.sin(a) * sp.radius))
+				end
+			end
+			for _, rel in ipairs(spots) do
+				local inward = -flat(rel)
+				if sp.kind == "box" then
+					-- straight off the wall it's on
+					inward = math.abs(math.abs(rel.X) - sp.size.X / 2) < 0.5 and Vector3.new(-math.sign(rel.X), 0, 0) or Vector3.new(0, 0, -math.sign(rel.Z))
+				end
+				inward = inward.Unit
+				local wall = origin + c + rel + inward * 1.2
+				-- not in a tunnel's mouth, by a door, or the entrance's things
+				local mouth = false
+				for _, other in ipairs(def.spaces) do
+					if other.kind == "path" then
+						for _, q in ipairs({ other.points[1], other.points[#other.points] }) do
+							if flat(q - (c + rel)).Magnitude < other.width / 2 + 6 then
+								mouth = true
+							end
+						end
+						if DungeonNav.spaceHas(other, c + rel + inward * 1.2) then
+							mouth = true
+						end
+					end
+				end
+				if not mouth and not nearAny(wall, keepClear, 10) then
+					sconce(parent, DungeonBuilder.floorAt(wall, 30), inward, theme)
+				end
+			end
+		end
+		-- lamps high up
+		if sp.kind == "box" and sp.size.X >= 30 and sp.size.Y >= 30 then
+			local nx, nz = math.max(1, math.floor(sp.size.X / 46 + 0.5)), math.max(1, math.floor(sp.size.Y / 46 + 0.5))
+			for ix = 1, nx do
+				for iz = 1, nz do
+					local p = sp.at + Vector3.new((ix - 0.5) / nx * sp.size.X - sp.size.X / 2, math.min(sp.height - 5, 26), (iz - 0.5) / nz * sp.size.Y - sp.size.Y / 2)
+					lamp(parent, origin + p, theme.light, 60, 0.9)
+				end
+			end
+		elseif sp.kind == "round" then
+			local y = math.min(sp.height - 5, 26)
+			lamp(parent, origin + sp.at + Vector3.new(0, y, 0), theme.light, 60, 0.9)
+			if sp.radius > 36 then
+				for j = 1, 5 do
+					local a = j / 5 * math.pi * 2
+					lamp(parent, origin + sp.at + Vector3.new(math.cos(a) * sp.radius * 0.6, y, math.sin(a) * sp.radius * 0.6), theme.light, 60, 0.8)
+				end
+			end
+		end
+	end
+end
+
+local LAVA = Color3.fromRGB(255, 110, 30)
+
+-- Lava glows: hot patches and orange light over every pit of it (hazards), so the rock around reads.
+local function lavaGlow(parent: Instance, def, origin: Vector3, rng: Random)
+	for _, h in ipairs(def.hazards or {}) do
+		if h.center then
+			local c = origin + h.center
+			local floorY = origin.Y + h.top - 4
+			for j = 1, 8 do
+				local a = j / 8 * math.pi * 2
+				lamp(parent, Vector3.new(c.X + math.cos(a) * h.radius * 0.7, floorY + 5, c.Z + math.sin(a) * h.radius * 0.7), LAVA, 60, 2.2)
+			end
+			for j = 1, 4 do
+				local a = j / 4 * math.pi * 2 + 0.4
+				lamp(parent, Vector3.new(c.X + math.cos(a) * h.radius * 0.3, floorY + 22, c.Z + math.sin(a) * h.radius * 0.3), LAVA, 60, 1.6)
+			end
+			for _ = 1, 6 do
+				local a, r = rng:NextNumber(0, math.pi * 2), rng:NextNumber(4, h.radius * 0.4)
+				local patch = Props.ellipsoid(parent, Vector3.new(rng:NextNumber(8, 16), 0.5, rng:NextNumber(8, 16)), CFrame.new(c.X + math.cos(a) * r, floorY + 0.3, c.Z + math.sin(a) * r) * CFrame.Angles(0, rng:NextNumber(0, 6.28), 0), LAVA, Enum.Material.Neon)
+				patch.CanCollide = false
+				patch.CastShadow = false
+				patch.Transparency = 0.25
+			end
+		end
+	end
+end
+
+-- Molten rock pouring slowly down from the ceiling: a glowing column over a darker crust, falling
+-- blobs of fire, a splash where it lands, and light all the way up.
+local function lavafall(parent: Instance, origin: Vector3, f)
+	local base = origin + f.at
+	local top = origin.Y + f.top
+	local h = top - base.Y
+	local center = Vector3.new(base.X, (base.Y + top) / 2, base.Z)
+	local cf = CFrame.new(center)
+	local crust = Props.part(parent, Vector3.new(f.width + 1.5, h, 3.4), cf, Color3.fromRGB(110, 35, 15), Enum.Material.CrackedLava)
+	crust.CanCollide = false
+	local flow = Props.part(parent, Vector3.new(f.width, h, 3.8), cf, LAVA, Enum.Material.Neon)
+	flow.CanCollide = false
+	flow.CastShadow = false
+	flow.Transparency = 0.15
+	local source = Props.part(parent, Vector3.new(f.width, 1, 4), CFrame.new(center.X, top - 1, center.Z), LAVA, Enum.Material.Neon)
+	source.Transparency = 1
+	source.CanCollide = false
+	local drip = Instance.new("ParticleEmitter")
+	drip.Color = ColorSequence.new(Color3.fromRGB(255, 200, 80), Color3.fromRGB(255, 70, 20))
+	drip.LightEmission = 1
+	drip.Rate = 10
+	drip.Lifetime = NumberRange.new(h / 9, h / 7)
+	drip.Speed = NumberRange.new(6, 9)
+	drip.EmissionDirection = Enum.NormalId.Bottom
+	drip.SpreadAngle = Vector2.new(6, 6)
+	drip.Size = NumberSequence.new(2.4, 1.2)
+	drip.Parent = source
+	local pool = Props.ellipsoid(parent, Vector3.new(f.width * 2.2, 0.6, f.width * 2.2), CFrame.new(base + Vector3.new(0, 0.3, 0)), LAVA, Enum.Material.Neon)
+	pool.CanCollide = false
+	pool.CastShadow = false
+	Props.fire(pool, 8, LAVA)
+	for k = 0, 2 do
+		lamp(parent, base + Vector3.new(0, 4 + (h - 8) * k / 2, 0), LAVA, 60, 2.4)
+	end
+end
+
+-- A healing draught left on the floor during a boss fight (DungeonService drops them and hands them
+-- out): a glowing red flask. Returns its model.
+function DungeonBuilder.draught(parent: Instance, floor: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "Draught"
+	local at = floor + Vector3.new(0, 1.6, 0)
+	local red = Color3.fromRGB(235, 50, 70)
+	local glass = Props.ellipsoid(model, Vector3.new(2, 2.2, 2), CFrame.new(at), red, Enum.Material.Glass)
+	glass.Transparency = 0.25
+	local glow = Props.ellipsoid(model, Vector3.new(1.3, 1.3, 1.3), CFrame.new(at), Color3.fromRGB(255, 90, 110), Enum.Material.Neon)
+	Props.part(model, Vector3.new(0.7, 1, 0.7), CFrame.new(at + Vector3.new(0, 1.4, 0)), Color3.fromRGB(200, 220, 230), Enum.Material.Glass)
+	Props.part(model, Vector3.new(0.8, 0.5, 0.8), CFrame.new(at + Vector3.new(0, 2.1, 0)), Color3.fromRGB(150, 110, 70), Enum.Material.Wood)
+	for _, p in ipairs(model:GetChildren()) do
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+	end
+	Props.light(glow, Color3.fromRGB(255, 90, 110), 14, 2)
+	local sparkle = Instance.new("ParticleEmitter")
+	sparkle.Color = ColorSequence.new(Color3.fromRGB(255, 150, 170))
+	sparkle.LightEmission = 1
+	sparkle.Rate = 6
+	sparkle.Lifetime = NumberRange.new(0.8, 1.2)
+	sparkle.Speed = NumberRange.new(1, 2)
+	sparkle.Size = NumberSequence.new(0.5, 0)
+	sparkle.Parent = glow
+	model.Parent = parent
+	return model
+end
+
+---------------------------------------------------------------- boss doors
+
+-- Where each tunnel comes into a room: just inside the tunnel from the room's edge, the way in (a
+-- flat unit vector), and the tunnel's width and height.
+local function roomMouths(def, roomId: string)
+	local room = nil
+	for _, sp in ipairs(def.spaces) do
+		if sp.id == roomId then
+			room = sp
+		end
+	end
+	local list = {}
+	if not room then
+		return list
+	end
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind == "path" then
+			local n = #sp.points
+			for _, ends in ipairs({ { sp.points[1], sp.points[2] }, { sp.points[n], sp.points[n - 1] } }) do
+				local inner, outer = ends[1], ends[2]
+				if DungeonNav.spaceHas(room, inner) and not DungeonNav.spaceHas(room, outer) then
+					local len = (outer - inner).Magnitude
+					local edge = inner
+					for d = 0, len, 0.5 do
+						local p = inner:Lerp(outer, d / len)
+						if not DungeonNav.spaceHas(room, p) then
+							break
+						end
+						edge = p
+					end
+					local dir = flat(inner - outer).Unit
+					table.insert(list, { room = roomId, at = edge - dir * 3, dir = dir, width = sp.width, height = math.min(sp.height, room.height) })
+				end
+			end
+		end
+	end
+	return list
+end
+
+-- Two great leaves across the tunnel mouth, hinged at its walls, and a rune seal between them
+-- (unseen until the boss's fight seals the room). Parts are anchored; setDoor swings them.
+local function buildDoor(parent: Instance, def, mouth, origin: Vector3, theme, index: number)
+	local base = DungeonBuilder.floorAt(origin + mouth.at)
+	local dir = mouth.dir
+	local across = Vector3.new(-dir.Z, 0, dir.X)
+	local w, h = mouth.width, mouth.height
+	local forge = def.id == "Forge"
+	local leafColor = forge and Color3.fromRGB(62, 56, 56) or Color3.fromRGB(78, 68, 56)
+	local leafMat = forge and Enum.Material.DiamondPlate or Enum.Material.WoodPlanks
+	local model = Instance.new("Model")
+	model.Name = "Door" .. index
+	model:SetAttribute("Room", mouth.room)
+	local leaves = {}
+	for _, s in ipairs({ -1, 1 }) do
+		local hinge = base + across * (s * w / 2)
+		local leaf = Instance.new("Model")
+		leaf.Name = s < 0 and "LeafL" or "LeafR"
+		local center = base + across * (s * w / 4) + Vector3.new(0, h / 2, 0)
+		local cf = CFrame.lookAt(center, center + dir)
+		local slab = Props.part(leaf, Vector3.new(w / 2 + 1, h + 1.5, 1.6), cf, leafColor, leafMat)
+		slab.Name = "Slab"
+		leaf.PrimaryPart = slab
+		for _, y in ipairs({ -h * 0.32, 0, h * 0.32 }) do
+			Props.part(leaf, Vector3.new(w / 2 + 1, 0.8, 1.9), cf * CFrame.new(0, y, 0), IRON, Enum.Material.Metal)
+		end
+		Props.part(leaf, Vector3.new(0.9, h * 0.8, 1.9), cf * CFrame.new(s * (w / 4 - 1.2), 0, 0), IRON, Enum.Material.Metal)
+		local rune = Props.part(leaf, Vector3.new(0.5, h * 0.35, 2), cf * CFrame.new(-s * (w / 4 - 2.2), 0, 0), theme.accent, Enum.Material.Neon)
+		rune.CanCollide = false
+		leaf.Parent = model
+		-- which way round swings the free edge into the room
+		local free = -across * s
+		local spin = CFrame.Angles(0, math.rad(90), 0):VectorToWorldSpace(free):Dot(dir) > 0 and 1 or -1
+		leaves[s] = { model = leaf, hinge = hinge, closed = leaf:GetPivot(), spin = spin }
+	end
+	local sealCF = CFrame.lookAt(base + Vector3.new(0, h / 2, 0) + dir * 1.4, base + Vector3.new(0, h / 2, 0) + dir * 2)
+	local seal = Props.part(model, Vector3.new(w + 2, h + 2, 0.6), sealCF, theme.accent, Enum.Material.ForceField)
+	seal.Name = "Seal"
+	seal.Transparency = 1
+	seal.CanCollide = false
+	seal.CastShadow = false
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Open the doors"
+	local bossId = (def.miniBoss.room == mouth.room and def.miniBoss.id) or def.boss.id
+	prompt.ObjectText = Dungeons.Bosses[bossId].name
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = Dungeons.DOOR_HOLD
+	prompt.MaxActivationDistance = math.max(16, w / 2 + 6)
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = seal
+	CollectionService:AddTag(prompt, "DungeonDoor")
+	model.Parent = parent
+	return { room = mouth.room, model = model, leaves = leaves, seal = seal, prompt = prompt, pos = base, dir = dir, width = w, height = h, state = "closed" }
+end
+
+local function swingTo(door, angle: number)
+	for _, leaf in pairs(door.leaves) do
+		local hinge = leaf.hinge
+		leaf.model:PivotTo(CFrame.new(hinge) * CFrame.Angles(0, angle * leaf.spin, 0) * CFrame.new(-hinge) * leaf.closed)
+	end
+end
+
+local function setSolid(door, solid: boolean)
+	for _, leaf in pairs(door.leaves) do
+		for _, p in ipairs(leaf.model:GetDescendants()) do
+			if p:IsA("BasePart") and p.Material ~= Enum.Material.Neon then
+				p.CanCollide = solid
+			end
+		end
+	end
+end
+
+-- A boss door's state: "closed" (shut, you can push it open), "open" (swung into the room),
+-- "sealed" (shut, with the rune seal glowing across it: nobody in or out). `animate` swings it.
+function DungeonBuilder.setDoor(door, state: string, animate: boolean?)
+	local was = door.state
+	door.state = state
+	local open = state == "open"
+	door.prompt.Enabled = state == "closed"
+	door.seal.Transparency = state == "sealed" and 0.35 or 1
+	door.seal.CanCollide = state == "sealed"
+	setSolid(door, not open)
+	local from = was == "open" and math.rad(88) or 0
+	local to = open and math.rad(88) or 0
+	door.swing = (door.swing or 0) + 1
+	if not animate or from == to then
+		swingTo(door, to)
+		return
+	end
+	local token = door.swing
+	task.spawn(function()
+		for i = 1, 15 do
+			if door.swing ~= token then
+				return
+			end
+			local k = i / 15
+			swingTo(door, from + (to - from) * (1 - (1 - k) ^ 2))
+			task.wait(0.06)
+		end
+	end)
+end
+
 ---------------------------------------------------------------- interior
 
--- Carve one copy of a dungeon at `origin` and dress it. Returns what DungeonService needs.
-function DungeonBuilder.interior(def, origin: Vector3, parent: Instance)
+-- Carve one copy of a dungeon at `origin` and dress it. Returns what DungeonService needs. `slot`
+-- tells copies of the same dungeon apart (the hoard's per-player id).
+function DungeonBuilder.interior(def, origin: Vector3, parent: Instance, slot: number?)
 	local terrain = workspace.Terrain
 	local theme = def.theme
 	local shell, floorMat = mat(theme.shell), mat(theme.floor)
@@ -429,7 +864,7 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance)
 	model.Name = def.id
 	model.Parent = parent
 
-	-- rooms (for boss rooms and lights) and the bounds of the whole thing
+	-- rooms (for the bosses) and the bounds of the whole thing
 	local rooms = {}
 	local min, max = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
 	local function grow(p: Vector3)
@@ -442,15 +877,9 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance)
 			local hx = sp.kind == "box" and sp.size.X / 2 or sp.radius
 			local hz = sp.kind == "box" and sp.size.Y / 2 or sp.radius
 			local top = sp.height + (sp.dome and sp.radius * 0.7 or 0)
-			rooms[sp.id] = { center = c, radius = math.min(hx, hz), top = c.Y + top, kind = sp.kind }
+			rooms[sp.id] = { id = sp.id, center = c, radius = math.min(hx, hz), hx = hx, hz = hz, top = c.Y + top, kind = sp.kind }
 			grow(c - Vector3.new(hx, 0, hz))
 			grow(c + Vector3.new(hx, top, hz))
-			-- a soft light high up so the room reads from afar
-			local lamp = Props.part(model, Vector3.new(1, 1, 1), CFrame.new(c + Vector3.new(0, math.min(top - 4, 30), 0)), theme.light, Enum.Material.Neon)
-			lamp.Transparency = 1
-			lamp.CanCollide = false
-			lamp.CanQuery = false
-			Props.light(lamp, theme.light, math.max(hx, hz) * 1.3 + 20, 0.7)
 		else
 			for _, p in ipairs(sp.points) do
 				grow(origin + p - Vector3.new(sp.width / 2, 0, sp.width / 2))
@@ -486,22 +915,66 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance)
 			shields(model, DungeonBuilder.floorAt(origin + d.at), d.face)
 		end
 	end
-	-- glowing lava in the channels
+	for _, f in ipairs(def.features or {}) do
+		if f.kind == "lavafall" then
+			lavafall(model, origin, f)
+		end
+	end
+	-- glowing lava in the channels, and in the pits
 	for _, p in ipairs(lavaSpots) do
-		local glow = Props.part(model, Vector3.new(15, 0.4, 20), CFrame.new(p), theme.accent, Enum.Material.Neon)
+		local glow = Props.part(model, Vector3.new(15, 0.4, 20), CFrame.new(p), LAVA, Enum.Material.Neon)
 		glow.CanCollide = false
 		glow.Transparency = 0.2
-		Props.fire(glow, 5, theme.accent)
-		Props.light(glow, theme.light, 30, 1.8)
+		Props.fire(glow, 5, LAVA)
+		Props.light(glow, LAVA, 45, 2.4)
+	end
+	lavaGlow(model, def, origin, rng)
+
+	-- the boss rooms' doors (solid, so outside Map: see the header)
+	local barriers = workspace:FindFirstChild("Barriers")
+	if not barriers then
+		barriers = Instance.new("Folder")
+		barriers.Name = "Barriers"
+		barriers.Parent = workspace
+	end
+	local doorFolder = Instance.new("Folder")
+	doorFolder.Name = string.format("DungeonDoors_%s_%d", def.id, slot or 1)
+	doorFolder.Parent = barriers
+	local doors = {}
+	for _, spec in ipairs({ def.miniBoss, def.boss }) do
+		for _, mouth in ipairs(roomMouths(def, spec.room)) do
+			table.insert(doors, buildDoor(doorFolder, def, mouth, origin, theme, #doors + 1))
+		end
 	end
 
+	-- the way out, the keeper and the provisions, the hoard, the chained elder dragon
 	local exit = DungeonBuilder.floorAt(origin + def.exit)
 	exitPortal(model, exit, theme)
-	local chest = def.chest and bonusChest(model, origin + def.chest, theme)
+	local keepClear = { exit }
+	for _, door in ipairs(doors) do
+		-- the middle and both hinges (the leaves swing through there)
+		local across = Vector3.new(-door.dir.Z, 0, door.dir.X)
+		table.insert(keepClear, door.pos)
+		table.insert(keepClear, door.pos + across * door.width / 2)
+		table.insert(keepClear, door.pos - across * door.width / 2)
+	end
+	local keeper, food = nil, nil
+	if def.keeper then
+		keeper = DungeonBuilder.floorAt(origin + def.keeper.at)
+		WorldUtil.questGiver(model, def.giver, keeper, def.keeper.face)
+		food = provisions(model, origin + def.keeper.food)
+		table.insert(keepClear, keeper)
+		table.insert(keepClear, food.Position)
+	end
+	local chest = def.chest and bonusChest(model, origin + def.chest, string.format("Hoard_%s_%d", def.id, slot or 1))
+	if chest then
+		table.insert(keepClear, chest:GetPivot().Position)
+	end
 	local chained = nil
 	if def.chained then
 		chained = chainedDragon(model, origin, def.chained, theme)
 	end
+	lightUp(model, def, origin, theme, keepClear)
 
 	local spawn = DungeonBuilder.floorAt(origin + def.spawn)
 	return {
@@ -513,6 +986,9 @@ function DungeonBuilder.interior(def, origin: Vector3, parent: Instance)
 		bounds = { min = min - Vector3.new(SHELL, 14, SHELL), max = max + Vector3.new(SHELL, 10, SHELL) },
 		chest = chest,
 		chained = chained,
+		doors = doors,
+		keeper = keeper,
+		food = food,
 	}
 end
 

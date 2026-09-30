@@ -4,7 +4,7 @@
 --
 -- Layouts are data. Coordinates are local to the dungeon's origin (Dungeons.origin) and y is the
 -- floor height. DungeonBuilder carves them out of terrain rock:
---   spaces:   box   { at, size = Vector2 (x width, z depth), height }
+--   spaces:   box   { at, size = Vector2 (x width, z depth), height }   (sconces = false: no wall torches)
 --             round { at, radius, height, dome? }                     (dome: a rounded ceiling)
 --             path  { points = { floor points }, width, height }      (tunnels; slopes follow the y)
 --   features: pillars { points, radius, height }   pool { min, max, depth, water }
@@ -15,10 +15,16 @@
 --   decor:    brazier { at }  sarcophagus { at, face }  stones { center, radius, count, skip }
 --             throne { at, face }  bones { at, spread, count }  anvils { at }  forge { at, face }
 --             rack { at, face }  chains { from, to }  runes { center, radius }  shields { at, face }
---   packs:    { at, mobs = { typeId... } } or { spots = { { typeId, at }... } }
+--             lavafall { at, width } (molten rock pouring slowly from the ceiling onto the floor)
+--   packs:    { at, mobs = { typeId... } } or { spots = { { typeId, at }... } } (PACK_SPACING apart);
+--             idle = "stand" | "wander" overrides the monsters' own (Enemies.Dungeon `idle`), and
+--             patrol = { points } walks the pack along a route (from `at`, its first point) and back
 --   hazards:  lava a dragon shouldn't stand in: { min, max } boxes or { center, radius, top }
---   routes:   extra walks the dungeon check makes sure are open (over the bridges, up the ramps);
---             rooms with `hub = false` have no walkable middle (a lava channel, a pit)
+--   routes:   extra walks the monsters (DungeonNav) and the dungeon check use (over the bridges,
+--             off the ledges); rooms with `hub = false` have no walkable middle (a lava channel, a pit)
+--   keeper:   where the entrance's quest giver also stands inside (with the provisions table)
+-- The boss rooms (miniBoss.room, boss.room) get doors wherever a tunnel comes in: you open them
+-- (it alerts the monsters nearby), and they seal while the boss fights.
 -- Mob types live in Enemies.Dungeon; bosses (their moves and traits, see server/Combat/BossKit)
 -- are below.
 
@@ -34,22 +40,39 @@ Dungeons.UNLOCK_LEVEL = 15 -- the 🏰 Dungeons menu button shows up here
 Dungeons.MAX_GROUP = 4
 
 -- Health and damage by how many dragons came in (1, 2, 3, 4). Admin Tuning "groupScaling"
--- stretches how far below 1 the small groups go.
+-- stretches how far below 1 the small groups go. (A dragon on its own takes nearly full hits: it's
+-- meant to be hard alone.)
 Dungeons.GROUP_HEALTH = { 0.55, 0.7, 0.85, 1 }
-Dungeons.GROUP_DAMAGE = { 0.7, 0.8, 0.9, 1 }
+Dungeons.GROUP_DAMAGE = { 0.9, 0.95, 1, 1 }
 
 -- Combat rules inside a dungeon
 Dungeons.COMBAT_LINGER = 5 -- a mob counts as "in combat" this long after its last hit either way
-Dungeons.EVADE_TIME = 12 -- no damage either way for this long: the mob gives up and walks home
+Dungeons.EVADE_TIME = 12 -- stuck this long (no damage either way, not getting closer): give up, walk home
 Dungeons.RETURN_STUCK = 8 -- walking home this long without getting there: put it back home
 Dungeons.MOB_REGEN = 0.04 -- of max health per second while out of combat
 Dungeons.BOSS_REGEN = 0.02
 Dungeons.REVIVE_DELAY = 3 -- after the group is out of combat, the knocked-out get back up
 Dungeons.REVIVE_HEALTH = 0.5
 Dungeons.WIPE_DELAY = 4 -- everyone down: back to the entrance, and the monsters reset
-Dungeons.LAVA_BURN = 0.06 -- of max health per second standing in lava
-Dungeons.MOB_LEASH = 90
-Dungeons.BOSS_AGGRO = 42 -- a boss wakes up when a dragon comes this close (or hits it)
+Dungeons.LAVA_BURN = 0.06 -- of max health per second standing in lava (monsters burn too)
+Dungeons.MOB_LEASH = 160 -- a monster chases this far from its spot before it gives up
+Dungeons.CHASE_CATCHUP = 25 -- farther than this from its dragon, a monster runs as fast as a dragon walks
+Dungeons.ASSIST_RADIUS = 28 -- an idle monster this close to a fight joins it (and brings its pack)
+Dungeons.PACK_SPACING = 60 -- no two monsters of different packs start closer than this
+Dungeons.BOSS_AGGRO = 42 -- a boss wakes up when a dragon in its room comes this close (or hits it)
+Dungeons.HOVER_HEIGHT = 6 -- until the boss is down, wings only lift you this far off the floor
+Dungeons.WANDER_RADIUS = 12 -- how far a wandering monster ambles from its spot
+Dungeons.STROLL = 0.45 -- idle monsters walk at this much of their speed
+Dungeons.PATROL_SPEED = 4 -- studs per second along a patrol route
+Dungeons.DOOR_ALERT = 60 -- opening a boss door wakes the monsters this close to it
+Dungeons.DOOR_HOLD = 2 -- seconds to push a boss door open
+
+-- Healing draughts that turn up on the floor during a boss fight
+Dungeons.DRAUGHT_EVERY = 22
+Dungeons.DRAUGHT_MAX = 2
+Dungeons.DRAUGHT_HEAL = 0.25 -- of max health...
+Dungeons.DRAUGHT_TIME = 4 -- ...over this many seconds
+Dungeons.DRAUGHT_REACH = 7 -- walk (or hover) this close to drink it
 
 -- Groups and the queue
 Dungeons.INVITE_TIME = 30
@@ -58,7 +81,8 @@ Dungeons.QUEUE_PARTIAL_AFTER = 90 -- after this long in the queue, 2 or 3 dragon
 Dungeons.CLEARED_STAY = 180 -- after the boss falls you can look around this long, then it's home time
 
 -- Loot
-Dungeons.BOSS_XP = 0.35 -- of your level's XP bar (Paragon XP past the cap)
+Dungeons.FIRST_CLEAR_XP = 1.5 -- of your level's XP bar (Paragon XP past the cap): your first clear
+Dungeons.BOSS_XP = 0.3 -- every clear after that
 Dungeons.MINI_XP = 0.1
 Dungeons.BOSS_RARITY = { Epic = 75, Legendary = 25 }
 Dungeons.MINI_MIN_RARITY = "Rare"
@@ -81,7 +105,7 @@ Dungeons.List = {
 		color = rgb(120, 255, 190),
 		story = "Viking jarls lie restless in this flooded burial mound. Wade through the crypts and put the Hollow King back in his grave.",
 		entrance = V(-140, 0, 720), entranceFacing = V(0, 0, -1), giver = "Ylva",
-		theme = { shell = "Rock", floor = "Slate", accent = rgb(120, 255, 190), light = rgb(130, 255, 200), ambient = rgb(40, 58, 54) },
+		theme = { shell = "Rock", floor = "Slate", accent = rgb(120, 255, 190), light = rgb(130, 255, 200), ambient = rgb(84, 112, 106) },
 		spawn = V(0, 0, 8), exit = V(0, 0, -4),
 		spaces = {
 			{ id = "Gate", kind = "box", at = V(0, 0, 20), size = V2(72, 56), height = 36 },
@@ -125,17 +149,20 @@ Dungeons.List = {
 			{ kind = "bones", at = V(232, -40, 560), spread = 36, count = 12 },
 		},
 		packs = {
-			{ at = V(0, -5, 78), mobs = { "DraugrRaider", "DraugrRaider" } },
-			{ at = V(-44, -14, 206), mobs = { "DraugrRaider", "DraugrThrower", "BarrowHound" } },
-			{ at = V(-44, -14, 268), mobs = { "BarrowHound", "BarrowHound", "DraugrThrower" } },
+			-- a patrol pacing the first tunnel
+			{ at = V(0, -2, 58), mobs = { "DraugrRaider", "DraugrRaider" }, patrol = { V(0, -2, 58), V(0, -6, 92), V(-30, -10, 119) } },
+			{ at = V(-44, -14, 196), mobs = { "DraugrRaider", "DraugrThrower", "BarrowHound" } },
+			{ at = V(-44, -14, 284), mobs = { "BarrowHound", "BarrowHound", "DraugrThrower" } },
 			{ at = V(62, -24, 350), mobs = { "DraugrRaider", "DraugrRaider", "DraugrThrower" } },
 			{ at = V(110, -24, 472), mobs = { "BarrowHound", "BarrowHound", "BarrowHound" } },
-			{ at = V(232, -38, 440), mobs = { "DraugrRaider", "DraugrThrower", "DraugrRaider", "BarrowHound" } },
+			{ at = V(232, -36.5, 422), mobs = { "DraugrRaider", "DraugrThrower", "DraugrRaider", "BarrowHound" } },
 			{ at = V(232, -40, 502), mobs = { "DraugrThrower", "DraugrThrower", "DraugrRaider" } },
 		},
 		chest = V(110, -24, 492),
+		keeper = { at = V(-22, 0, 16), face = V(1, 0, 0), food = V(22, 0, 16) },
 		miniBoss = { id = "Grimvald", at = V(140, -24, 370), room = "Crypt" },
-		boss = { id = "Haldor", at = V(232, -40, 562), room = "Mound" },
+		-- Haldor waits on his throne (the throne decor) and stands up when he wakes
+		boss = { id = "Haldor", at = V(232, -40, 598), room = "Mound", throne = true },
 		hazards = {},
 		loot = { relics = { "HollowKingsCrown", "GravewardensMantle", "DraugrFang" }, egg = "BarrowEgg", gold = 900, miniGold = 350 },
 		title = "Barrow Breaker", -- (first clear)
@@ -147,7 +174,7 @@ Dungeons.List = {
 		color = rgb(255, 140, 60),
 		story = "The vikings forge dragonslayer blades in the fire of a chained elder dragon. Break in, beat the Runemaster and set the dragon free.",
 		entrance = V(150, 0, 735), entranceFacing = V(0, 0, -1), giver = "Kael",
-		theme = { shell = "Basalt", floor = "Basalt", accent = rgb(255, 130, 50), light = rgb(255, 150, 80), ambient = rgb(62, 42, 36) },
+		theme = { shell = "Basalt", floor = "Basalt", accent = rgb(255, 130, 50), light = rgb(255, 150, 80), ambient = rgb(120, 90, 78) },
 		spawn = V(0, 0, 10), exit = V(0, 0, -2),
 		spaces = {
 			{ id = "Gate", kind = "box", at = V(0, 0, 24), size = V2(84, 60), height = 50 },
@@ -156,8 +183,8 @@ Dungeons.List = {
 			{ id = "Link", kind = "path", points = { V(0, 0, 218), V(0, 0, 252) }, width = 52, height = 52 },
 			{ id = "River", kind = "box", at = V(0, 0, 290), size = V2(140, 90), height = 62, hub = false },
 			{ id = "Mouth", kind = "path", points = { V(30, 0, 330), V(30, 0, 372) }, width = 34, height = 40 },
-			{ id = "Shaft", kind = "round", at = V(30, -44, 440), radius = 76, height = 104, floor = "CrackedLava", hub = false },
-			{ id = "Undercroft", kind = "path", points = { V(-40, -36, 440), V(-86, -36, 440), V(-86, -36, 488) }, width = 32, height = 38 },
+			{ id = "Shaft", kind = "round", at = V(30, -44, 440), radius = 76, height = 104, floor = "CrackedLava", hub = false, sconces = false },
+			{ id = "Undercroft", kind = "path", points = { V(-28, -36, 440), V(-86, -36, 440), V(-86, -36, 488) }, width = 32, height = 38 }, -- (from the ramp's foot)
 			{ id = "Smithy", kind = "box", at = V(-86, -36, 532), size = V2(112, 100), height = 50 },
 			{ id = "Descent", kind = "path", points = { V(-86, -36, 576), V(-86, -40, 618), V(-30, -44, 650), V(0, -44, 690) }, width = 36, height = 44 },
 			{ id = "Heart", kind = "round", at = V(0, -44, 768), radius = 88, height = 40, dome = true },
@@ -172,6 +199,9 @@ Dungeons.List = {
 			{ kind = "bridge", from = V(30, 0, 276), to = V(30, 0, 306), width = 24 },
 			{ kind = "spiral", center = V(30, 0, 440), inner = 34, outer = 76, from = -90, to = 180, topY = 0, bottomY = -36, baseY = -44 },
 			{ kind = "ledge", min = V(-34, -44, 812), max = V(34, -32, 852) },
+			-- molten rock pouring down the shaft wall where the ramp leaves a gap
+			{ kind = "lavafall", at = V(-35, -44, 410), width = 9, top = 58 },
+			{ kind = "lavafall", at = V(0, -44, 375), width = 7, top = 58 },
 		},
 		decor = {
 			{ kind = "brazier", at = V(-32, 0, 44) }, { kind = "brazier", at = V(32, 0, 44) },
@@ -192,13 +222,14 @@ Dungeons.List = {
 			{ kind = "brazier", at = V(-78, -44, 790) }, { kind = "brazier", at = V(78, -44, 790) },
 		},
 		packs = {
-			{ at = V(0, 0, 140), mobs = { "ForgeGuard", "ForgeGuard", "EmberBerserker" } },
+			{ at = V(0, 0, 86), mobs = { "ForgeGuard", "ForgeGuard", "EmberBerserker" } },
 			{ spots = { { "RuneSmith", V(-51, 10, 150) }, { "RuneSmith", V(51, 10, 160) }, { "ForgeGuard", V(0, 0, 192) } } },
 			{ at = V(0, 0, 320), mobs = { "ForgeGuard", "EmberBerserker", "LavaHound" } },
 			{ at = V(69, -18, 479), mobs = { "LavaHound", "LavaHound", "RuneSmith" } },
 			{ at = V(-22, -33, 459), mobs = { "ForgeGuard", "EmberBerserker" } },
 			{ at = V(-86, -36, 500), mobs = { "EmberBerserker", "EmberBerserker", "RuneSmith" } },
-			{ at = V(-58, -42, 634), mobs = { "ForgeGuard", "ForgeGuard", "LavaHound" } },
+			-- a patrol walking the way down to the Heart
+			{ at = V(-86, -39, 606), mobs = { "ForgeGuard", "ForgeGuard", "LavaHound" }, patrol = { V(-86, -39, 606), V(-86, -40, 618), V(-50, -43, 639) } },
 		},
 		routes = {
 			{ V(0, 0, 250), V(30, 0, 268), V(30, 0, 312), V(30, 0, 334) }, -- over the wide bridge
@@ -206,6 +237,7 @@ Dungeons.List = {
 			{ V(-51, 10, 150), V(-51, 10, 186), V(-51, 0, 214), V(0, 0, 196) }, -- off the west ledge
 			{ V(51, 10, 160), V(51, 10, 186), V(51, 0, 214), V(0, 0, 196) }, -- off the east ledge
 		},
+		keeper = { at = V(-26, 0, 14), face = V(1, 0, 0), food = V(26, 0, 14) },
 		miniBoss = { id = "Brakki", at = V(-86, -36, 548), room = "Smithy" },
 		boss = { id = "Sigrun", at = V(0, -44, 760), room = "Heart" },
 		-- the elder dragon chained on the ledge at the back of the Heart (its fire lanes come
@@ -225,12 +257,14 @@ Dungeons.List = {
 -- shrink them for smaller groups); `hit` is a basic hit before each move's `mult`.
 -- Moves (BossKit): Cleave, GroundSlam, RuneStrikes, AxeVolley, Leap, Charge, Whirlwind, Harpoon, Lane.
 -- Traits: summons = { { at, add, count } }  enrage = { at }  secondLife = { health, delay, name,
---         speedMult, moves }  phases = { { at, moves, shield = { add, count } } }
+--         speedMult, moves, look }  phases = { { at, moves, shield = { add, count }, hold? } }
+--         (`hold`: while shielded the boss stands in the middle of its room and casts from there;
+--         its shield's guards come in from the edges of the room)
 local GRAVE = rgb(120, 255, 190)
 local DRAUGR_SKIN = rgb(150, 178, 168)
 Dungeons.Bosses = {
 	Grimvald = {
-		id = "Grimvald", name = "Grimvald the Bone-Warden", mini = true, scale = 2.0, speed = 13, health = 30000, hit = 70,
+		id = "Grimvald", name = "Grimvald the Bone-Warden", mini = true, scale = 2.0, speed = 13, health = 30000, hit = 100,
 		color = GRAVE,
 		look = { shirt = rgb(70, 90, 85), pants = rgb(40, 45, 45), beard = rgb(200, 210, 200), skin = DRAUGR_SKIN, eyes = GRAVE,
 			weapon = "hammer", shield = true, bigShield = true, cape = rgb(40, 60, 55) },
@@ -242,7 +276,7 @@ Dungeons.Bosses = {
 		summons = { { at = 0.5, add = "BarrowHound", count = 2 } },
 	},
 	Haldor = {
-		id = "Haldor", name = "Haldor the Hollow King", scale = 3.0, speed = 12, health = 80000, hit = 90,
+		id = "Haldor", name = "Haldor the Hollow King", scale = 3.0, speed = 12, health = 80000, hit = 125,
 		color = GRAVE,
 		look = { shirt = rgb(50, 70, 65), pants = rgb(35, 40, 40), beard = rgb(220, 230, 220), skin = DRAUGR_SKIN, eyes = GRAVE,
 			weapon = "greatAxe", shield = false, cape = rgb(30, 50, 45), crown = true, glow = GRAVE },
@@ -253,6 +287,8 @@ Dungeons.Bosses = {
 		summons = { { at = 0.5, add = "DraugrRaider", count = 3 } },
 		secondLife = {
 			health = 0.4, delay = 6, name = "Haldor Unbound", speedMult = 1.3,
+			-- risen: pale and ghostly, red-eyed, wreathed in grave-fire
+			look = { skin = rgb(205, 235, 225), shirt = rgb(30, 40, 38), pants = rgb(20, 24, 24), eyes = rgb(255, 60, 50), aura = rgb(150, 255, 200) },
 			moves = {
 				Cleave = { cooldown = 2.2, mult = 1.0, range = 16 },
 				RuneStrikes = { cooldown = 7, mult = 1.5, radius = 10, delay = 1.7, count = 5, style = "poison" },
@@ -261,7 +297,7 @@ Dungeons.Bosses = {
 		},
 	},
 	Brakki = {
-		id = "Brakki", name = "Brakki Anvil-Jarl", mini = true, scale = 2.2, speed = 15, health = 60000, hit = 150,
+		id = "Brakki", name = "Brakki Anvil-Jarl", mini = true, scale = 2.2, speed = 15, health = 60000, hit = 200,
 		color = rgb(255, 140, 60),
 		look = { shirt = rgb(100, 50, 30), pants = rgb(50, 35, 30), beard = rgb(40, 30, 25), weapon = "hammer", shield = false,
 			cape = rgb(90, 40, 20), warpaint = true, glow = rgb(255, 140, 60) },
@@ -273,29 +309,31 @@ Dungeons.Bosses = {
 		enrage = { at = 0.3 },
 	},
 	Sigrun = {
-		id = "Sigrun", name = "Runemaster Sigrun", scale = 3.0, speed = 12, health = 240000, hit = 170,
+		id = "Sigrun", name = "Runemaster Sigrun", scale = 3.0, speed = 12, health = 240000, hit = 210,
 		color = rgb(255, 150, 60),
 		look = { shirt = rgb(120, 50, 30), pants = rgb(50, 30, 25), hair = rgb(255, 170, 90), weapon = "staff", shield = false,
 			cape = rgb(160, 60, 20), crown = true, glow = rgb(255, 150, 60) },
 		moves = {
 			Cleave = { cooldown = 2.6, mult = 1.0, range = 15 },
 			RuneStrikes = { cooldown = 7, mult = 1.5, radius = 10, delay = 1.7, count = 5, style = "meteor" },
-			Harpoon = { cooldown = 11, mult = 0.8, minHeight = 14 },
+			-- (drags in a dragon hovering out of reach, or the one hanging back farthest away)
+			Harpoon = { cooldown = 11, mult = 0.8, minHeight = 6, far = 35 },
 			Lane = { cooldown = 18, mult = 2.2, width = 16, delay = 2.0 },
 		},
 		phases = {
-			{ at = 0.6, shield = { add = "ForgeGuard", count = 3 },
+			{ at = 0.6, shield = { add = "ForgeGuard", count = 3 }, hold = true,
 				moves = {
-					Cleave = { cooldown = 2.6, mult = 1.0, range = 15 },
 					RuneStrikes = { cooldown = 6, mult = 1.5, radius = 10, delay = 1.7, count = 6, style = "meteor" },
+					AxeVolley = { cooldown = 3.5, mult = 0.7, count = 3, style = "rune" },
 					Lane = { cooldown = 14, mult = 2.2, width = 16, delay = 2.0 },
 				} },
 			{ at = 0.3,
 				moves = {
 					Cleave = { cooldown = 2.4, mult = 1.1, range = 15 },
-					Whirlwind = { cooldown = 12, mult = 0.6, radius = 15, duration = 4, tick = 0.5 },
+					-- a firestorm around her, and four little cyclones spiralling out across the room
+					Whirlwind = { cooldown = 14, mult = 0.7, radius = 22, duration = 5, tick = 0.5, cyclones = 4, cycloneRadius = 7, cycloneMult = 0.9 },
 					Lane = { cooldown = 10, mult = 2.2, width = 16, delay = 1.8 },
-					Harpoon = { cooldown = 11, mult = 0.8, minHeight = 14 },
+					Harpoon = { cooldown = 11, mult = 0.8, minHeight = 6, far = 35 },
 				} },
 		},
 	},
@@ -334,6 +372,17 @@ function Dungeons.packMobs(pack)
 		end
 	end
 	return list
+end
+
+-- Where one of a boss whirlwind's little cyclones is `t` seconds after it set off from `center`:
+-- spiralling out and round, never past `maxR` (the room). The server hurts dragons from this and
+-- every client draws it from the same numbers.
+Dungeons.CYCLONE_SPEED = 9 -- studs per second outward
+Dungeons.CYCLONE_SPIN = 1.3 -- radians per second round
+function Dungeons.cyclonePos(center: Vector3, index: number, count: number, t: number, maxR: number): Vector3
+	local a = (index - 1) / count * math.pi * 2 + t * Dungeons.CYCLONE_SPIN
+	local r = math.min(6 + t * Dungeons.CYCLONE_SPEED, maxR)
+	return center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
 end
 
 -- The dungeons a dragon of this level can enter, and the one it unlocks next.

@@ -1,14 +1,19 @@
 -- Dungeon check: carves every dungeon (DungeonBuilder) and walks it on the terrain.
 --   * every marker (the entrance, the way out, each monster, the bosses, the hoard) stands on a
 --     floor with room above it
---   * every tunnel, each room's way from its middle to its tunnel mouths and monsters, the spiral
---     ramp and the dungeon's extra `routes` are walkable: the floor never jumps more than STEP
---     between samples 2 studs apart, and there's HEADROOM above it the whole way
+--   * every walk in the monsters' map (DungeonNav.graph: tunnels, each room's middle to its tunnel
+--     mouths, the spiral ramp, the extra `routes`, near neighbours) is walkable: the floor never
+--     jumps more than STEP between samples 2 studs apart, and there's HEADROOM above it the whole way;
+--     and every node of it can be reached from the entrance
+--   * each monster, boss, the keeper, the provisions and the hoard stand out of the lava and can
+--     walk to the map; monsters of different packs start Dungeons.PACK_SPACING apart
+--   * every boss room has its doors, and every patrol route is walkable
 -- Prints a line per dungeon and "N dungeon problems" at the end. With DUNGEON_MAP = "<id>" set
 -- (prepend a line), it prints the floor map of that dungeon instead ("x z floorY material" rows,
 -- for dungeon_map.py).
 local Dungeons = require(__proxy("Shared/Config/Dungeons"))
 local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+local DungeonNav = require(__proxy("Shared/DungeonNav"))
 
 local HEADROOM = 9
 local STEP = 2.6
@@ -68,16 +73,6 @@ local function walk(label: string, a: Vector3, b: Vector3): string?
 	return nil
 end
 
-local function inside(sp, p: Vector3): boolean
-	local d = p - sp.at
-	if sp.kind == "box" then
-		return math.abs(d.X) <= sp.size.X / 2 + 1 and math.abs(d.Z) <= sp.size.Y / 2 + 1
-	elseif sp.kind == "round" then
-		return Vector3.new(d.X, 0, d.Z).Magnitude <= sp.radius + 1
-	end
-	return false
-end
-
 local function check(def)
 	local origin = Dungeons.origin(def.id, 1)
 	local built = DungeonBuilder.interior(def, origin, folder)
@@ -132,83 +127,121 @@ local function check(def)
 	end
 	marker("mini-boss", def.miniBoss.at)
 	marker("boss", def.boss.at)
-	local waypoints = {}
-	for _, sp in ipairs(def.spaces) do
-		if sp.kind == "path" then
-			for i, p in ipairs(sp.points) do
-				table.insert(waypoints, p)
-				if i > 1 then
-					problem(walk(sp.id .. " " .. (i - 1), origin + sp.points[i - 1], origin + p))
+	for _, spot in ipairs({ { "keeper", def.keeper and def.keeper.at }, { "provisions", def.keeper and def.keeper.food } }) do
+		if spot[2] then
+			marker(spot[1], spot[2])
+		end
+	end
+	-- the monsters' map: every walk in it, and all of it reachable from the entrance
+	local graph = DungeonNav.graph(def)
+	for _, edge in ipairs(graph.edges) do
+		local a, b = graph.nodes[edge[1]], graph.nodes[edge[2]]
+		problem(walk(string.format("walk (%.0f, %.0f, %.0f) - (%.0f, %.0f, %.0f)", a.X, a.Y, a.Z, b.X, b.Y, b.Z), origin + a, origin + b))
+	end
+	local function nearest(p: Vector3): number
+		local best, bestDist = 1, math.huge
+		for i, q in ipairs(graph.nodes) do
+			local d = (q - p).Magnitude
+			if d < bestDist then
+				best, bestDist = i, d
+			end
+		end
+		return best
+	end
+	local seen, queue = { [nearest(def.spawn)] = true }, { nearest(def.spawn) }
+	while #queue > 0 do
+		local i = table.remove(queue)
+		for _, j in ipairs(graph.adj[i]) do
+			if not seen[j] then
+				seen[j] = true
+				table.insert(queue, j)
+			end
+		end
+	end
+	for i, q in ipairs(graph.nodes) do
+		if not seen[i] then
+			problem(string.format("(%.0f, %.0f, %.0f) can't be reached from the entrance", q.X, q.Y, q.Z))
+		end
+	end
+	-- each monster (and the bosses, the hoard...): out of the lava, and a walk to the map
+	local spots = {}
+	for i, pack in ipairs(def.packs) do
+		for j, entry in ipairs(Dungeons.packMobs(pack)) do
+			table.insert(spots, { string.format("pack %d mob %d (%s)", i, j, entry[1]), entry[2], i })
+		end
+	end
+	table.insert(spots, { "mini-boss", def.miniBoss.at })
+	table.insert(spots, { "boss", def.boss.at })
+	if def.chest then
+		table.insert(spots, { "hoard", def.chest })
+	end
+	for _, spot in ipairs(spots) do
+		local label, p = spot[1], spot[2]
+		marker(label, p)
+		if DungeonNav.inHazard(def, p) then
+			problem(label .. " stands in lava")
+		end
+		local w = graph.nodes[nearest(p)]
+		problem(walk(label .. " to the way", origin + p, origin + w))
+		if not DungeonNav.route(def, def.spawn, p) then
+			problem(label .. ": no way there from the entrance")
+		end
+	end
+	-- packs spread out (so fighting one doesn't happen right under the next one's nose)
+	for i = 1, #spots do
+		for j = i + 1, #spots do
+			local a, b = spots[i], spots[j]
+			if a[3] and b[3] and a[3] ~= b[3] then
+				local d = Vector3.new(b[2].X - a[2].X, 0, b[2].Z - a[2].Z).Magnitude
+				if d < Dungeons.PACK_SPACING then
+					problem(string.format("%s and %s are only %.0f apart", a[1], b[1], d))
 				end
 			end
-		elseif sp.hub ~= false then
-			table.insert(waypoints, sp.at)
 		end
 	end
-	for _, route in ipairs(def.routes or {}) do
-		for _, p in ipairs(route) do
-			table.insert(waypoints, p)
-		end
-	end
-	for _, f in ipairs(def.features or {}) do
-		if f.kind == "spiral" then
-			local mid = (f.inner + f.outer) / 2
-			for k = 0, 1.0001, 0.1 do
-				local a = math.rad(f.from + (f.to - f.from) * k)
-				table.insert(waypoints, f.center + Vector3.new(math.cos(a) * mid, f.topY + (f.bottomY - f.topY) * k - f.center.Y, math.sin(a) * mid))
+	-- patrol routes: every leg walkable, and the whole pack's formation on the floor at each stop
+	for i, pack in ipairs(def.packs) do
+		if pack.patrol then
+			for j = 2, #pack.patrol do
+				problem(walk(string.format("pack %d patrol leg %d", i, j - 1), origin + pack.patrol[j - 1], origin + pack.patrol[j]))
 			end
-		end
-	end
-	-- each room: from its middle to the tunnel mouths inside it
-	for _, room in ipairs(def.spaces) do
-		if room.kind ~= "path" and room.hub ~= false then
-			for _, sp in ipairs(def.spaces) do
-				if sp.kind == "path" then
-					for _, p in ipairs({ sp.points[1], sp.points[#sp.points] }) do
-						if inside(room, p) then
-							problem(walk(room.id .. " to " .. sp.id, origin + room.at, origin + p))
-						end
+			for j, stop in ipairs(pack.patrol) do
+				for k, entry in ipairs(Dungeons.packMobs(pack)) do
+					local p = stop + (entry[2] - pack.at)
+					marker(string.format("pack %d patrol stop %d mob %d", i, j, k), p)
+					if DungeonNav.inHazard(def, p) then
+						problem(string.format("pack %d patrol stop %d: in the lava", i, j))
 					end
 				end
 			end
 		end
 	end
-	-- each monster: stands on a floor, and can walk to the nearest waypoint
-	for i, pack in ipairs(def.packs) do
-		for j, entry in ipairs(Dungeons.packMobs(pack)) do
-			local label = string.format("pack %d mob %d (%s)", i, j, entry[1])
-			marker(label, entry[2])
-			local best, bestDist = nil, math.huge
-			for _, w in ipairs(waypoints) do
-				local d = (w - entry[2]).Magnitude
-				if d < bestDist then
-					best, bestDist = w, d
-				end
-			end
-			problem(walk(label .. " to the way", origin + entry[2], origin + best))
-		end
-	end
+	-- the spiral, in finer steps than the map's samples
 	for _, f in ipairs(def.features or {}) do
 		if f.kind == "spiral" then
-			local mid = (f.inner + f.outer) / 2
 			local last = nil
-			for k = 0, 1.0001, 0.05 do
-				local a = math.rad(f.from + (f.to - f.from) * k)
-				local p = origin + f.center + Vector3.new(math.cos(a) * mid, f.topY + (f.bottomY - f.topY) * k - f.center.Y, math.sin(a) * mid)
+			for _, p in ipairs(DungeonNav.spiralPoints(f, 0.05)) do
 				if last then
-					problem(walk("spiral", last, p))
+					problem(walk("spiral", origin + last, origin + p))
 				end
 				last = p
 			end
 		end
 	end
-	for i, route in ipairs(def.routes or {}) do
-		for j = 2, #route do
-			problem(walk("route " .. i, origin + route[j - 1], origin + route[j]))
+	-- the boss rooms' doors
+	for _, spec in ipairs({ def.miniBoss, def.boss }) do
+		local n = 0
+		for _, door in ipairs(built.doors or {}) do
+			if door.room == spec.room then
+				n += 1
+			end
+		end
+		if n == 0 then
+			problem(spec.room .. " (a boss room) has no doors")
 		end
 	end
 	problems += #found
-	print(string.format("%s %-8s %d spaces, %d packs, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #def.spaces, #def.packs, #found))
+	print(string.format("%s %-8s %d spaces, %d packs, %d map nodes, %d doors, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #def.spaces, #def.packs, #DungeonNav.graph(def).nodes, #(built.doors or {}), #found))
 	for _, msg in ipairs(found) do
 		print("     " .. msg)
 	end

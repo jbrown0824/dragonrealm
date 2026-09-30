@@ -993,7 +993,8 @@ function PlayerService.start()
 				local _, humanoid = PlayerService.getCharacter(player)
 				if humanoid and st.stats and humanoid.Health < humanoid.MaxHealth then
 					local perSecond = humanoid.MaxHealth * st.stats.regen / 100
-					if t - st.lastDamaged >= Game.OUT_OF_COMBAT_TIME then
+					-- (none while your dungeon group is still fighting: no hiding in a corner to heal)
+					if t - st.lastDamaged >= Game.OUT_OF_COMBAT_TIME and not S.DungeonService.inCombat(player) then
 						perSecond += humanoid.MaxHealth * Game.OUT_OF_COMBAT_REGEN
 					end
 					if perSecond > 0 then

@@ -23,7 +23,8 @@ local function click(root: Instance, text: string)
 end
 
 -- Dungeons on the client: the 🏰 button at level 15 (and its badge), the unlock toast, the window,
--- the pill (queue, run, ready check), a dark cave, the death screen's Leave, invites as a toast.
+-- the pill (queue, run, ready check), the cave's light, the dungeon minimap and map, Haldor on his
+-- throne, the hoard opening, the low hover, the death screen's Leave, invites as a toast.
 -- (Its own function: the main scenario is out of local variables.)
 local function dungeonClientScenario(me)
 	local Lighting = game:GetService("Lighting")
@@ -83,8 +84,68 @@ local function dungeonClientScenario(me)
 	task.wait(2)
 	check(me:GetAttribute("InDungeon") == "Barrow", "into the Barrow from the window")
 	check(pill.Visible and tostring(pill.Title.Text):find("Packs") ~= nil, "the pill tracks the run")
-	check(Lighting.ClockTime == 0 and Lighting.Brightness < 1, "the cave is dark inside")
+	local DungeonInfo = require(__proxy("Shared/Config/Dungeons"))
+	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+	check(Lighting.ClockTime == 0 and Lighting.Ambient == DungeonInfo.List.Barrow.theme.ambient, "the cave's own light inside (no sun)")
 	check(hasText(Windows.guis.HUD, "The Draugr Barrow"), "the minimap shows the dungeon's name")
+	-- the minimap draws the dungeon itself, and a click on it opens the dungeon's map
+	task.wait(0.5)
+	local minimap = Windows.guis.HUD:FindFirstChild("Minimap", true)
+	local caveMap = minimap and minimap:FindFirstChild("DungeonCanvas")
+	check(caveMap and caveMap.Visible and not minimap.Canvas.Visible, "in a dungeon the minimap shows the dungeon's own map")
+	for _, b in ipairs(minimap:GetChildren()) do
+		if b.ClassName == "TextButton" and b.Text == "" then
+			b.Activated:Fire()
+		end
+	end
+	task.wait(0.5)
+	local mapWin = Windows.registry.Map.frame
+	local bigCave = mapWin:FindFirstChild("DungeonMap", true)
+	check(Windows.isOpen("Map") and bigCave and bigCave.Visible and bigCave:FindFirstChild("DungeonCanvas") ~= nil, "clicking it opens the dungeon's map, not the world's")
+	check(hasText(mapWin, "The way out") and hasText(mapWin, "Haldor"), "...with what the marks mean")
+	Windows.close()
+	-- Haldor sits on his throne (the Animator bends his legs; it only poses what's near the camera)
+	local seated = nil
+	for _, m in ipairs(CollectionService:GetTagged("Viking")) do
+		if m:GetAttribute("Pose") == "sit" then
+			seated = m
+		end
+	end
+	local cam = workspace.CurrentCamera
+	local camBefore = cam.CFrame
+	if seated then
+		local at = seated:GetPivot().Position
+		cam.CFrame = CFrame.lookAt(at + Vector3.new(0, 20, -120), at)
+	end
+	task.wait(0.3)
+	local leg = seated and seated:FindFirstChild("LegL", true)
+	cam.CFrame = camBefore
+	check(leg and math.abs(leg.Transform.LookVector.Y) > 0.5, "Haldor sits on his throne, legs bent")
+	-- the hidden hoard: a chest that shows open (and no prompt) once you've had your share
+	local run = S.DungeonService.runOf(me)
+	local hoardPrompt = run.built.chest:FindFirstChildWhichIsA("ProximityPrompt", true)
+	check(hasText(me.PlayerGui, "Hidden hoard") and hoardPrompt.Enabled, "the hidden hoard, shut")
+	hoardPrompt.Triggered:Fire(me)
+	task.wait(1)
+	check(hasText(me.PlayerGui, "Looted") and not hoardPrompt.Enabled, "...and open once you've looted it")
+	-- wings only lift you a little in here: above that, flight eases you back down
+	local Movement = mod("Controllers/Movement")
+	local r = me.Character.HumanoidRootPart
+	local hover = me.Character:FindFirstChildOfClass("Humanoid")
+	Movement.toggleFlight()
+	Movement.setVertical(1)
+	local floorY = DungeonBuilder.floorAt(r.Position, 0.5).Y
+	r.CFrame = CFrame.new(r.Position.X, floorY + hover.HipHeight + r.Size.Y / 2 + DungeonInfo.HOVER_HEIGHT + 8, r.Position.Z)
+	task.wait(0.3)
+	local lv = r:FindFirstChildOfClass("LinearVelocity")
+	check(lv and lv.VectorVelocity.Y < -1, "flying too high in a dungeon pulls you back down")
+	-- once its boss is down, the cave is yours to fly
+	me:SetAttribute("DungeonCleared", true)
+	task.wait(0.3)
+	check(lv and lv.VectorVelocity.Y > 1, "...but full flight comes back once the dungeon is cleared")
+	me:SetAttribute("DungeonCleared", nil)
+	Movement.setVertical(0)
+	Movement.toggleFlight()
 	-- knocked out alone: the death screen offers a way out
 	local _, hum = S.PlayerService.getCharacter(me)
 	hum.Health = 0

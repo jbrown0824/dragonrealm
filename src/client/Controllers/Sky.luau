@@ -66,7 +66,8 @@ local function apply(dark: number)
 	tint.Saturation = -0.15 * dark
 end
 
--- Inside a dungeon: no sun, and the cave's own dim ambient light (its braziers do the rest).
+-- Inside a dungeon: no sun, and the cave's own ambient light (its torches, lamps and lava do the
+-- rest). Dim enough to feel like a cave, bright enough to see the rock.
 local inCave = nil
 local function cave(def)
 	Lighting.ClockTime = 0
@@ -77,7 +78,7 @@ local function cave(def)
 	lastDark = -1
 	Lighting.OutdoorAmbient = def.theme.ambient
 	Lighting.Ambient = def.theme.ambient
-	Lighting.Brightness = 0.6
+	Lighting.Brightness = 1.1
 	tint.TintColor = Color3.new(1, 1, 1)
 	tint.Saturation = 0
 end

@@ -486,6 +486,14 @@ local function setStealth(player: Player, on: boolean)
 	end
 end
 
+-- Drop out of stealth now (pushing a dungeon boss's doors open).
+function CombatService.breakStealth(player: Player)
+	local character = player.Character
+	if character and character:GetAttribute("Stealthed") then
+		setStealth(player, false)
+	end
+end
+
 local function flatDirection(from: Vector3, to: Vector3, fallback: Vector3): Vector3
 	local d = to - from
 	d = Vector3.new(d.X, 0, d.Z)

@@ -8,13 +8,21 @@
 -- everyone who says yes is carried into their own copy of the dungeon (DungeonBuilder carves one
 -- per group playing it, off the map).
 --
--- In a run the WoW rules apply: pulling one monster pulls its pack, a dragon knocked out stays down
--- until the group is out of combat (then gets up beside a friend), and if everyone falls the group
--- wakes at the entrance while the monsters reset (bosses back to full). Monsters that nobody hurts
--- (and that hurt nobody) for Dungeons.EVADE_TIME give up and walk home, healing slowly. Bosses fight
--- with BossKit moves plus their traits (summons, enrage, phases with a rune shield, a second life).
--- Beating the boss gives everyone in the run their own loot: gear at the dungeon's item level, a
--- chance of a relic (lifesteal / regen) and of the dungeon's egg (with pity).
+-- In a run the WoW rules apply: pulling one monster pulls its pack (and idle monsters close to a
+-- fight join in), a dragon knocked out stays down until the group is out of combat (then gets up
+-- beside a friend), and if everyone falls the group wakes at the entrance while the monsters reset
+-- (bosses back to full). Monsters find their way with DungeonNav (over the bridges, never through
+-- lava) and chase far; one that's stuck (no hits either way, not getting closer) for
+-- Dungeons.EVADE_TIME gives up and walks home, healing slowly. Until the boss falls, wings only lift
+-- a dragon a little (the client caps it; the tick here puts cheaters back down), and nobody regains
+-- health out of combat while the group fights. Boss rooms have doors: pushing one open wakes the
+-- monsters around it (and breaks stealth); they seal while the boss fights and open for good when
+-- it dies. Healing draughts turn up on the floor during boss fights. Bosses fight with BossKit
+-- moves plus their traits (summons, enrage, phases with a rune shield, a second life); Haldor waits
+-- on his throne. Beating the boss gives everyone in the run their own loot: gear at the dungeon's
+-- item level, a chance of a relic (lifesteal / regen) and of the dungeon's egg (with pity), and a
+-- big XP bonus the first time. Hunger doesn't drain in a run (SurvivalService), and the provisions
+-- by the entrance fill you up once.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -31,6 +39,7 @@ local Tuning = require(Shared.Tuning)
 local ItemUtil = require(Shared.ItemUtil)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
+local DungeonNav = require(Shared.DungeonNav)
 
 local BossKit = require(script.Parent.Parent.Combat.BossKit)
 local DungeonBuilder = require(script.Parent.Parent.World.DungeonBuilder)
@@ -161,6 +170,21 @@ function DungeonService.groupOf(player: Player)
 	return groupOf[player]
 end
 
+-- Is the dragon's group fighting? (No out-of-combat regen then: PlayerService.)
+function DungeonService.inCombat(player: Player): boolean
+	local run = runOf[player]
+	return run ~= nil and run.inCombat == true
+end
+
+-- Where a dungeon keeper stands inside the dragon's run (nil: not in that keeper's dungeon).
+function DungeonService.keeperPosition(player: Player, giverId: string): Vector3?
+	local run = runOf[player]
+	if run and run.def.giver == giverId then
+		return run.built.keeper
+	end
+	return nil
+end
+
 -- Where a dragon in a run (re)spawns: the entrance of its dungeon.
 function DungeonService.spawnCFrame(player: Player): CFrame?
 	local run = runOf[player]
@@ -242,6 +266,8 @@ local function stateFor(player: Player)
 		local m = run.members[player]
 		data.run = {
 			dungeonId = run.def.id,
+			origin = run.built.origin, -- (the client's dungeon map)
+			miniDown = run.bosses.mini ~= nil and run.bosses.mini.e.dead,
 			packs = #run.packs,
 			cleared = cleared,
 			inCombat = run.inCombat,
@@ -359,7 +385,7 @@ local function slotFor(def)
 			return index, slot
 		end
 	end
-	local slot = { built = DungeonBuilder.interior(def, Dungeons.origin(def.id, #list + 1), folder) }
+	local slot = { built = DungeonBuilder.interior(def, Dungeons.origin(def.id, #list + 1), folder, #list + 1) }
 	if slot.built.chained then
 		slot.built.chainedHome = slot.built.chained:GetPivot()
 	end
@@ -367,7 +393,7 @@ local function slotFor(def)
 	return #list, slot
 end
 
--- A reused copy gets its chained dragon (and chains) back.
+-- A reused copy gets its chained dragon (and chains) back, and its boss doors shut.
 local function resetSlot(built)
 	if built.chained then
 		built.chained.Parent = built.model
@@ -375,6 +401,9 @@ local function resetSlot(built)
 		if built.chains then
 			built.chains.Parent = built.model
 		end
+	end
+	for _, door in ipairs(built.doors or {}) do
+		DungeonBuilder.setDoor(door, "closed")
 	end
 end
 
@@ -384,6 +413,54 @@ local onMobDeath, onBossDeath, onBossLethal -- (forward)
 
 local function floorAt(pos: Vector3): Vector3
 	return DungeonBuilder.floorAt(pos)
+end
+
+-- Is a point inside a room (with `margin` to spare past its walls)?
+local function insideRoom(room, pos: Vector3, margin: number?): boolean
+	local m = margin or 0
+	local d = pos - room.center
+	if d.Y < -12 or d.Y > room.top - room.center.Y + 6 then
+		return false
+	end
+	if room.kind == "box" then
+		return math.abs(d.X) <= room.hx + m and math.abs(d.Z) <= room.hz + m
+	end
+	return flat(d).Magnitude <= room.radius + m
+end
+
+-- Where a run monster should walk next on its way to `goal` (EnemyService asks): straight there
+-- when it can, or the next stop on the way round (a bridge, the spiral, a tunnel's bend). A goal
+-- in the lava: as close as it can get without stepping in. Re-planned twice a second.
+function DungeonService.steer(e, goal: Vector3): Vector3
+	local run = e.run and runs[e.run]
+	if not run then
+		return goal
+	end
+	local def, origin = run.def, run.built.origin
+	local feet = e.root.Position - Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2, 0) - origin
+	local t = now()
+	local nav = e.nav
+	if not nav or t >= nav.untilT or (nav.goal - goal).Magnitude > 6 then
+		local target = floorAt(goal) - origin
+		local blocked = DungeonNav.inHazard(def, target)
+		local path = nil
+		if blocked or not DungeonNav.direct(def, feet, target) then
+			path = DungeonNav.route(def, feet, target)
+		end
+		nav = { goal = goal, untilT = t + 0.5, path = path, blocked = blocked }
+		e.nav = nav
+	end
+	local path = nav.path
+	if not path then
+		return nav.blocked and e.root.Position or goal
+	end
+	while #path > 0 and flat(path[1] - feet).Magnitude < 5 do
+		table.remove(path, 1)
+	end
+	if #path == 0 then
+		return nav.blocked and e.root.Position or goal
+	end
+	return origin + path[1]
 end
 
 local function spawnMob(run, typeId: string, pos: Vector3, pack)
@@ -399,6 +476,7 @@ local function spawnMob(run, typeId: string, pos: Vector3, pack)
 		damageMult = run.dmgMult * Tuning.dungeon(id, "mobDmg"),
 		leash = Dungeons.MOB_LEASH,
 		aggroRange = mdef.aggroRange,
+		slam = mdef.slam,
 	}
 	if mdef.builder == "animal" then
 		local look = mdef.look
@@ -415,6 +493,8 @@ local function spawnMob(run, typeId: string, pos: Vector3, pack)
 	local e = S.EnemyService.spawn(typeId, level, pos, opts)
 	if e then
 		e.home = ground
+		-- idle: keep watch, wander about, or (a patrol) walk the pack's route
+		e.idle = (pack and pack.patrol and "patrol") or (pack and pack.idle) or mdef.idle or "stand"
 		table.insert(run.mobs, e)
 		if pack then
 			table.insert(pack.mobs, e)
@@ -423,14 +503,66 @@ local function spawnMob(run, typeId: string, pos: Vector3, pack)
 	return e
 end
 
-local function spawnPacks(run)
-	for i, pack in ipairs(run.def.packs) do
-		local p = { index = i, mobs = {}, cleared = false }
-		run.packs[i] = p
-		for _, entry in ipairs(Dungeons.packMobs(pack)) do
-			spawnMob(run, entry[1], run.built.origin + entry[2], p)
+-- A patrol route: its points and how far along it each one is.
+local function makeRoute(points)
+	local route = { points = points, at = { 0 }, length = 0 }
+	for i = 2, #points do
+		route.length += (points[i] - points[i - 1]).Magnitude
+		route.at[i] = route.length
+	end
+	return route
+end
+
+local function along(route, d: number): Vector3
+	for i = 2, #route.points do
+		if d <= route.at[i] or i == #route.points then
+			local seg = route.at[i] - route.at[i - 1]
+			return route.points[i - 1]:Lerp(route.points[i], seg > 0 and math.clamp((d - route.at[i - 1]) / seg, 0, 1) or 0)
 		end
 	end
+	return route.points[1]
+end
+
+local function spawnPacks(run)
+	for i, pack in ipairs(run.def.packs) do
+		local p = { index = i, mobs = {}, cleared = false, idle = pack.idle }
+		if pack.patrol then
+			p.patrol = makeRoute(pack.patrol)
+			p.patrolAt = 0
+		end
+		run.packs[i] = p
+		for _, entry in ipairs(Dungeons.packMobs(pack)) do
+			local e = spawnMob(run, entry[1], run.built.origin + entry[2], p)
+			if e then
+				e.offset = pack.at and entry[2] - pack.at or nil -- (its place in a patrol's formation)
+			end
+		end
+	end
+end
+
+-- Where an idle run monster stands or strolls to (EnemyService asks when nobody's in reach):
+-- guards keep their spot, wanderers amble a few studs round it now and then (on the same floor,
+-- somewhere they can walk straight to, never into lava), and a patrol's post moves along its route
+-- (the run tick).
+function DungeonService.idleSpot(e, t: number): Vector3
+	local run = e.run and runs[e.run]
+	if not run or e.idle ~= "wander" then
+		return e.spawnPos
+	end
+	if not e.wanderGoal or t >= (e.wanderAt or 0) then
+		e.wanderAt = t + 4 + math.random() * 6
+		e.wanderGoal = e.spawnPos
+		local origin = run.built.origin
+		for _ = 1, 6 do
+			local a, r = math.random() * math.pi * 2, 4 + math.random() * (Dungeons.WANDER_RADIUS - 4)
+			local goal = floorAt(e.spawnPos + Vector3.new(math.cos(a) * r, 2, math.sin(a) * r))
+			if math.abs(goal.Y - e.spawnPos.Y) < 2 and DungeonNav.direct(run.def, e.spawnPos - origin, goal - origin) then
+				e.wanderGoal = goal
+				break
+			end
+		end
+	end
+	return e.wanderGoal
 end
 
 -- Monsters that heard the fight: everyone in the pack goes for the same dragon.
@@ -448,16 +580,118 @@ function DungeonService.pullPack(e, player: Player)
 	end
 end
 
+-- The dragons a boss fights: the ones inside its room (not behind its doors).
 local function participants(run, boss)
 	local list = {}
-	local room = boss.room
 	for _, p in ipairs(aliveMembers(run)) do
-		local d = p.root.Position - room.center
-		if flat(d).Magnitude <= room.radius + 24 and math.abs(d.Y) < 70 then
+		if insideRoom(boss.room, p.root.Position, 2) then
 			table.insert(list, p)
 		end
 	end
 	return list
+end
+
+---------------------------------------------------------------- bosses: poses and looks
+
+-- The throne (Haldor): anchored, sitting (clients pose the legs from the `Pose` attribute), his
+-- hips on the seat and his back against the back of it.
+local function seat(boss)
+	local e, throne = boss.e, boss.throne
+	local s = e.scale
+	e.root.Anchored = true
+	local rootY = throne.pos.Y + DungeonBuilder.THRONE_SEAT + 0.46 * s + s -- (leg joints sit `s` below the root)
+	local at = Vector3.new(throne.pos.X, rootY, throne.pos.Z) - throne.face * 1.8
+	e.model:PivotTo(CFrame.lookAt(at, at + throne.face))
+	e.model:SetAttribute("Pose", "sit")
+	boss.seated = true
+end
+
+-- Up off the throne and down onto the floor in front of it.
+local function standUp(boss)
+	local e, throne = boss.e, boss.throne
+	local ground = floorAt(throne.pos + throne.face * 11)
+	local up = Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2 + 0.5, 0)
+	e.model:SetAttribute("Pose", nil)
+	e.model:PivotTo(CFrame.lookAt(ground + up, ground + up + throne.face))
+	e.root.Anchored = false
+	boss.seated = false
+end
+
+-- Down on his knees (a second life's collapse): legs folded back, leaning on his weapon.
+local function kneel(boss)
+	local e = boss.e
+	local s = e.scale
+	e.root.Anchored = true
+	local ground = floorAt(e.root.Position)
+	local look = flat(e.root.CFrame.LookVector)
+	look = look.Magnitude > 0.1 and look.Unit or Vector3.new(0, 0, -1)
+	local at = Vector3.new(e.root.Position.X, ground.Y + 1.46 * s, e.root.Position.Z)
+	e.model:PivotTo(CFrame.lookAt(at, at + look) * CFrame.Angles(math.rad(-10), 0, 0))
+	e.model:SetAttribute("Pose", "kneel")
+end
+
+-- The risen look (secondLife.look): recoloured skin, clothes and eyes, and a wreath of grave-fire.
+local function unbind(boss)
+	local e, old, new = boss.e, boss.def.look, boss.def.secondLife.look
+	if not new or boss.recolored then
+		return
+	end
+	boss.recolored = {}
+	for _, p in ipairs(e.model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			local to = nil
+			if p.Material == Enum.Material.Neon and old.eyes and new.eyes and p.Color == old.eyes then
+				to = new.eyes
+			elseif old.skin and new.skin and p.Color == old.skin then
+				to = new.skin
+			elseif new.shirt and p.Color == old.shirt then
+				to = new.shirt
+			elseif new.pants and p.Color == old.pants then
+				to = new.pants
+			end
+			if to then
+				boss.recolored[p] = p.Color
+				p.Color = to
+			end
+		end
+	end
+	local torso = e.model:FindFirstChild("Torso") or e.root
+	if new.aura then
+		local aura = Instance.new("ParticleEmitter")
+		aura.Name = "UnboundAura"
+		aura.Color = ColorSequence.new(new.aura, Color3.new(1, 1, 1))
+		aura.LightEmission = 0.9
+		aura.Rate = 30
+		aura.Lifetime = NumberRange.new(0.8, 1.4)
+		aura.Speed = NumberRange.new(2, 5)
+		aura.SpreadAngle = Vector2.new(180, 180)
+		aura.Acceleration = Vector3.new(0, 6, 0)
+		aura.Size = NumberSequence.new(3, 0)
+		aura.Transparency = NumberSequence.new(0.3, 1)
+		aura.Parent = torso
+		local light = Instance.new("PointLight")
+		light.Name = "UnboundLight"
+		light.Color = new.aura
+		light.Range = 40
+		light.Brightness = 3
+		light.Parent = torso
+	end
+	e.model:SetAttribute("Unbound", true)
+end
+
+-- Back to the first life's look (a wipe).
+local function rebind(boss)
+	for p, color in pairs(boss.recolored or {}) do
+		p.Color = color
+	end
+	boss.recolored = nil
+	for _, name in ipairs({ "UnboundAura", "UnboundLight" }) do
+		local d = boss.e.model:FindFirstChild(name, true)
+		if d then
+			d:Destroy()
+		end
+	end
+	boss.e.model:SetAttribute("Unbound", nil)
 end
 
 local function spawnBoss(run, kind: string)
@@ -517,6 +751,19 @@ local function spawnBoss(run, kind: string)
 		grace = 1,
 	})
 	boss.brain.home = ground
+	if spec.throne then
+		-- waiting on his throne (the throne decor at spec.at)
+		local face = Vector3.new(0, 0, -1)
+		for _, d in ipairs(def.decor or {}) do
+			if d.kind == "throne" then
+				face = d.face.Unit
+			end
+		end
+		boss.throne = { pos = ground, face = face }
+		boss.home = floorAt(ground + face * 11)
+		boss.brain.home = boss.home
+		seat(boss)
+	end
 	run.bosses[kind] = boss
 	return boss
 end
@@ -607,9 +854,14 @@ local function clearRun(run)
 			table.insert(lines, ItemUtil.displayName(item))
 			relicOrEgg(player, run, lines)
 			local gold = def.loot.gold
-			S.LootService.grant(player, { xp = math.floor(xpShare(profile, Dungeons.BOSS_XP)), gold = gold })
-			table.insert(lines, Util.formatNumber(gold) .. " gold")
 			local first = (profile.dungeons.clears[def.id] or 0) == 0
+			-- a big XP bonus the first time you clear it, a smaller one after that
+			S.LootService.grant(player, { xp = math.floor(xpShare(profile, first and Dungeons.FIRST_CLEAR_XP or Dungeons.BOSS_XP)), gold = gold })
+			table.insert(lines, Util.formatNumber(gold) .. " gold")
+			if first then
+				table.insert(lines, "⭐ first clear bonus XP")
+			end
+			player:SetAttribute("DungeonCleared", true) -- (full flight again)
 			profile.dungeons.clears[def.id] = (profile.dungeons.clears[def.id] or 0) + 1
 			profile.dungeonClears = (profile.dungeonClears or 0) + 1
 			if first and def.title and not profile.titles[def.title] then
@@ -628,14 +880,13 @@ end
 
 local function openChest(player: Player, prompt: Instance)
 	local run = runOf[player]
-	if not run or not run.built.chest or not prompt:IsDescendantOf(run.built.model) then
-		return
-	end
-	if run.chestOpened[player] then
-		notify(player, "You already took your share of this hoard.", INFO, "💰")
+	local chest = run and run.built.chest
+	if not chest or not prompt:IsDescendantOf(chest) or run.chestOpened[player] then
 		return
 	end
 	run.chestOpened[player] = true
+	-- (each client shows it open for itself from this: WorldView)
+	player:SetAttribute("ChestReady_" .. chest:GetAttribute("CampId"), workspace:GetServerTimeNow() + 1e7)
 	local def = run.def
 	local gold = math.floor(def.loot.gold * 0.4)
 	local parts = { Util.formatNumber(gold) .. " gold" }
@@ -646,8 +897,124 @@ local function openChest(player: Player, prompt: Instance)
 		S.PlayerService.addItem(player, item)
 		table.insert(parts, ItemUtil.displayName(item))
 	end
-	S.CombatService.broadcastVFX({ kind = "chest", pos = run.built.chest.Position })
+	S.CombatService.broadcastVFX({ kind = "chest", pos = chest:GetPivot().Position })
 	notify(player, "Hidden hoard: " .. table.concat(parts, ", ") .. "!", GOLD, "💰")
+end
+
+---------------------------------------------------------------- runs: doors, draughts, provisions
+
+local function roomDoors(run, roomId: string)
+	local list = {}
+	for _, door in ipairs(run.built.doors or {}) do
+		if door.room == roomId then
+			table.insert(list, door)
+		end
+	end
+	return list
+end
+
+-- Seal a boss room while its boss fights (nobody in or out), or lift the seal: doors that were
+-- open go back to open, the ones nobody had opened shut again.
+local function sealRoom(run, room, on: boolean)
+	for _, door in ipairs(roomDoors(run, room.id)) do
+		if on then
+			if door.state ~= "sealed" then
+				door.wasOpen = door.state == "open"
+				DungeonBuilder.setDoor(door, "sealed", true)
+			end
+		elseif door.state == "sealed" then
+			DungeonBuilder.setDoor(door, door.wasOpen and "open" or "closed", true)
+		end
+	end
+end
+
+-- Someone pushed a boss door open: it swings in, their stealth drops, and every monster within
+-- earshot comes for them.
+local function openDoor(player: Player, prompt: Instance)
+	local run = runOf[player]
+	if not run then
+		return
+	end
+	for _, door in ipairs(run.built.doors or {}) do
+		if door.prompt == prompt and door.state == "closed" then
+			DungeonBuilder.setDoor(door, "open", true)
+			S.CombatService.breakStealth(player)
+			local t = now()
+			local woke = 0
+			for _, e in ipairs(run.mobs) do
+				if not e.dead and e.model.Parent and not e.target and (e.root.Position - door.pos).Magnitude <= Dungeons.DOOR_ALERT and S.EnemyService.targetRoot(e, player) then
+					e.target = player
+					e.returning = false
+					e.lastCombat = t
+					DungeonService.pullPack(e, player)
+					woke += 1
+				end
+			end
+			for p in pairs(run.members) do
+				notify(p, woke > 0 and "The doors grind open... and everything nearby heard it!" or "The doors grind open.", woke > 0 and BAD or INFO, "🚪")
+			end
+			markDirty()
+			return
+		end
+	end
+end
+
+local function clearDraughts(run)
+	for _, d in ipairs(run.draughts) do
+		if d.model.Parent then
+			d.model:Destroy()
+		end
+	end
+	table.clear(run.draughts)
+end
+
+-- A draught turns up somewhere on the boss room's floor, well away from the boss.
+local function dropDraught(run, boss)
+	local room = boss.room
+	for _ = 1, 16 do
+		local a = math.random() * math.pi * 2
+		local r = math.sqrt(math.random()) * math.max(4, room.radius - 10)
+		local p = floorAt(room.center + Vector3.new(math.cos(a) * r, 4, math.sin(a) * r))
+		if flat(p - boss.e.root.Position).Magnitude >= 18 and not DungeonNav.inHazard(run.def, p - run.built.origin) then
+			table.insert(run.draughts, { model = DungeonBuilder.draught(run.built.model, p), pos = p })
+			return
+		end
+	end
+end
+
+local function drink(player: Player)
+	local character, humanoid = S.PlayerService.getCharacter(player)
+	if not humanoid then
+		return
+	end
+	local ticks = 8
+	local each = humanoid.MaxHealth * Dungeons.DRAUGHT_HEAL / ticks
+	task.spawn(function()
+		for _ = 1, ticks do
+			if not player.Parent then
+				return
+			end
+			S.PlayerService.heal(player, each)
+			task.wait(Dungeons.DRAUGHT_TIME / ticks)
+		end
+	end)
+	S.CombatService.broadcastVFX({ kind = "heal", character = character })
+	notify(player, string.format("A healing draught! (+%d%% health)", math.floor(Dungeons.DRAUGHT_HEAL * 100)), Color3.fromRGB(255, 140, 160), "🧪")
+end
+
+-- The provisions by the entrance: fill up once per run.
+local function eat(player: Player, prompt: Instance)
+	local run = runOf[player]
+	if not run or not prompt:IsDescendantOf(run.built.model) then
+		return
+	end
+	if run.fed[player] then
+		notify(player, "You've already eaten your fill. (Hunger doesn't drop in here.)", INFO, "🍖")
+		return
+	end
+	run.fed[player] = true
+	S.SurvivalService.setHunger(player, Game.HUNGER_MAX)
+	notify(player, "You eat your fill before heading in. (Hunger doesn't drop in a dungeon.)", GOLD, "🍖")
 end
 
 ---------------------------------------------------------------- runs: deaths and bosses
@@ -689,10 +1056,13 @@ onBossLethal = function(run, boss)
 	e.immune = true
 	BossKit.reset(boss.brain)
 	local root = e.root
-	root.Anchored = true
+	if boss.seated then
+		standUp(boss) -- (struck down before he'd even left his throne)
+	end
 	local stand = e.model:GetPivot()
-	e.model:PivotTo(stand * CFrame.new(0, -e.humanoid.HipHeight * 0.6, 0) * CFrame.Angles(math.rad(-35), 0, 0))
+	kneel(boss)
 	e.model:SetAttribute("Collapsed", true)
+	clearDraughts(run)
 	for player in pairs(run.members) do
 		notify(player, boss.def.name .. " falls... but the barrow's magic stirs!", boss.def.color, "💀")
 	end
@@ -702,7 +1072,9 @@ onBossLethal = function(run, boss)
 		end
 		e.model:PivotTo(stand)
 		root.Anchored = false
+		e.model:SetAttribute("Pose", nil)
 		e.model:SetAttribute("Collapsed", nil)
+		unbind(boss)
 		e.humanoid.Health = e.humanoid.MaxHealth * life.health
 		e.immune = false
 		boss.down = false
@@ -711,7 +1083,7 @@ onBossLethal = function(run, boss)
 		S.EnemyService.rename(e, life.name)
 		S.CombatService.broadcastVFX({ kind = "rise", pos = root.Position, color = boss.def.color })
 		for player in pairs(run.members) do
-			announce(player, "💀 " .. string.upper(life.name) .. "!", "He's back, and angrier. Watch for his leap!", boss.def.color, 4)
+			announce(player, "💀 " .. string.upper(life.name) .. "!", "He's back, and angrier. Watch for his leap!", (life.look and life.look.aura) or boss.def.color, 4)
 		end
 		markDirty()
 	end)
@@ -722,6 +1094,11 @@ onBossDeath = function(run, boss)
 	if run.ended then
 		return
 	end
+	-- the room's doors open for good
+	for _, door in ipairs(roomDoors(run, boss.room.id)) do
+		DungeonBuilder.setDoor(door, "open", true)
+	end
+	clearDraughts(run)
 	for _, add in ipairs(boss.adds) do
 		if not add.dead then
 			S.EnemyService.kill(add)
@@ -748,7 +1125,7 @@ local function setShield(boss, on: boolean)
 		bubble.Size = Vector3.new(1, 1, 1) * (e.height * 1.6 + 6)
 		bubble.Color = boss.def.color
 		bubble.Material = Enum.Material.ForceField
-		bubble.Transparency = 0.3
+		bubble.Transparency = 0.6 -- (see-through: the fight goes on around it)
 		bubble.CanCollide = false
 		bubble.CanQuery = false
 		bubble.CanTouch = false
@@ -764,16 +1141,36 @@ local function setShield(boss, on: boolean)
 	end
 end
 
-local function summon(run, boss, add: string, count: number)
+-- A boss calls for help: adds around it, or (`atEdge`: a rune shield's guards) coming in from the
+-- edges of the room, well away from it, and kept out of its shield bubble.
+local function summon(run, boss, add: string, count: number, atEdge: boolean?)
 	local e = boss.e
+	local room = boss.room
 	local list = {}
+	local away = flat(e.root.Position - room.center)
+	local base = away.Magnitude > 1 and math.atan2(away.Z, away.X) + math.pi or 0
 	for i = 1, count do
-		local a = (i / count) * math.pi * 2
-		local pos = BossKit.inRoom(boss.brain, e.root.Position + Vector3.new(math.cos(a) * 16, 0, math.sin(a) * 16), 8)
+		local pos
+		if atEdge then
+			local a = base + (i - 1) / count * math.pi * 2
+			pos = room.center + Vector3.new(math.cos(a), 0, math.sin(a)) * room.radius * 0.72
+		else
+			local a = (i / count) * math.pi * 2
+			pos = BossKit.inRoom(boss.brain, e.root.Position + Vector3.new(math.cos(a) * 16, 0, math.sin(a) * 16), 8)
+		end
 		local m = spawnMob(run, add, pos, nil)
 		if m then
 			m.summoned = true
 			m.aggroRange = 200
+			if atEdge then
+				local bubble = (e.height * 1.6 + 6) / 2 + 4
+				m.avoid = {
+					radius = bubble,
+					center = function(): Vector3?
+						return (boss.shielded and not e.dead) and e.root.Position or nil
+					end,
+				}
+			end
 			table.insert(boss.adds, m)
 			table.insert(list, m)
 			local best, bestDist = nil, math.huge
@@ -815,8 +1212,12 @@ local function bossTraits(run, boss)
 			boss.phase = i
 			brain.moves = ph.moves
 			if ph.shield then
-				boss.shieldAdds = summon(run, boss, ph.shield.add, ph.shield.count)
+				boss.shieldAdds = summon(run, boss, ph.shield.add, ph.shield.count, true)
 				setShield(boss, true)
+				if ph.hold then
+					-- she walks to the middle of the room and casts from there until the shield breaks
+					brain.hold = floorAt(boss.room.center + Vector3.new(0, 4, 0))
+				end
 				for player in pairs(run.members) do
 					announce(player, "🛡️ RUNE SHIELD!", string.format("%s can't be hurt while her %d guards stand. Beat them!", def.name, ph.shield.count), def.color, 4)
 				end
@@ -836,6 +1237,7 @@ local function bossTraits(run, boss)
 		end
 		if standing == 0 then
 			setShield(boss, false)
+			brain.hold = nil
 			for player in pairs(run.members) do
 				notify(player, "The rune shield shatters!", GOLD, "💥")
 			end
@@ -843,8 +1245,7 @@ local function bossTraits(run, boss)
 		end
 	end
 	-- never out of its room
-	local d = e.root.Position - boss.room.center
-	if not e.root.Anchored and (flat(d).Magnitude > boss.room.radius + 10 or d.Y < -20) then
+	if not e.root.Anchored and not insideRoom(boss.room, e.root.Position, 10) then
 		e.model:PivotTo(CFrame.new(boss.home + Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2 + 1, 0)))
 	end
 end
@@ -868,16 +1269,23 @@ local function resetBoss(boss)
 	boss.lifeUsed = false
 	boss.down = false
 	boss.engaged = false
+	boss.brain.hold = nil
 	setShield(boss, false)
+	rebind(boss)
 	e.immune = false
 	e.model:SetAttribute("Collapsed", nil)
+	e.model:SetAttribute("Pose", nil)
 	e.root.Anchored = false
 	boss.brain.moves = boss.def.moves
 	boss.brain.cdMult, boss.brain.dmgMult = 1, 1
 	boss.brain.speed = boss.def.speed
 	S.EnemyService.rename(e, boss.def.name)
 	e.humanoid.Health = e.humanoid.MaxHealth
-	e.model:PivotTo(CFrame.new(boss.home + Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2 + 1, 0)))
+	if boss.throne then
+		seat(boss)
+	else
+		e.model:PivotTo(CFrame.new(boss.home + Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2 + 1, 0)))
+	end
 end
 
 ---------------------------------------------------------------- runs: starting, leaving, ending
@@ -897,6 +1305,8 @@ local function startRun(dungeonId: string, members: { Player })
 		packs = {},
 		bosses = {},
 		chestOpened = {},
+		fed = {},
+		draughts = {},
 		startedAt = now(),
 		calmSince = now(),
 		inCombat = false,
@@ -919,6 +1329,10 @@ local function startRun(dungeonId: string, members: { Player })
 		runOf[player] = run
 		player:SetAttribute("InDungeon", def.id)
 		player:SetAttribute("DungeonRun", run.id)
+		player:SetAttribute("DungeonCleared", nil)
+		if run.built.chest then
+			player:SetAttribute("ChestReady_" .. run.built.chest:GetAttribute("CampId"), nil) -- (a fresh hoard)
+		end
 		S.EnemyService.dropAggro(player)
 		if root then
 			S.PlayerService.teleport(player, DungeonService.spawnCFrame(player))
@@ -937,6 +1351,7 @@ local function endRun(run)
 		return
 	end
 	run.ended = true
+	clearDraughts(run)
 	for _, e in ipairs(run.mobs) do
 		if not e.dead and e.model.Parent then
 			S.EnemyService.despawn(e)
@@ -966,6 +1381,7 @@ local function leaveRun(player: Player, why: string?)
 	runOf[player] = nil
 	player:SetAttribute("InDungeon", nil)
 	player:SetAttribute("DungeonRun", nil)
+	player:SetAttribute("DungeonCleared", nil)
 	S.EnemyService.dropAggro(player)
 	if player.Parent then
 		local cf = m and m.returnCF or S.PlayerService.getSpawnCFrame(player)
@@ -1366,21 +1782,7 @@ local function revive(player: Player, cf: CFrame)
 end
 
 local function inHazard(run, pos: Vector3): boolean
-	local origin = run.built.origin
-	for _, h in ipairs(run.def.hazards or {}) do
-		if h.min then
-			local a, b = origin + h.min, origin + h.max
-			if pos.X >= a.X and pos.X <= b.X and pos.Z >= a.Z and pos.Z <= b.Z and pos.Y >= a.Y - 2 and pos.Y <= b.Y + 3 then
-				return true
-			end
-		else
-			local c = origin + h.center
-			if flat(pos - c).Magnitude <= h.radius and pos.Y <= origin.Y + h.top + 3 then
-				return true
-			end
-		end
-	end
-	return false
+	return DungeonNav.inHazard(run.def, pos - run.built.origin)
 end
 
 local function wipeReset(run)
@@ -1400,8 +1802,12 @@ local function wipeReset(run)
 		end
 	end
 	for _, boss in pairs(run.bosses) do
+		if not boss.e.dead then
+			sealRoom(run, boss.room, false)
+		end
 		resetBoss(boss)
 	end
+	clearDraughts(run)
 	for player, m in pairs(run.members) do
 		m.dead = false
 		if player.Parent then
@@ -1409,6 +1815,22 @@ local function wipeReset(run)
 		end
 	end
 	run.wipeAt = nil
+	markDirty()
+end
+
+-- A boss wakes: it stands (Haldor leaves his throne), its room seals, and the draughts start.
+local function engage(run, boss, t: number)
+	boss.engaged = true
+	boss.e.lastCombat = t
+	if boss.seated then
+		standUp(boss)
+	end
+	boss.nextDraught = t + Dungeons.DRAUGHT_EVERY
+	local doors = #roomDoors(run, boss.room.id) > 0
+	sealRoom(run, boss.room, true)
+	for player in pairs(run.members) do
+		notify(player, boss.def.name .. " wakes up!" .. (doors and " The doors slam shut behind you!" or ""), boss.def.color, "💀")
+	end
 	markDirty()
 end
 
@@ -1430,13 +1852,42 @@ local function tickRun(run, t: number, dt: number)
 		return
 	end
 
-	-- monsters: combat state, giving up, walking home, healing slowly
+	-- monsters: combat state, joining a fight next to them, giving up when stuck, walking home,
+	-- healing slowly, burning in lava
 	local inCombat = false
+	local fighting = {}
+	for _, e in ipairs(run.mobs) do
+		if not e.dead and e.model.Parent and e.target then
+			table.insert(fighting, e)
+		end
+	end
 	for _, e in ipairs(run.mobs) do
 		if not e.dead and e.model.Parent then
-			if e.target and t - (e.lastCombat or 0) > Dungeons.EVADE_TIME then
-				e.target = nil
-				e.returning = true
+			if e.target then
+				-- stuck: nothing hit either way and not getting any closer (outrunning a pack
+				-- doesn't shake it off, but a monster that can't get to you gives up)
+				local _, _, troot = S.PlayerService.getCharacter(e.target)
+				local d = troot and (troot.Position - e.root.Position).Magnitude or math.huge
+				if e.chasing ~= e.target or d < (e.bestDist or math.huge) - 3 then
+					e.chasing = e.target
+					e.bestDist = d
+					e.progressAt = t
+				end
+				if t - (e.lastCombat or 0) > Dungeons.EVADE_TIME and t - (e.progressAt or t) > Dungeons.EVADE_TIME then
+					e.target = nil
+					e.returning = true
+					e.chasing = nil
+				end
+			elseif not e.returning then
+				-- a monster standing right by a fight joins it (with its pack)
+				for _, f in ipairs(fighting) do
+					if f.target and (f.root.Position - e.root.Position).Magnitude <= Dungeons.ASSIST_RADIUS and S.EnemyService.targetRoot(e, f.target) then
+						e.target = f.target
+						e.lastCombat = t
+						DungeonService.pullPack(e, f.target)
+						break
+					end
+				end
 			end
 			if e.returning then
 				e.returnSince = e.returnSince or t
@@ -1452,6 +1903,38 @@ local function tickRun(run, t: number, dt: number)
 			elseif e.humanoid.Health < e.humanoid.MaxHealth then
 				e.humanoid.Health = math.min(e.humanoid.MaxHealth, e.humanoid.Health + e.humanoid.MaxHealth * Dungeons.MOB_REGEN * dt)
 			end
+			-- lava burns monsters too (they walk round it, but they can be knocked in)
+			if inHazard(run, e.root.Position - Vector3.new(0, e.humanoid.HipHeight + e.root.Size.Y / 2, 0)) then
+				e.humanoid.Health -= e.humanoid.MaxHealth * Dungeons.LAVA_BURN * dt
+				if e.humanoid.Health <= 0 then
+					S.EnemyService.kill(e)
+				end
+			end
+		end
+	end
+	-- patrols: a calm pack with a route walks it together (their posts move; they follow in
+	-- formation), waiting for any stragglers
+	for _, pack in ipairs(run.packs) do
+		local route = pack.patrol
+		if route and not pack.cleared then
+			local calm = true
+			for _, m in ipairs(pack.mobs) do
+				if not m.dead and (m.target or m.returning or flat(m.root.Position - m.spawnPos).Magnitude > 9) then
+					calm = false
+				end
+			end
+			if calm then
+				pack.patrolAt = (pack.patrolAt + Dungeons.PATROL_SPEED * dt) % (2 * route.length)
+				local d = pack.patrolAt > route.length and 2 * route.length - pack.patrolAt or pack.patrolAt
+				local point = run.built.origin + along(route, d)
+				for _, m in ipairs(pack.mobs) do
+					if not m.dead then
+						local post = floorAt(point + (m.offset or Vector3.zero) + Vector3.new(0, 3, 0))
+						m.spawnPos = post
+						m.home = post
+					end
+				end
+			end
 		end
 	end
 	for _, boss in pairs(run.bosses) do
@@ -1460,9 +1943,11 @@ local function tickRun(run, t: number, dt: number)
 			if boss.engaged then
 				inCombat = true
 				if not boss.down and t - (e.lastCombat or 0) > Dungeons.EVADE_TIME then
-					-- nobody's fighting it: it goes back to its spot
+					-- nobody's fighting it: it goes back to its spot (and the doors unseal)
 					boss.engaged = false
 					BossKit.reset(boss.brain)
+					sealRoom(run, boss.room, false)
+					clearDraughts(run)
 					e.humanoid:MoveTo(boss.home)
 				end
 			else
@@ -1473,18 +1958,20 @@ local function tickRun(run, t: number, dt: number)
 					end
 				end
 				if near or t - (e.lastCombat or 0) < 1 then
-					boss.engaged = true
-					e.lastCombat = t
-					for player in pairs(run.members) do
-						notify(player, boss.def.name .. " wakes up!", boss.def.color, "💀")
-					end
-					markDirty()
+					engage(run, boss, t)
 				elseif e.humanoid.Health < e.humanoid.MaxHealth and not boss.shielded then
 					e.humanoid.Health = math.min(e.humanoid.MaxHealth, e.humanoid.Health + e.humanoid.MaxHealth * Dungeons.BOSS_REGEN * dt)
 				end
 			end
 			if boss.engaged then
 				bossTraits(run, boss)
+				-- a healing draught now and then
+				if not boss.down and t >= (boss.nextDraught or math.huge) then
+					boss.nextDraught = t + Dungeons.DRAUGHT_EVERY
+					if #run.draughts < Dungeons.DRAUGHT_MAX then
+						dropDraught(run, boss)
+					end
+				end
 			end
 		end
 	end
@@ -1496,7 +1983,7 @@ local function tickRun(run, t: number, dt: number)
 		run.calmSince = t
 	end
 
-	-- dragons: lava, straying out of the cave, getting back up, and wipes
+	-- dragons: lava, straying out of the cave, flying too high, draughts, getting back up, and wipes
 	local alive, dead = 0, 0
 	for player, m in pairs(run.members) do
 		local character, humanoid, root = S.PlayerService.getCharacter(player)
@@ -1509,6 +1996,30 @@ local function tickRun(run, t: number, dt: number)
 			local p = root.Position
 			if p.X < b.min.X or p.X > b.max.X or p.Y < b.min.Y or p.Y > b.max.Y or p.Z < b.min.Z or p.Z > b.max.Z then
 				S.PlayerService.teleport(player, DungeonService.spawnCFrame(player))
+			end
+			-- wings only lift you a little until the boss is down (the client caps it; this puts
+			-- back anyone who gets round that)
+			if not run.cleared and character:GetAttribute("Flying") then
+				local floor = DungeonBuilder.floorAt(p, 0.5)
+				local stand = humanoid.HipHeight + root.Size.Y / 2
+				if p.Y - floor.Y - stand > Dungeons.HOVER_HEIGHT + 10 then
+					m.highSince = m.highSince or t
+					if t - m.highSince > 3 then
+						m.highSince = nil
+						S.PlayerService.teleport(player, CFrame.new(floor + Vector3.new(0, stand + 1, 0)) * root.CFrame.Rotation)
+					end
+				else
+					m.highSince = nil
+				end
+			end
+			for i = #run.draughts, 1, -1 do
+				local d = run.draughts[i]
+				local off = p - d.pos
+				if flat(off).Magnitude <= Dungeons.DRAUGHT_REACH and off.Y < 20 then
+					table.remove(run.draughts, i)
+					d.model:Destroy()
+					drink(player)
+				end
 			end
 		else
 			dead += 1
@@ -1550,6 +2061,8 @@ local function thinkBosses()
 				elseif not boss.engaged and not boss.e.dead and not boss.e.root.Anchored then
 					if flat(boss.e.root.Position - boss.home).Magnitude > 6 then
 						boss.e.humanoid:MoveTo(boss.home)
+					elseif boss.throne and not boss.lifeUsed then
+						seat(boss) -- (home again: back on the throne)
 					end
 				end
 			end
@@ -1600,19 +2113,32 @@ function DungeonService.start()
 			end
 		end)
 	end
-	local function hookChest(prompt: Instance)
+	local function hookChest(model: Instance)
+		local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt then
+			prompt.Triggered:Connect(function(player)
+				openChest(player, prompt)
+			end)
+		end
+	end
+	local function hook(tag: string, fn)
+		for _, inst in ipairs(CollectionService:GetTagged(tag)) do
+			fn(inst)
+		end
+		CollectionService:GetInstanceAddedSignal(tag):Connect(fn)
+	end
+	hook("DungeonExit", hookExit)
+	hook("DungeonChest", hookChest)
+	hook("DungeonDoor", function(prompt: Instance)
 		prompt.Triggered:Connect(function(player)
-			openChest(player, prompt)
+			openDoor(player, prompt)
 		end)
-	end
-	for _, prompt in ipairs(CollectionService:GetTagged("DungeonExit")) do
-		hookExit(prompt)
-	end
-	for _, prompt in ipairs(CollectionService:GetTagged("DungeonChest")) do
-		hookChest(prompt)
-	end
-	CollectionService:GetInstanceAddedSignal("DungeonExit"):Connect(hookExit)
-	CollectionService:GetInstanceAddedSignal("DungeonChest"):Connect(hookChest)
+	end)
+	hook("DungeonFood", function(prompt: Instance)
+		prompt.Triggered:Connect(function(player)
+			eat(player, prompt)
+		end)
+	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		if runOf[player] then

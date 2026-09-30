@@ -5,7 +5,7 @@
 --            blended smoothly between states
 --   vikings: walking, chopping, throwing, and raising the war horn (Hornblowers); raiders
 --            riding a longship (model attribute Aboard) cheer with their arms up, and tuck in
---            to leap (Leaping)
+--            to leap (Leaping); dungeon bosses sit on a throne or kneel (model attribute Pose)
 --   animals: trotting legs, head bob and tail wag (AnimalBuilder rigs)
 
 local CollectionService = game:GetService("CollectionService")
@@ -129,6 +129,24 @@ local function animateViking(model: Model, rig, now: number)
 			animatePassenger(model, rig, now)
 			return
 		end
+	end
+	-- a dungeon boss posed by the server (it anchors and places the body): on his throne, or down
+	-- on his knees before his second life
+	local pose = model:GetAttribute("Pose")
+	if pose == "sit" then
+		local breathe = math.sin((now + rig.phase) * 1.2) * 0.04
+		set(rig, "LegL", CFrame.Angles(1.08, 0, 0.05))
+		set(rig, "LegR", CFrame.Angles(1.08, 0, -0.05))
+		set(rig, "ArmR", CFrame.Angles(0.35 + breathe, 0, 0))
+		set(rig, "ArmL", CFrame.Angles(0.25 - breathe, 0, 0))
+		return
+	elseif pose == "kneel" then
+		local sway = math.sin((now + rig.phase) * 2) * 0.05
+		set(rig, "LegL", CFrame.Angles(-1.45, 0, 0.1))
+		set(rig, "LegR", CFrame.Angles(-1.45, 0, -0.1))
+		set(rig, "ArmR", CFrame.Angles(0.9 + sway, 0, 0))
+		set(rig, "ArmL", CFrame.Angles(0.6, 0, 0.2))
+		return
 	end
 	local root = rig.root
 	local vel = root.AssemblyLinearVelocity

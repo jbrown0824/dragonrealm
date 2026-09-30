@@ -594,6 +594,26 @@ function VFX.throw(data)
 		chainThrow(from, to, time)
 		return
 	end
+	if data.style == "rune" then
+		-- a bolt of rune-fire (Runemaster Sigrun casting from behind her shield)
+		local bolt = part(Vector3.new(1.6, 1.6, 1.6), CFrame.new(from), Color3.fromRGB(255, 150, 60), Enum.Material.Neon, 0.1, Enum.PartType.Ball)
+		local core = part(Vector3.new(0.8, 0.8, 0.8), CFrame.new(from), Color3.fromRGB(255, 240, 200), Enum.Material.Neon, 0, Enum.PartType.Ball)
+		local start = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local t = math.clamp((os.clock() - start) / time, 0, 1)
+			local pos = from:Lerp(to, t) + Vector3.new(0, math.sin(t * math.pi) * 3, 0)
+			bolt.CFrame = CFrame.new(pos)
+			core.CFrame = CFrame.new(pos)
+			if t >= 1 then
+				conn:Disconnect()
+				bolt:Destroy()
+				core:Destroy()
+				burst(to, Color3.fromRGB(255, 220, 140), Color3.fromRGB(255, 110, 40), 18, 16, 1.4, SPARKLE)
+			end
+		end)
+		return
+	end
 	local isHammer = data.style == "hammer"
 	local head = part(isHammer and Vector3.new(1.4, 1, 1) or Vector3.new(0.25, 1.4, 1.2), CFrame.new(from), isHammer and Color3.fromRGB(80, 80, 90) or Color3.fromRGB(170, 175, 185), Enum.Material.Metal)
 	local handle = part(Vector3.new(0.3, 0.3, 2.4), CFrame.new(from), Color3.fromRGB(120, 80, 45), Enum.Material.Wood)
@@ -778,6 +798,15 @@ local HANDLERS = {
 		burst(d.pos, Color3.fromRGB(255, 220, 140), Color3.fromRGB(255, 120, 40), 70, 34, 1.6, SPARKLE)
 		ring(d.pos, 22, Color3.fromRGB(255, 200, 120), 0.9, 1)
 		flash(d.pos, Color3.fromRGB(255, 180, 90), 70, 0.8)
+	end,
+	-- a dungeon boss's whirlwind: a firestorm round it, and little cyclones spiralling away
+	bossCyclone = function(d)
+		if d.model and d.model.Parent then
+			App.SpellFX.cyclone(d.model, d.duration or 4, d.radius or 15, d.color)
+		end
+	end,
+	cyclones = function(d)
+		App.SpellFX.cyclones(d)
 	end,
 	-- a dungeon boss getting back up for its second life
 	rise = function(d)

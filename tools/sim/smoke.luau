@@ -1,8 +1,8 @@
 -- Server smoke test: adds fake players and walks them through the game's features on a
 -- virtual clock. Prints every script error with a traceback, plus any failed expectations.
 -- Run: ./run.sh (boot.luau is prepended)
--- Dungeons: unlocking, groups and invites, the queue and ready checks, a Barrow run (pulls, the
--- give-up fail-safe, knocked out until the fight's over, a wipe, Grimvald, Haldor's second life and
+-- Dungeons: unlocking, groups and invites, the queue and ready checks, a Barrow run (hunger paused
+-- and the provisions, pulls, the give-up fail-safe, knocked out until the fight's over, a wipe, Grimvald, Haldor's second life and
 -- leap, loot and pity, the hoard, Ylva's quest) and a solo Forge run (harpoon, fire lanes, the rune
 -- shield, phases, Brakki's enrage, the freed dragon, admin tuning). (Its own function: the main
 -- scenario is out of local variables.)
@@ -118,6 +118,19 @@ local function dungeonScenario(p1, p2, profile)
 	check(run.hpMult == Dungeons.GROUP_HEALTH[2] and run.dmgMult == Dungeons.GROUP_DAMAGE[2], "a group of 2 gets the 2-dragon scaling")
 	local barrowHp = Dungeons.Bosses.Haldor.health * Dungeons.GROUP_HEALTH[2]
 	check(math.abs(run.bosses.boss.e.humanoid.MaxHealth - barrowHp) < 2, "Haldor's health is set for the group")
+	-- hunger stays put in a dungeon; the provisions by the entrance fill you up, once
+	profile2.hunger = 40
+	task.wait(2.5)
+	check(math.abs(profile2.hunger - 40) < 0.01, "hunger doesn't drop in a dungeon")
+	local food = run.built.food:FindFirstChildWhichIsA("ProximityPrompt")
+	food.Triggered:Fire(p2)
+	task.wait(0.2)
+	check(profile2.hunger >= Game.HUNGER_MAX - 0.01, "the provisions fill you up")
+	profile2.hunger = 40
+	food.Triggered:Fire(p2)
+	task.wait(0.2)
+	check(profile2.hunger < 41, "...once per run")
+	profile2.hunger = Game.HUNGER_MAX
 	task.wait(1.5)
 	check((rootOf(p1).Position - origin).Magnitude < 80, "ZoneService leaves dragons in a dungeon alone")
 	local annP1 = remoteCount("Announce", p1)
@@ -140,15 +153,23 @@ local function dungeonScenario(p1, p2, profile)
 	task.wait(Game.RESPAWN_TIME + 2)
 	check(rootOf(p2) == nil and run.members[p2].dead, "knocked out mid-fight: no respawn yet")
 	check(lastRemote("Died", p2) == -1, "the death screen waits for the group")
-	-- the fail-safe: nobody's hit anybody for Dungeons.EVADE_TIME, so the monster gives up
+	-- the fail-safe: a monster that's still closing in keeps coming, but one that's stuck (no hits
+	-- either way and no closer) for Dungeons.EVADE_TIME gives up
 	a.customAI = true
 	a.target = p1
 	a.lastCombat = os.clock() - Dungeons.EVADE_TIME - 1
+	a.chasing, a.bestDist, a.progressAt = p1, 1e6, os.clock()
 	task.wait(0.5)
-	check(a.target == nil and a.returning, "a monster nobody fights gives up and walks home")
+	check(a.target == p1 and not a.returning, "a monster still closing in doesn't give up")
+	a.lastCombat = os.clock() - Dungeons.EVADE_TIME - 1
+	a.progressAt = os.clock() - Dungeons.EVADE_TIME - 1
+	a.bestDist = 0
+	task.wait(0.5)
+	check(a.target == nil and a.returning, "a stuck monster nobody fights gives up and walks home")
 	a.customAI = false
-	-- out of combat: p2 gets back up beside p1
+	-- out of combat: p2 gets back up beside p1 (who slipped away, unseen, to the entrance)
 	rootOf(p1).Parent:SetAttribute("Stealthed", true)
+	tp(p1, run.built.spawn.Position + Vector3.new(0, 2, 0))
 	task.wait(Dungeons.COMBAT_LINGER + Dungeons.REVIVE_DELAY + 1.5)
 	check(rootOf(p2) ~= nil and not run.members[p2].dead, "out of combat (the pack lost p1): p2 is back up")
 	check(rootOf(p2) and flatDist(rootOf(p2).Position, rootOf(p1).Position) < 20, "...beside p1")
@@ -220,7 +241,7 @@ local function dungeonScenario(p1, p2, profile)
 	tp(p1, boss.e.root.Position + Vector3.new(6, 3, 6))
 	tp(p2, farSpot + Vector3.new(0, 4, 0))
 	local leapt = false
-	for _ = 1, 40 do
+	for _ = 1, 64 do
 		task.wait(0.25)
 		if flatDist(boss.e.root.Position, farSpot) < 14 then
 			leapt = true
@@ -228,6 +249,18 @@ local function dungeonScenario(p1, p2, profile)
 		end
 	end
 	check(leapt, "Haldor Unbound leaps across the mound onto the farthest dragon")
+	-- ...and with nobody hanging back, straight up and down onto the dragon he's fighting
+	local logLeap = #REMOTE_LOG
+	tp(p2, boss.e.root.Position + Vector3.new(-6, 3, 6))
+	local slams = 0
+	for _ = 1, 50 do
+		task.wait(0.25)
+		slams = vfxSince("slam", logLeap)
+		if boss.brain.nextMove.Leap and boss.brain.nextMove.Leap > os.clock() + 8 then
+			break
+		end
+	end
+	check(boss.brain.nextMove.Leap and boss.brain.nextMove.Leap > os.clock() + 7 and slams >= 1, "...or, with everyone close, onto the dragon in front of him")
 
 	step("dungeons: loot, the hoard, the quest")
 	local clears = profile2.dungeons.clears.Barrow or 0
@@ -243,9 +276,11 @@ local function dungeonScenario(p1, p2, profile)
 	check(profile2.quests.active.D1 == 1, "Ylva's quest is done")
 	local okPet, pet = invoke("HatchEgg", p2, "BarrowEgg")
 	check(okPet and Pets.Species[pet.species] and Pets.Species[pet.species].egg == "BarrowEgg", "the Barrow Egg hatches a Barrow pet")
-	local hoard = run.built.chest and run.built.chest:FindFirstChildOfClass("ProximityPrompt")
+	local hoard = run.built.chest and run.built.chest:FindFirstChildWhichIsA("ProximityPrompt", true)
 	check(hoard ~= nil, "the hidden hoard")
 	if hoard then
+		local chestKey = "ChestReady_" .. run.built.chest:GetAttribute("CampId")
+		check(p2:GetAttribute(chestKey) == nil, "a fresh hoard for this run")
 		local g0 = profile2.gold
 		hoard.Triggered:Fire(p2)
 		task.wait(0.2)
@@ -253,6 +288,7 @@ local function dungeonScenario(p1, p2, profile)
 		hoard.Triggered:Fire(p2)
 		task.wait(0.2)
 		check(g1 > g0 and profile2.gold == g1, "the hoard pays each dragon once")
+		check((p2:GetAttribute(chestKey) or 0) > workspace:GetServerTimeNow() + 1e6, "...and shows open (looted) for that dragon")
 	end
 	check(dungeon(p2, "leaveRun"), "p2 leaves")
 	task.wait(0.3)
@@ -273,20 +309,44 @@ local function dungeonScenario(p1, p2, profile)
 	check(forge ~= nil and forge.def.id == "Forge" and forge.hpMult == Dungeons.GROUP_HEALTH[1], "a solo Forge run")
 	check(forge.built.chained ~= nil and forge.built.chained.Parent ~= nil, "the elder dragon hangs in its chains")
 	local sig = forge.bosses.boss
-	-- hovering high above Sigrun: she harpoons you down
+	-- wings only lift you a little in a dungeon: fly too high (a cheat) and you're put back down
+	local _, humF = S.PlayerService.getCharacter(p1)
+	local standH = humF.HipHeight + rootOf(p1).Size.Y / 2
 	local sigFloor = sig.home
-	tp(p1, sigFloor + Vector3.new(8, 32, 8))
+	local way = DungeonBuilder.floorAt(forge.built.origin + Vector3.new(0, 0, 150))
+	tp(p1, way + Vector3.new(0, standH + 40, 0))
+	rootOf(p1).Parent:SetAttribute("Flying", true)
+	rootOf(p1).Anchored = true -- (hold it up there, like a client that got round the cap)
+	task.wait(4)
+	check(rootOf(p1).Position.Y < way.Y + standH + Dungeons.HOVER_HEIGHT + 6, "flying high in a dungeon: put back down")
+	rootOf(p1).Anchored = false
+	-- hovering low over Sigrun: her harpoon drags you in
+	local log1 = #REMOTE_LOG
+	tp(p1, sigFloor + Vector3.new(24, standH + Dungeons.HOVER_HEIGHT + 2, 8))
 	local pulled = false
 	for _ = 1, 40 do
 		task.wait(0.25)
-		local r = rootOf(p1)
-		if r and r.Position.Y < sigFloor.Y + 12 then
+		if vfxSince("harpooned", log1) >= 1 then
 			pulled = true
 			break
 		end
 	end
 	check(sig.engaged, "Sigrun wakes")
-	check(pulled, "her harpoon drags a hovering dragon down")
+	check(pulled, "her harpoon drags a hovering dragon in")
+	rootOf(p1).Parent:SetAttribute("Flying", nil)
+	-- ...and a dragon hanging back far away
+	task.wait(1)
+	log1 = #REMOTE_LOG
+	tp(p1, DungeonBuilder.floorAt(sig.room.center + Vector3.new(0, 2, 60)) + Vector3.new(0, standH, 0))
+	pulled = false
+	for _ = 1, 60 do
+		task.wait(0.25)
+		if vfxSince("harpooned", log1) >= 1 then
+			pulled = true
+			break
+		end
+	end
+	check(pulled, "...and one hanging back out of reach")
 	local log0 = #REMOTE_LOG
 	task.wait(4)
 	check(sig.brain.nextMove.Lane ~= nil and vfxSince("telegraph", log0) > 3, "the chained dragon breathes a fire lane across the room")
@@ -331,6 +391,268 @@ local function dungeonScenario(p1, p2, profile)
 	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
 	task.wait(1)
 
+end
+
+
+-- Dungeons, round two (p1 alone, admin): monsters keeping watch, ambling about and patrolling; an
+-- idle monster joining a fight next to it; the keeper inside; boss
+-- doors (pushing one open breaks stealth and wakes the monsters by it; they seal while the boss
+-- fights and open when it dies); Haldor on his throne (up when you come close, on his knees at 0,
+-- risen with his aura); a dragon outside the mound isn't his to hit; no regen while fighting; a
+-- healing draught; the first-clear XP bonus; no shop news in a dungeon; and in the Forge: a monster
+-- finding its way over a bridge, lava burning a monster, Sigrun casting from the middle behind
+-- her shield with her guards coming in from the edges, and her whirlwind's cyclones.
+local function dungeonRound2(p1, p2)
+	step("dungeons 2: idle monsters, the keeper inside")
+	local Dungeons = require(__proxy("Shared/Config/Dungeons"))
+	local Enemies = require(__proxy("Shared/Config/Enemies"))
+	local Shops = require(__proxy("Shared/Config/Shops"))
+	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+	local profile1 = S.PlayerService.getProfile(p1)
+	local function flatDist(a: Vector3, b: Vector3): number
+		return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+	end
+	local function vfxSince(kind: string, from: number): number
+		local n = 0
+		for i = from + 1, #REMOTE_LOG do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == "VFX" and type(entry.args[1]) == "table" and entry.args[1].kind == kind then
+				n += 1
+			end
+		end
+		return n
+	end
+	local function notesSince(p, from: number, text: string): boolean
+		for i = from + 1, #REMOTE_LOG do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == "Notify" and entry.player == p and tostring(entry.args[1].text):find(text, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	invoke("AdminAction", p1, "god", { on = true })
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Barrow" }), "admin: into the Barrow alone")
+	local run = S.DungeonService.runOf(p1)
+	local origin = run.built.origin
+
+	-- guards keep their spot, hounds amble about, the patrol walks its route
+	local patrol = run.packs[1]
+	local walker = patrol.mobs[1]
+	local start = walker.root.Position
+	local guard, hound = nil, nil
+	for _, m in ipairs(run.packs[2].mobs) do
+		if m.idle == "stand" then
+			guard = m
+		elseif m.typeId == "BarrowHound" then
+			hound = m
+		end
+	end
+	-- (the sim's monsters don't walk, so this follows where each one is heading: the patrol's
+	-- posts, the hound's stroll, the guard's spot)
+	local guardAt, houndHome = guard.spawnPos, hound.spawnPos
+	local houndFar, guardFar = 0, 0
+	for _ = 1, 48 do
+		task.wait(0.25)
+		houndFar = math.max(houndFar, flatDist(hound.wanderGoal or houndHome, houndHome))
+		guardFar = math.max(guardFar, flatDist(S.DungeonService.idleSpot(guard, os.clock()), guardAt))
+		-- keep the patrol in step with its posts (as if it walked)
+		for _, m in ipairs(patrol.mobs) do
+			m.model:PivotTo(CFrame.new(m.spawnPos + Vector3.new(0, m.humanoid.HipHeight + m.root.Size.Y / 2, 0)))
+		end
+	end
+	check(patrol.patrolAt > 0 and flatDist(walker.spawnPos, start) > 6, "a patrol walks its route (" .. math.floor(flatDist(walker.spawnPos, start)) .. " studs)")
+	check(guardFar < 0.5, "a guard keeps its spot")
+	check(houndFar > 2 and houndFar < Dungeons.WANDER_RADIUS + 1, "a hound ambles about near its spot (" .. string.format("%.1f", houndFar) .. ")")
+
+	-- the keeper stands inside too: take her quest in here
+	check(run.built.keeper ~= nil, "Ylva stands inside the Barrow too")
+	tp(p1, run.built.keeper + Vector3.new(6, 5, 6))
+	task.wait(0.2)
+	local savedQuests = profile1.quests.active
+	profile1.quests.active = {}
+	profile1.quests.done.D1 = nil
+	local okD1, whyD1 = invoke("AcceptQuest", p1, "D1")
+	check(okD1, "taking Ylva's quest from her inside the Barrow: " .. tostring(whyD1))
+	-- no shop news in here (the town restocks on its clock; p2, outside, hears it)
+	local restock = Shops.RESTOCK_SECONDS
+	local log0 = #REMOTE_LOG
+	Shops.RESTOCK_SECONDS = 3
+	task.wait(7)
+	Shops.RESTOCK_SECONDS = restock
+	check(notesSince(p2, log0, "restocked") and not notesSince(p1, log0, "restocked"), "no shop news in a dungeon")
+
+	step("dungeons 2: a fight spreading, boss doors, the throne")
+	-- a fight right next to an idle pack pulls it in too
+	tp(p1, origin + Vector3.new(-44, -9, 232))
+	local fighter, idler = run.packs[2].mobs[1], run.packs[3].mobs[1]
+	fighter.customAI = true
+	fighter.target = p1
+	fighter.lastCombat = os.clock()
+	fighter.model:PivotTo(idler.root.CFrame * CFrame.new(8, 0, 0))
+	task.wait(0.6)
+	check(idler.target == p1, "an idle monster right by a fight joins in")
+	fighter.customAI = false
+	for _, pack in ipairs(run.packs) do
+		for _, m in ipairs(pack.mobs) do
+			if not m.dead and pack.index <= 4 then
+				S.CombatService.damageEnemy(p1, m, 1e9, false)
+			end
+		end
+	end
+	-- the Crypt's doors: shut; pushing one open breaks stealth and wakes what's behind it
+	local doors, west = {}, nil
+	for _, d in ipairs(run.built.doors) do
+		if d.room == "Crypt" then
+			table.insert(doors, d)
+			if not west or d.pos.X < west.pos.X then
+				west = d
+			end
+		end
+	end
+	check(#doors == 3 and west.state == "closed" and west.leaves[1].model.PrimaryPart.CanCollide, "Grimvald's crypt has three doors, shut")
+	-- (fresh monsters behind the west door: the admin puts a pack there)
+	local behind = S.EnemyService.spawn("DraugrRaider", 16, west.pos + west.dir * 18, { def = Enemies.Dungeon.DraugrRaider, run = run.id, leash = Dungeons.MOB_LEASH, ground = west.pos + west.dir * 18 })
+	tp(p1, west.pos - west.dir * 8 + Vector3.new(0, 5, 0))
+	local character = rootOf(p1).Parent
+	character:SetAttribute("Stealthed", true)
+	west.prompt.Triggered:Fire(p1)
+	task.wait(0.4)
+	check(west.state == "open" and not character:GetAttribute("Stealthed"), "pushing a boss door open breaks stealth")
+	check(behind and behind.target == p1, "...and wakes the monsters behind it")
+	if behind then
+		S.CombatService.damageEnemy(p1, behind, 1e9, false)
+	end
+	local grim = run.bosses.mini
+	tp(p1, grim.e.root.Position + Vector3.new(0, 3, 14))
+	task.wait(0.8)
+	check(grim.engaged and west.state == "sealed" and west.seal.CanCollide, "Grimvald wakes and his doors seal behind you")
+	S.CombatService.damageEnemy(p1, grim.e, 1e9, false)
+	task.wait(0.6)
+	check(west.state == "open" and doors[2].state == "open" and doors[3].state == "open", "Grimvald down: his doors open for good")
+
+	-- Haldor on his throne; outside his mound you're not his to hit
+	local boss = run.bosses.boss
+	check(boss.seated and boss.e.model:GetAttribute("Pose") == "sit" and boss.e.root.Anchored, "Haldor waits on his throne")
+	local mound = nil
+	for _, d in ipairs(run.built.doors) do
+		if d.room == "Mound" then
+			mound = d
+		end
+	end
+	tp(p1, mound.pos - mound.dir * 8 + Vector3.new(0, 5, 0))
+	mound.prompt.Triggered:Fire(p1)
+	task.wait(0.4)
+	for _, m in ipairs(run.packs[7].mobs) do
+		S.CombatService.damageEnemy(p1, m, 1e9, false)
+	end
+	for _, m in ipairs(run.packs[6].mobs) do
+		S.CombatService.damageEnemy(p1, m, 1e9, false)
+	end
+	check(#boss.brain.participants() == 0, "a dragon outside the mound isn't Haldor's to hit")
+	tp(p1, DungeonBuilder.floorAt(boss.throne.pos + boss.throne.face * 30) + Vector3.new(0, 5, 0))
+	task.wait(0.8)
+	check(boss.engaged and not boss.seated and boss.e.model:GetAttribute("Pose") == nil and not boss.e.root.Anchored, "Haldor gets up off his throne when a dragon comes close")
+	check(mound.state == "sealed", "...and the mound seals")
+	-- no out-of-combat regen while the group fights
+	local _, hum1 = S.PlayerService.getCharacter(p1)
+	local ownRegen = S.PlayerService.getStats(p1).regen / 100 -- (talents and gear still heal)
+	S.PlayerService.state[p1].lastDamaged = 0
+	hum1.Health = hum1.MaxHealth * 0.5
+	task.wait(2)
+	local gained = hum1.Health / hum1.MaxHealth - 0.5
+	check(run.inCombat and gained < ownRegen * 2 + 0.01, string.format("no out-of-combat regen while the fight's on (+%.3f, own regen %.3f/s)", gained, ownRegen))
+	-- a healing draught turns up; walking over it heals
+	boss.nextDraught = os.clock()
+	task.wait(0.5)
+	check(#run.draughts >= 1, "a healing draught turns up on the floor")
+	if run.draughts[1] then
+		local before = hum1.Health
+		tp(p1, run.draughts[1].pos + Vector3.new(0, 5, 0))
+		task.wait(2)
+		check(#run.draughts == 0 and hum1.Health > before + hum1.MaxHealth * 0.08, "...and drinking it heals")
+	end
+	-- down to 0: on his knees, then up again as Haldor Unbound, wreathed in grave-fire
+	S.CombatService.damageEnemy(p1, boss.e, 1e9, false)
+	task.wait(0.3)
+	check(boss.e.model:GetAttribute("Pose") == "kneel" and boss.e.root.Anchored, "at 0 Haldor drops to his knees")
+	task.wait(Dungeons.Bosses.Haldor.secondLife.delay + 1)
+	check(boss.e.model:GetAttribute("Unbound") and boss.e.model:FindFirstChild("UnboundAura", true) ~= nil and boss.e.model:GetAttribute("Pose") == nil, "he rises as Haldor Unbound, wreathed in grave-fire")
+	-- the first clear gives the big XP bonus (and full flight again)
+	profile1.dungeons.clears.Barrow = 0
+	local log1 = #REMOTE_LOG
+	S.CombatService.damageEnemy(p1, boss.e, 1e9, false)
+	task.wait(1)
+	check(run.cleared and notesSince(p1, log1, "first clear bonus"), "the first clear: the big XP bonus")
+	check(p1:GetAttribute("DungeonCleared") == true and mound.state == "open", "cleared: full flight again, and the mound's doors open")
+	check(profile1.quests.active.D1 == 1, "...and the keeper's quest done inside")
+	for id, progress in pairs(savedQuests) do
+		profile1.quests.active[id] = profile1.quests.active[id] or progress
+	end
+	profile1.quests.active.D1 = nil
+	invoke("DungeonAction", p1, "leaveRun", {})
+	task.wait(0.5)
+	check(p1:GetAttribute("DungeonCleared") == nil, "out of the dungeon")
+
+	step("dungeons 2: the Rune Forge")
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "into the Forge alone")
+	local forge = S.DungeonService.runOf(p1)
+	local fo = forge.built.origin
+	-- a monster on the far bank finds its way round by a bridge
+	local m3 = forge.packs[3].mobs[1]
+	S.DungeonService.steer(m3, fo + Vector3.new(-50, 0, 262))
+	local overBridge = false
+	for _, node in ipairs(m3.nav and m3.nav.path or {}) do
+		if node.Z > 268 and node.Z < 312 and (math.abs(node.X - 30) < 3 or math.abs(node.X + 36) < 3) then
+			overBridge = true
+		end
+	end
+	check(overBridge, "a monster finds its way over a bridge, not through the lava")
+	-- lava burns monsters too
+	m3.customAI = true
+	m3.model:PivotTo(CFrame.new(fo + Vector3.new(-10, -4 + m3.humanoid.HipHeight + m3.root.Size.Y / 2, 291)))
+	m3.root.Anchored = true
+	local hp0 = m3.humanoid.Health
+	task.wait(1)
+	check(m3.humanoid.Health < hp0, "lava burns a monster knocked into it")
+	m3.root.Anchored = false
+	m3.customAI = false
+	-- Sigrun: behind her shield she casts from the middle, her guards coming in from the edges
+	local sig = forge.bosses.boss
+	tp(p1, sig.e.root.Position + Vector3.new(0, 3, 20))
+	task.wait(0.8)
+	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.45, false)
+	task.wait(0.6)
+	check(sig.shielded and sig.brain.hold ~= nil, "behind her rune shield Sigrun casts from the middle of the room")
+	local fromEdge = #sig.shieldAdds == 3
+	for _, g in ipairs(sig.shieldAdds) do
+		if flatDist(g.home, sig.room.center) < sig.room.radius * 0.5 or not g.avoid then
+			fromEdge = false
+		end
+	end
+	check(fromEdge, "...her guards come in from the edges and keep out of her bubble")
+	task.wait(5)
+	check(flatDist(sig.e.root.Position, sig.brain.hold) < 10, "...and she's gone to the middle")
+	for _, g in ipairs(sig.shieldAdds) do
+		S.CombatService.damageEnemy(p1, g, 1e9, false)
+	end
+	task.wait(0.6)
+	check(not sig.shielded and sig.brain.hold == nil, "the shield breaks: she comes for you again")
+	-- the whirlwind: a firestorm round her, and cyclones spiralling out
+	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.3, false)
+	local log2 = #REMOTE_LOG
+	local whirled = false
+	for _ = 1, 80 do
+		task.wait(0.25)
+		if vfxSince("cyclones", log2) >= 1 and vfxSince("bossCyclone", log2) >= 1 then
+			whirled = true
+			break
+		end
+	end
+	check(whirled, "Sigrun's whirlwind: a firestorm and cyclones spiralling across the room")
+	invoke("DungeonAction", p1, "leaveRun", {})
+	invoke("AdminAction", p1, "god", { on = false })
+	task.wait(1)
 end
 
 task.spawn(function()
@@ -1305,6 +1627,7 @@ task.spawn(function()
 	check(p1:GetAttribute("RangeMode") == nil, "walking off the mat ends practice")
 
 	dungeonScenario(p1, p2, profile)
+	dungeonRound2(p1, p2)
 
 	step("snapshot + leave")
 	local snap = S.PlayerService.snapshot(p1)

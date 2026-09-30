@@ -292,7 +292,8 @@ local function buildStall(parent: Instance, shop)
 	placeDragon(parent, style.keeper, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
 end
 
--- The quest givers in town, or (dungeonKeepers) the ones at the dungeon entrances.
+-- The quest givers in town, or (dungeonKeepers) the ones at the dungeon entrances. (The keepers
+-- also stand inside their dungeon: DungeonBuilder.)
 local function buildQuestGivers(parent: Instance, dungeonKeepers: boolean)
 	for _, giverId in ipairs(Quests.GiverOrder) do
 		local giver = Quests.Givers[giverId]
@@ -304,49 +305,7 @@ local function buildQuestGivers(parent: Instance, dungeonKeepers: boolean)
 		if dungeonKeepers then
 			at = Vector3.new(at.X, Props.groundY(at.X, at.Z), at.Z) -- (out on the hills)
 		end
-		-- little platform
-		Props.column(parent, at - Vector3.new(0, 0.5, 0), 1.2, 22, Color3.fromRGB(170, 160, 150), Enum.Material.Cobblestone)
-		local model = placeDragon(parent, giver.look, at + Vector3.new(0, 0.7, 0), spot.facing, { scale = 1.05, name = giver.name })
-		model:SetAttribute("GiverId", giverId)
-		CollectionService:AddTag(model, "QuestGiver")
-
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Talk"
-		prompt.ObjectText = giver.name
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = 18
-		prompt.RequiresLineOfSight = false
-		prompt:SetAttribute("GiverId", giverId)
-		prompt.Parent = model.PrimaryPart
-		CollectionService:AddTag(prompt, "QuestPrompt")
-
-		local gui = Instance.new("BillboardGui")
-		gui.Name = "GiverName"
-		gui.Size = UDim2.fromOffset(220, 44)
-		gui.StudsOffset = Vector3.new(0, 7, 0)
-		gui.MaxDistance = 90
-		gui.LightInfluence = 0
-		local name = Instance.new("TextLabel")
-		name.BackgroundTransparency = 1
-		name.Size = UDim2.new(1, 0, 0.6, 0)
-		name.Font = Enum.Font.FredokaOne
-		name.TextScaled = true
-		name.TextColor3 = Color3.fromRGB(255, 225, 120)
-		name.TextStrokeTransparency = 0.3
-		name.Text = giver.name
-		name.Parent = gui
-		local title = Instance.new("TextLabel")
-		title.BackgroundTransparency = 1
-		title.Position = UDim2.fromScale(0, 0.6)
-		title.Size = UDim2.new(1, 0, 0.4, 0)
-		title.Font = Enum.Font.GothamBold
-		title.TextScaled = true
-		title.TextColor3 = Color3.fromRGB(220, 220, 230)
-		title.TextStrokeTransparency = 0.5
-		title.Text = "<" .. giver.title .. ">"
-		title.Parent = gui
-		gui.Parent = model:FindFirstChild("Head") or model.PrimaryPart
+		WorldUtil.questGiver(parent, giverId, at, spot.facing)
 	end
 end
 

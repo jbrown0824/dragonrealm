@@ -1,5 +1,7 @@
 -- Flight, dashing and turning to face your aim. The client owns its dragon's physics, so all
 -- of this runs locally with LinearVelocity / AlignOrientation on the HumanoidRootPart.
+-- In a dungeon (player attribute InDungeon) wings only lift you Dungeons.HOVER_HEIGHT off the floor
+-- until its boss is down (DungeonCleared): no flying over the monsters or hiding by the ceiling.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,6 +10,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
+local Dungeons = require(Shared.Config.Dungeons)
 local Remotes = require(Shared.Remotes)
 
 local Movement = {}
@@ -30,6 +33,11 @@ groundParams.FilterType = Enum.RaycastFilterType.Exclude
 local function alive(): boolean
 	return character ~= nil and humanoid ~= nil and root ~= nil and humanoid.Health > 0 and character.Parent ~= nil
 end
+
+local function lowCeiling(): boolean
+	return player:GetAttribute("InDungeon") ~= nil and not player:GetAttribute("DungeonCleared")
+end
+local hoverToldRun = nil -- (the "wings only lift you a little" hint, once per run)
 
 function Movement.getStamina()
 	return stamina, maxStamina
@@ -70,6 +78,10 @@ local function startFlight()
 	align.Enabled = true
 	root.AssemblyLinearVelocity += Vector3.new(0, 20, 0)
 	Remotes.event("SetFlying"):FireServer(true)
+	if lowCeiling() and hoverToldRun ~= player:GetAttribute("DungeonRun") then
+		hoverToldRun = player:GetAttribute("DungeonRun")
+		App.Notifications.toast("The cave is too tight to fly: your wings only lift you a little until its boss is down.", Color3.fromRGB(120, 200, 255), "💨")
+	end
 end
 
 local function stopFlight()
@@ -229,6 +241,20 @@ local function step(dt: number)
 		local velocity = dir.Magnitude > 0.05 and dir.Unit * speed or Vector3.new(0, math.sin(now * 2) * 1.2, 0)
 		if root.Position.Y > Game.MAX_FLIGHT_HEIGHT and velocity.Y > 0 then
 			velocity = Vector3.new(velocity.X, 0, velocity.Z)
+		end
+		if lowCeiling() then
+			-- a low hover only: no climbing past HOVER_HEIGHT, and eased back down if above it
+			local hip = humanoid.HipHeight + root.Size.Y / 2
+			local floor = workspace:Raycast(root.Position, Vector3.new(0, -(hip + Dungeons.HOVER_HEIGHT + 40), 0), groundParams)
+			if floor then
+				local over = root.Position.Y - floor.Position.Y - hip - Dungeons.HOVER_HEIGHT
+				if over > 0 and velocity.Y > 0 then
+					velocity = Vector3.new(velocity.X, 0, velocity.Z)
+				end
+				if over > 1 then
+					velocity = Vector3.new(velocity.X, math.min(velocity.Y, -over * 4), velocity.Z)
+				end
+			end
 		end
 		linear.VectorVelocity = velocity
 

@@ -194,6 +194,11 @@ task.spawn(function()
 	click(Windows.guis.HUD:FindFirstChild("DungeonPill"), "Enter")
 	task.wait(2)
 	shot("dungeon_run")
+	-- the map in a dungeon draws the cave, not the world
+	Windows.open("Map")
+	task.wait(0.5)
+	shot("dungeon_map")
+	Windows.close()
 	SIM.done = true
 end)
 

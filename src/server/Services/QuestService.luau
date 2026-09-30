@@ -19,10 +19,18 @@ local S
 
 local GIVER_RANGE = 40
 
+-- Next to the giver: at its spot, or (the dungeon keepers) inside your dungeon run.
 local function nearGiver(player: Player, giverId: string): boolean
 	local _, _, root = S.PlayerService.getCharacter(player)
+	if not root then
+		return false
+	end
 	local spot = Zones.QuestGivers[giverId]
-	return root ~= nil and spot ~= nil and (root.Position - spot.position).Magnitude <= GIVER_RANGE
+	if spot and (root.Position - spot.position).Magnitude <= GIVER_RANGE then
+		return true
+	end
+	local inside = S.DungeonService.keeperPosition(player, giverId)
+	return inside ~= nil and (root.Position - inside).Magnitude <= GIVER_RANGE
 end
 
 -- Report progress. `set` = true replaces progress with `amount` (used for "reach level N").
@@ -141,7 +149,7 @@ function QuestService.start()
 	Remotes.func("TurnInQuest").OnServerInvoke = onTurnIn
 	Remotes.func("AbandonQuest").OnServerInvoke = onAbandon
 
-	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
+	local function hook(prompt: Instance)
 		prompt.Triggered:Connect(function(player)
 			local giver = Quests.Givers[prompt:GetAttribute("GiverId") or ""]
 			if S.RaidService.isActive() and not (giver and giver.dungeon) then
@@ -151,6 +159,11 @@ function QuestService.start()
 			Remotes.event("OpenQuestDialog"):FireClient(player, prompt:GetAttribute("GiverId"))
 		end)
 	end
+	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
+		hook(prompt)
+	end
+	-- (the keepers inside a dungeon are built when the first group goes in)
+	CollectionService:GetInstanceAddedSignal("QuestPrompt"):Connect(hook)
 end
 
 return QuestService
