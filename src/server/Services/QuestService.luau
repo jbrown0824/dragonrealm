@@ -1,7 +1,8 @@
 -- Quests from the village dragons. Talking to a quest giver opens a dialog on the client;
 -- the client asks to accept or turn in, and this service checks the rules in QuestUtil.
 -- Other services report progress with QuestService.progress(player, type, target, amount).
--- During a night raid the quest givers are busy fighting (RaidService) and don't talk quests.
+-- During a night raid the quest givers in town are busy fighting (RaidService) and don't talk
+-- quests; the keepers at the dungeon entrances are far from it all and always do.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -64,7 +65,7 @@ local function onAccept(player: Player, questId)
 	if not profile or not quest then
 		return false, "Unknown quest."
 	end
-	if S.RaidService.isActive() then
+	if S.RaidService.isActive() and not Quests.Givers[quest.giver].dungeon then
 		return false, Raids.QUEST_BUSY
 	end
 	if not nearGiver(player, quest.giver) then
@@ -103,7 +104,7 @@ local function onTurnIn(player: Player, questId)
 	if not profile or not quest then
 		return false, "Unknown quest."
 	end
-	if S.RaidService.isActive() then
+	if S.RaidService.isActive() and not Quests.Givers[quest.giver].dungeon then
 		return false, Raids.QUEST_BUSY
 	end
 	if not nearGiver(player, quest.giver) then
@@ -142,7 +143,8 @@ function QuestService.start()
 
 	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
 		prompt.Triggered:Connect(function(player)
-			if S.RaidService.isActive() then
+			local giver = Quests.Givers[prompt:GetAttribute("GiverId") or ""]
+			if S.RaidService.isActive() and not (giver and giver.dungeon) then
 				S.PlayerService.notify(player, Raids.QUEST_BUSY, Color3.fromRGB(255, 150, 110), "⚔️")
 				return
 			end

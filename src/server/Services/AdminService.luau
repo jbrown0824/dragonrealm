@@ -2,8 +2,8 @@
 -- reward, and the admin code (Config/AdminConfig, server-only) unlocks the admin panel for the
 -- rest of the session. Admins can change any dragon's level, Paragon and type, hand out items,
 -- pets, treats, skins and titles, fill the pet book and achievements, switch Robux passes and
--- products on for testing, restock shops, start bosses, and tune balance live (Shared/Tuning)
--- for everyone on the server.
+-- products on for testing, restock shops, start bosses, jump into a dungeon, and tune balance
+-- live (Shared/Tuning) for everyone on the server.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,6 +20,7 @@ local Zones = require(Shared.Config.Zones)
 local Skins = require(Shared.Config.Skins)
 local Collections = require(Shared.Config.Collections)
 local StoreInfo = require(Shared.Config.Store)
+local Dungeons = require(Shared.Config.Dungeons)
 local Tuning = require(Shared.Tuning)
 local TalentUtil = require(Shared.TalentUtil)
 local Util = require(Shared.Util)
@@ -124,6 +125,44 @@ local function tuningReport(): string
 		local v = Tuning.values.global[key]
 		if v and v ~= 1 then
 			table.insert(lines, string.format("-- %s: x%s  (applied in code as a multiplier)", Tuning.GLOBAL_LABELS[key], fmt(v)))
+		end
+	end
+	local CAP_CONFIG = { lifestealCap = "LIFESTEAL_CAP", regenCap = "REGEN_CAP", extraLifestealCap = "EXTRA_LIFESTEAL_CAP", extraRegenCap = "EXTRA_REGEN_CAP" }
+	for _, key in ipairs(Tuning.CAP_KEYS) do
+		local v = Tuning.values.global[key]
+		if v and v ~= 1 then
+			local name = CAP_CONFIG[key]
+			table.insert(lines, string.format("Game.%s = %s  -- was %s", name, fmt(Game[name] * v), fmt(Game[name])))
+		end
+	end
+	local scaling = Tuning.values.global.groupScaling
+	if scaling and scaling ~= 1 then
+		for _, list in ipairs({ "GROUP_HEALTH", "GROUP_DAMAGE" }) do
+			local parts = {}
+			for _, x in ipairs(Dungeons[list]) do
+				table.insert(parts, fmt(math.max(0.1, 1 - (1 - x) * scaling)))
+			end
+			table.insert(lines, string.format("Dungeons.%s = { %s }", list, table.concat(parts, ", ")))
+		end
+	end
+	for _, id in ipairs(Dungeons.Order) do
+		local t = Tuning.values.dungeons[id]
+		local def = Dungeons.get(id)
+		if t then
+			for _, key in ipairs(Tuning.DUNGEON_KEYS) do
+				local v = t[key]
+				if v and v ~= 1 then
+					if key == "bossHp" or key == "bossDmg" then
+						for _, which in ipairs({ def.miniBoss, def.boss }) do
+							local b = Dungeons.Bosses[which.id]
+							local field = key == "bossHp" and "health" or "hit"
+							table.insert(lines, string.format("Dungeons.Bosses.%s.%s = %s  -- was %s", which.id, field, fmt(b[field] * v), fmt(b[field])))
+						end
+					else
+						table.insert(lines, string.format("-- %s %s: x%s  (monster health/damage in Enemies.Dungeon, luck in Dungeons.UNIQUE_CHANCE / EGG_CHANCE)", def.name, Tuning.DUNGEON_LABELS[key], fmt(v)))
+					end
+				end
+			end
 		end
 	end
 	local abilityIds = {}
@@ -495,7 +534,7 @@ ACTIONS.miniBosses = function()
 	return true, "Mini-bosses respawned."
 end
 ACTIONS.tuneGlobal = function(_, _, args)
-	if not table.find(Tuning.GLOBAL_KEYS, args.key) then
+	if not Tuning.isGlobalKey(args.key) then
 		return false, "Unknown setting."
 	end
 	local v = math.clamp(tonumber(args.value) or 1, 0.1, 10)
@@ -522,6 +561,29 @@ ACTIONS.tuneTalent = function(_, _, args)
 	Tuning.values.talents[args.talentId] = v ~= 1 and v or nil
 	broadcastTuning()
 	return true, "Skill tuned."
+end
+ACTIONS.tuneDungeon = function(_, _, args)
+	if not Dungeons.get(args.dungeonId) or not table.find(Tuning.DUNGEON_KEYS, args.key) then
+		return false, "Unknown dungeon setting."
+	end
+	local v = math.clamp(tonumber(args.value) or 1, 0.1, 10)
+	local entry = Tuning.values.dungeons[args.dungeonId] or {}
+	entry[args.key] = v ~= 1 and v or nil
+	Tuning.values.dungeons[args.dungeonId] = next(entry) and entry or nil
+	broadcastTuning()
+	return true, string.format("%s %s x%s (next run)", Dungeons.get(args.dungeonId).name, Tuning.DUNGEON_LABELS[args.key], fmt(v))
+end
+ACTIONS.enterDungeon = function(_, target, args)
+	if not Dungeons.get(args.dungeonId) then
+		return false, "Unknown dungeon."
+	end
+	return S.DungeonService.adminEnter(target, args.dungeonId)
+end
+ACTIONS.dungeonReset = function(_, target)
+	local profile = S.PlayerService.getProfile(target)
+	profile.dungeons = { seen = 0, clears = {}, pity = {} }
+	profile.dungeonClears = 0
+	return true, "Dungeon clears, pity and the unlock badge reset."
 end
 ACTIONS.resetTuning = function()
 	Tuning.reset()

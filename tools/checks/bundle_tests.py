@@ -30,6 +30,7 @@ V3mt.__div=function(a,b) return Vector3.new(a.X/b,a.Y/b,a.Z/b) end
 V3mt.__tostring=function(v) return string.format("(%g,%g,%g)",v.X,v.Y,v.Z) end
 Vector3 = { new=function(x,y,z) return setmetatable({X=x or 0,Y=y or 0,Z=z or 0}, V3mt) end }
 Vector3.zero = Vector3.new(0,0,0); Vector3.yAxis = Vector3.new(0,1,0)
+Vector2 = { new=function(x,y) return {X=x or 0,Y=y or 0} end }
 Color3 = { fromRGB=function(r,g,b) return {R=r/255,G=g/255,B=b/255} end, new=function(r,g,b) return {R=r,G=g,B=b} end }
 local __guid = 0
 game = { GetService=function(_, name) return { GenerateGUID=function() __guid += 1; return "guid-"..__guid end } end }

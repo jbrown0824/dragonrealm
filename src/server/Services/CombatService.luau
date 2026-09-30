@@ -228,6 +228,14 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 		return 0
 	end
 	local humanoid = info.humanoid
+	if info.immune then
+		-- (a dungeon boss behind its rune shield, or collapsed before its second life)
+		if attacker then
+			queueNumber(attacker, info.root.Position + Vector3.new(0, info.height, 0), 0, "immune")
+		end
+		return 0
+	end
+	info.lastCombat = now()
 	amount *= info.damageTakenMult or 1 -- (raiders shielded on a longship's deck)
 	amount = math.max(1, math.floor(amount + 0.5))
 	local before = humanoid.Health
@@ -262,6 +270,9 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 	end
 
 	if humanoid.Health <= 0 then
+		if info.onLethal and info.onLethal(info) then
+			return dealt -- (it isn't finished yet: a dungeon boss's second life)
+		end
 		S.EnemyService.kill(info, attacker)
 	end
 	return dealt
@@ -446,7 +457,10 @@ end
 ---------------------------------------------------------------- casting
 
 local function groundBelow(pos: Vector3): Vector3
-	local ray = workspace:Raycast(pos + Vector3.new(0, 60, 0), Vector3.new(0, -200, 0), mapParams)
+	-- cast from 60 up, or from just under a ceiling if there's one closer (inside a dungeon cave)
+	local up = workspace:Raycast(pos + Vector3.new(0, 1, 0), Vector3.new(0, 59, 0), mapParams)
+	local from = up and (up.Position - Vector3.new(0, 1, 0)) or pos + Vector3.new(0, 60, 0)
+	local ray = workspace:Raycast(from, Vector3.new(0, -200, 0), mapParams)
 	if ray then
 		return ray.Position
 	end

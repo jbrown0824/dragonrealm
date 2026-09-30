@@ -4,6 +4,9 @@
 --
 -- reward = { gold, treats, eggs = { [eggId] = n }, skin = skinId, title = text }
 -- `stat` is a profile field (or "paragon" / "level").
+-- Each dungeon also gives a title the first time you clear it (Config/Dungeons `title`).
+
+local Dungeons = require(script.Parent.Dungeons)
 
 local Collections = {}
 
@@ -49,6 +52,8 @@ Collections.Achievements = {
 		tiers = tiers({ 3, 300 }, { 6, 1500 }, { 10, 5000 }, nil, "Dead Eye") },
 	{ id = "Glory", name = "Battle Legend", icon = "🏆", stat = "glory", desc = "Earn Glory in the Battle Zone",
 		tiers = tiers({ 100, 500 }, { 1000, 2500 }, { 5000, 10000 }, nil, "Legend of Glory") },
+	{ id = "Dungeons", name = "Dungeon Delver", icon = "🏰", stat = "dungeonClears", desc = "Clear dungeons (beat the boss at the end)",
+		tiers = tiers({ 1, 1000 }, { 10, 5000 }, { 50, 20000 }, nil, "Dungeon Delver") },
 	{ id = "Level", name = "Growing Up", icon = "🐉", stat = "level", desc = "Reach dragon levels",
 		tiers = tiers({ 10, 500 }, { 20, 2500 }, { 30, 5000 }, nil, "Elder Dragon") },
 	{ id = "Paragon", name = "Paragon", icon = "💫", stat = "paragon", desc = "Reach Paragon levels after level 30",
@@ -78,6 +83,9 @@ function Collections.allTitles(): { string }
 				table.insert(list, t.reward.title)
 			end
 		end
+	end
+	for _, id in ipairs(Dungeons.Order) do
+		table.insert(list, Dungeons.List[id].title)
 	end
 	return list
 end

@@ -11,7 +11,8 @@ end
 local Pets = {}
 
 -- "Secret" pets come from the Secret Egg in the 💎 Store (Robux), except the Aurora Serpent: a
--- 1% chance in every Mythic Egg (species with `egg` set only hatch from that egg).
+-- 1% chance in every Mythic Egg (species with `egg` set only hatch from that egg). The dungeon
+-- eggs' species are tied the same way.
 Pets.RarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
 Pets.ReleaseGold = { Common = 50, Uncommon = 120, Rare = 300, Epic = 800, Legendary = 2000, Secret = 3000 }
 
@@ -91,12 +92,32 @@ Pets.Species = {
 	-- only in Mythic Eggs (1%): night-sky scales with the northern lights rippling down its frills
 	AuroraSerpent = { name = "Aurora Serpent", rarity = "Secret", plan = "Venomspine", egg = "MythicEgg", stats = { lootPct = 15, critDamage = 20, attackPct = 8 }, aura = rgb(130, 255, 190),
 		look = palette(rgb(20, 40, 60), rgb(60, 220, 170), rgb(90, 120, 170), rgb(170, 110, 255), rgb(150, 255, 220), rgb(40, 90, 110), rgb(200, 255, 235), rgb(160, 255, 210), rgb(140, 80, 255)) },
+	-- a heart-red wyrm with a rosy glow: a little lifesteal and regen (they share the gear-and-pets
+	-- cap, Game.EXTRA_LIFESTEAL_CAP / EXTRA_REGEN_CAP)
+	HeartbloomWyrm = { name = "Heartbloom Wyrm", rarity = "Secret", plan = "Frostwyrm", stats = { lifesteal = 1.5, regen = 0.12, healthPct = 8 }, aura = rgb(255, 110, 150),
+		look = palette(rgb(200, 40, 70), rgb(120, 20, 45), rgb(255, 190, 200), rgb(255, 120, 160), rgb(255, 230, 240), rgb(230, 80, 110), rgb(255, 215, 225), rgb(255, 170, 190), rgb(220, 30, 80)) },
+
+	---------------------------------------------------------------- Dungeon eggs (only from the dungeon's boss)
+	BarrowWisp = { name = "Barrow Wisp", rarity = "Rare", plan = "Frostwyrm", egg = "BarrowEgg", stats = { dodge = 3, speedPct = 5 },
+		look = palette(rgb(170, 215, 205), rgb(110, 160, 150), rgb(225, 245, 240), rgb(120, 255, 190), rgb(160, 255, 210), rgb(150, 200, 190), rgb(235, 245, 240), rgb(170, 255, 215), rgb(60, 200, 150)) },
+	Bonewing = { name = "Bonewing", rarity = "Epic", plan = "Stormwing", egg = "BarrowEgg", stats = { defensePct = 10, healthPct = 6 },
+		look = palette(rgb(235, 228, 210), rgb(40, 38, 42), rgb(250, 245, 235), rgb(120, 255, 190), rgb(120, 255, 190), rgb(60, 58, 64), rgb(250, 245, 230), rgb(170, 255, 215), rgb(60, 200, 150)) },
+	DraugrDrake = { name = "Draugr Drake", rarity = "Legendary", plan = "Shadowstalker", egg = "BarrowEgg", stats = { lifesteal = 1.5, attackPct = 8, critChance = 3 },
+		look = palette(rgb(40, 70, 66), rgb(20, 35, 34), rgb(150, 178, 168), rgb(120, 255, 190), rgb(140, 255, 200), rgb(30, 55, 52), rgb(200, 215, 205), rgb(150, 255, 210), rgb(40, 190, 140)) },
+	AnvilWhelp = { name = "Anvil Whelp", rarity = "Rare", plan = "Behemoth", egg = "ForgeEgg", stats = { defensePct = 8, attackPct = 3 },
+		look = palette(rgb(95, 95, 105), rgb(55, 55, 62), rgb(160, 150, 140), rgb(255, 130, 50), rgb(255, 170, 60), rgb(80, 80, 90), rgb(60, 55, 55), rgb(255, 190, 80), rgb(255, 90, 20)) },
+	RuneforgedDrake = { name = "Runeforged Drake", rarity = "Epic", plan = "Venomspine", egg = "ForgeEgg", stats = { abilityPct = 8, cooldownPct = 4 },
+		look = palette(rgb(35, 30, 32), rgb(20, 16, 18), rgb(90, 60, 45), rgb(255, 140, 50), rgb(255, 180, 70), rgb(45, 38, 40), rgb(255, 140, 60), rgb(255, 200, 90), rgb(255, 100, 20)) },
+	-- the freed elder dragon's hatchling
+	ChainbreakerWyrm = { name = "Chainbreaker Wyrm", rarity = "Legendary", plan = "Stormwing", egg = "ForgeEgg", stats = { regen = 0.15, healthPct = 10, attackPct = 6 },
+		look = palette(rgb(170, 40, 25), rgb(90, 20, 15), rgb(255, 200, 120), rgb(255, 210, 90), rgb(255, 230, 120), rgb(200, 60, 30), rgb(255, 210, 110), rgb(255, 220, 110), rgb(255, 110, 20)) },
 }
 
 -- Eggs. `weights` pick the rarity; the species is then random within that rarity
 -- (Pets.speciesFor). `store` = the 💎 Store product that sells it for Robux.
--- Eggs without a price can't be bought: they drop from mini-bosses, bosses and chests.
-Pets.EggOrder = { "EmberEgg", "StormEgg", "MythicEgg", "SecretEgg" }
+-- Eggs without a price can't be bought: they drop from mini-bosses, bosses and chests. Dungeon
+-- eggs (`dungeon` = where) only drop from that dungeon's boss, and hatch pets found nowhere else.
+Pets.EggOrder = { "EmberEgg", "StormEgg", "MythicEgg", "SecretEgg", "BarrowEgg", "ForgeEgg" }
 Pets.Eggs = {
 	EmberEgg = { name = "Ember Egg", icon = "🥚", price = 400, color = rgb(255, 150, 90),
 		weights = { Common = 62, Uncommon = 30, Rare = 7, Epic = 1 },
@@ -109,7 +130,13 @@ Pets.Eggs = {
 		desc = "Always Epic or Legendary, with a 1% chance of the Aurora Serpent (a Secret found nowhere else). Found free on mini-bosses, bosses and camp chests." },
 	SecretEgg = { name = "Secret Egg", icon = "🔮", price = nil, robux = true, store = "SecretEgg", color = rgb(255, 150, 240),
 		weights = { Secret = 100 },
-		desc = "A shimmering egg from the 💎 Store. Always hatches one of the three Secret nano dragons." },
+		desc = "A shimmering egg from the 💎 Store. Always hatches one of the four Secret nano dragons." },
+	BarrowEgg = { name = "Barrow Egg", icon = "💀", price = nil, dungeon = "Barrow", color = rgb(120, 255, 190),
+		weights = { Rare = 65, Epic = 28, Legendary = 7 },
+		desc = "Cold as a grave and faintly glowing. Only Haldor the Hollow King drops it, and it hatches nano dragons found nowhere else." },
+	ForgeEgg = { name = "Forge Egg", icon = "🔥", price = nil, dungeon = "Forge", color = rgb(255, 140, 60),
+		weights = { Rare = 65, Epic = 28, Legendary = 7 },
+		desc = "Still hot from the Rune Forge. Only Runemaster Sigrun drops it, and it hatches nano dragons found nowhere else." },
 }
 
 Pets.RarityColors = {

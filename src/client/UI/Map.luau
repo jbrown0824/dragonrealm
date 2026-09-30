@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
+local DungeonInfo = require(Shared.Config.Dungeons)
 local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
 local DayNight = require(Shared.DayNight)
@@ -173,6 +174,14 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	draw.text((Zones.Range.matX + Zones.Range.far) / 2, Zones.Range.lanes[2], "🏹", 13, nil, 5)
 	for _, spot in ipairs(Zones.FishingSpots) do
 		draw.text(spot.pos.X, spot.pos.Z, "🎣", 11, nil, 5)
+	end
+	-- dungeon cave mouths
+	for _, id in ipairs(DungeonInfo.Order) do
+		local d = DungeonInfo.List[id]
+		draw.text(d.entrance.X, d.entrance.Z, "🏰", 16, nil, 5)
+		if labels then
+			draw.text(d.entrance.X, d.entrance.Z + 22, string.format("%s  Lv %d+", d.name, d.minLevel), 12, d.color)
+		end
 	end
 	if labels then
 		for _, id in ipairs({ "ElkMeadows", "Whisperwood", "BearclawHollow", "FrostfangRidge", "BattleZone" }) do
@@ -396,13 +405,15 @@ local function updateMini()
 	end
 	local pos = root.Position
 	local inWorld = Zones.inWorld(pos)
+	local dungeon = DungeonInfo.get(player:GetAttribute("InDungeon") or "")
 	mini.arenaLabel.Visible = not inWorld
+	mini.arenaLabel.Text = dungeon and (dungeon.icon .. " " .. dungeon.name) or "⚔️ Boss Arena"
 	local entry = mini.entry
 	local x, z = entry.draw.px(pos.X, pos.Z)
 	entry.canvas.Position = UDim2.fromOffset(MINI_SIZE / 2 - x, MINI_SIZE / 2 - z)
 	mini.arrow.Rotation = heading(root)
 	local area = Zones.areaAt(pos)
-	mini.zoneLabel.Text = area and area.name or "The Wilds"
+	mini.zoneLabel.Text = dungeon and dungeon.name or (area and area.name or "The Wilds")
 	local t, clock = DayNight.now()
 	mini.clock.Text = (DayNight.isNight(t) and "🌙 " or "☀️ ") .. DayNight.format(clock)
 	-- edge pin when the waypoint is off the minimap

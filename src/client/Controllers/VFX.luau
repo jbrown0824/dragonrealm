@@ -557,8 +557,43 @@ end
 
 ---------------------------------------------------------------- vikings & farm
 
+-- A dungeon boss's harpoon: a chain of links flying out to a dragon.
+local function chainThrow(from: Vector3, to: Vector3, time: number)
+	local hook = part(Vector3.new(0.6, 1.8, 1.4), CFrame.new(from), Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
+	local links = {}
+	for i = 1, 10 do
+		links[i] = part(Vector3.new(0.35, 0.6, 1.2), CFrame.new(from), Color3.fromRGB(70, 70, 80), Enum.Material.Metal)
+	end
+	local start = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local t = math.clamp((os.clock() - start) / time, 0, 1)
+		local tip = from:Lerp(to, t)
+		local dir = to - from
+		local look = dir.Magnitude > 0.1 and dir or Vector3.new(0, 0, -1)
+		hook.CFrame = CFrame.lookAt(tip, tip + look)
+		for i, link in ipairs(links) do
+			local p = from:Lerp(tip, i / #links)
+			link.CFrame = CFrame.lookAt(p, p + look) * CFrame.Angles(0, 0, i % 2 == 0 and 0 or math.rad(90))
+		end
+		if t >= 1 then
+			conn:Disconnect()
+			task.delay(0.4, function()
+				hook:Destroy()
+				for _, link in ipairs(links) do
+					link:Destroy()
+				end
+			end)
+		end
+	end)
+end
+
 function VFX.throw(data)
 	local from, to, time = data.from, data.to, math.max(0.05, data.time)
+	if data.style == "chain" then
+		chainThrow(from, to, time)
+		return
+	end
 	local isHammer = data.style == "hammer"
 	local head = part(isHammer and Vector3.new(1.4, 1, 1) or Vector3.new(0.25, 1.4, 1.2), CFrame.new(from), isHammer and Color3.fromRGB(80, 80, 90) or Color3.fromRGB(170, 175, 185), Enum.Material.Metal)
 	local handle = part(Vector3.new(0.3, 0.3, 2.4), CFrame.new(from), Color3.fromRGB(120, 80, 45), Enum.Material.Wood)
@@ -730,6 +765,26 @@ local HANDLERS = {
 	putOut = function(d)
 		burst(d.pos, Color3.fromRGB(245, 248, 255), Color3.fromRGB(170, 180, 190), 60, 18, 9, SMOKE)
 		burst(d.pos, Color3.fromRGB(200, 235, 255), Color3.fromRGB(90, 160, 240), 40, 24, 1.3, SPARKLE)
+	end,
+	-- a dungeon boss's harpoon hooked a dragon and dragged it down (the hooked dragon stops flying)
+	harpooned = function(d)
+		burst(d.to, Color3.fromRGB(190, 190, 200), Color3.fromRGB(90, 90, 100), 16, 14, 1.5, SMOKE)
+		if d.userId == Players.LocalPlayer.UserId then
+			App.Movement.land()
+		end
+	end,
+	-- chains breaking (the Rune Forge's elder dragon set free, or a rune shield shattering)
+	shatter = function(d)
+		burst(d.pos, Color3.fromRGB(255, 220, 140), Color3.fromRGB(255, 120, 40), 70, 34, 1.6, SPARKLE)
+		ring(d.pos, 22, Color3.fromRGB(255, 200, 120), 0.9, 1)
+		flash(d.pos, Color3.fromRGB(255, 180, 90), 70, 0.8)
+	end,
+	-- a dungeon boss getting back up for its second life
+	rise = function(d)
+		local color = d.color or Color3.fromRGB(120, 255, 190)
+		burst(d.pos, color, Color3.new(1, 1, 1), 60, 26, 2, SPARKLE)
+		ring(d.pos - Vector3.new(0, 3, 0), 26, color, 1, 1.2)
+		flash(d.pos, color, 60, 1)
 	end,
 	-- a burning house's roof caving in: sparks and a gust of smoke and flame
 	collapse = function(d)

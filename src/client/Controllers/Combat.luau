@@ -12,6 +12,7 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local StatCalc = require(Shared.StatCalc)
 local Range = require(Shared.Config.Range)
+local DungeonInfo = require(Shared.Config.Dungeons)
 local Remotes = require(Shared.Remotes)
 
 local Combat = {}
@@ -251,6 +252,11 @@ function Combat.init(app)
 			App.Map.toggleMini()
 		elseif input.KeyCode == Enum.KeyCode.G then
 			App.HUD.eat()
+		elseif input.KeyCode == Enum.KeyCode.I then
+			local p = App.State.profile
+			if p and p.level >= DungeonInfo.UNLOCK_LEVEL then
+				App.Windows.toggle("Dungeons")
+			end
 		elseif input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
 			App.Windows.close()
 		end

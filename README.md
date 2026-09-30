@@ -44,6 +44,7 @@ Progress saves with DataStores. To test saving in Studio, first publish the game
 | Eat the best food in your bag | G |
 | Reel in a fish | T (or click REEL) |
 | Skills / Bag / Pets / Quests / Collection / Map / Fly home | K / B / P / J / L / M / H |
+| Dungeons (from level 15) | I |
 | Hide or show the minimap | N |
 
 The 💎 Store, 🎁 Codes and ❓ Help are the round buttons at the top right. The big map has no menu button: press M or click the minimap. Hover the 💰 ⚔️ ⚡ numbers on your player card (tap them on a phone) for what they mean.
@@ -93,13 +94,22 @@ Messages about what you just did in a window ("Bought it!", "You need 300 more g
 - **Nano dragon pets**: buying an egg at **Nestmother's Hatchery** hatches it on the spot; eggs found on champions, bosses and chests wait in the Eggs tab until you hatch them (a red count on the Pets button and the Eggs tab says how many). Every egg shows its rarity odds on one color-coded line, and **See every pet** lists each pet it can hatch with its chance and boosts. Click outside the hatched pet's card (or Awesome!) to close the reveal. 15 species across 5 rarities, each a tiny version of one of the five body plans in its own colors, with its own boosts. One pet follows you at first, two at level 10, three at level 20. **⚡ Equip Best** picks your best ones. Pets show their name, rarity and level above them for everyone to see.
   - **Pet Treats** 🍬 drop when you harvest full-grown flowers (rarer and better-watered flowers drop more). Feed them to a pet to level it up (to level 5; each level adds +25% to its boosts, so level 5 doubles them).
   - **Golden pets**: merge three of the same species into one ✨ Golden pet with ×1.5 boosts, gold trim and a sparkle. It keeps the highest level of the three.
-  - **Secret pets**: three extra species (Prismatic Wyrmlet, Celestial Drake, Phantom Nibbler) that only hatch from the Secret Egg in the 💎 Store, and the **Aurora Serpent**, a 1% chance in every Mythic Egg and nowhere else. They always trail a sparkle.
+  - **Secret pets**: four extra species (Prismatic Wyrmlet, Celestial Drake, Phantom Nibbler, and the **Heartbloom Wyrm**, which gives a little lifesteal and health regen) that only hatch from the Secret Egg in the 💎 Store, and the **Aurora Serpent**, a 1% chance in every Mythic Egg and nowhere else. They always trail a sparkle.
+  - **Dungeon pets**: the Barrow Egg and the Forge Egg only drop from their dungeon's boss (🏰 below), and each hatches three species found nowhere else.
   - **Mythic Eggs** always hatch Epic or Legendary (72% / 27%), with that 1% Aurora Serpent. They drop free from champions, bosses and camp chests, and are also sold in the 💎 Store for 49 R$ (the Eggs tab has a buy button, and says where to find them free).
 - **Paragon levels**: after level 30, XP keeps counting into Paragon levels (💫 on your nametag). Each one makes you a little stronger, and every 5 gives an extra skill point, so you can slowly fill more of your tree. With more abilities than keys, pick which four go on keys 2-5.
 - **📖 Collection** (L): the pet book (every species you've hatched and made golden, with milestone rewards), achievements with bronze, silver and gold tiers (vikings, champions, bosses, flowers, fish, hunting, chests, Glory, levels, Paragon), and the **skins** and **titles** they unlock. Skins recolor your dragon (the shape and signature stay the same); titles show over your name. Rewards arrive automatically.
 - **Lairs and farming**: every player gets a base with 6 planting spots, and up to 12 can be unlocked. The spot you're facing glows, and only its prompts show. Plants grow Seed → Seedling → Sprout → Flower. A few times per stage a plant gets thirsty (💧 and a countdown over it). If you miss the window it keeps growing, but its quality drops, and quality sets the harvest value. You can harvest at any stage; full Flowers give seeds back and often Pet Treats. The **Bot Dock** in your lair sells robots: the Drizzle-Bot waters for you, and the Reap-Bot harvests flowers (and replants them once upgraded).
-- **Quests** from 4 village dragons: a main story, combat bounties (including a champion hunt), gardening and fishing, and adventure chains (hunting, treasure chests). ❗ means a new quest, ❓ means one is ready to turn in.
+- **Quests** from 4 village dragons: a main story, combat bounties (including a champion hunt), gardening and fishing, and adventure chains (hunting, treasure chests). Two more dragons keep watch at the dungeon entrances (below). ❗ means a new quest, ❓ means one is ready to turn in.
 - **World bosses** (Jarl Ragnar, Grimhilda, Hrothgar): the whole server gets a 90-second warning (the banner can be minimized), and anyone can join the queue from the banner or the War Horn. The boss's health scales with the group's damage and its hits scale with the group's health. Fights include telegraphed slams, rune strikes, axe volleys, summoned vikings and an enrage phase. Each dragon gets 3 lives per fight, and you can leave at any time. Rewards are Epic or Legendary gear, boss-only uniques, rare seeds, eggs, big XP and gold.
+- **🏰 Dungeons** (from level 15; the 🏰 menu button or I, or fly to a cave mouth in the viking lands): small group adventures for 1 to 4 dragons. **The Draugr Barrow** (level 15+) is a flooded burial mound of undead vikings that winds down through tunnels, a pillared gallery, a flooded crypt and a hidden hoard to the Hollow King's burial chamber. **The Rune Forge** (level 30+) is big and vertical: great halls with throwing ledges, a lava river with two bridges, a ramp spiraling down around the forge shaft, and a round chamber where the vikings keep an elder dragon in chains.
+  - **Groups**: invite dragons in your server (friends first; a friend in another server can join yours from the Roblox friends list), then either **Enter now** with whoever you have (even alone) or **Find group** to let the queue fill you up to 4. When the queue finds a group (4 dragons, or 2-3 after a minute and a half) everyone gets a ready check: Enter or Not now. A small pill under your player card (bottom left on phones) shows the queue, the ready check and then your run: packs cleared, in or out of combat, the boss's health.
+  - The dungeon doesn't scale to your level, only a little to your group's size (fewer dragons, less monster health and damage).
+  - **The rules**: hit one monster and its whole pack comes. Knocked out mid-fight, you stay down until your group is out of combat, then get back up beside a friend. If everyone falls, the group wakes at the entrance and the monsters (and the boss) heal back to full. Monsters that nobody's hurt (and that haven't hurt anybody) for a while give up and walk home, healing slowly.
+  - **Bosses fight differently**: Grimvald the Bone-Warden charges and calls his hounds; Haldor the Hollow King collapses at zero and rises again as Haldor Unbound, who leaps across the chamber onto whoever's farthest; Brakki Anvil-Jarl leaps and enrages; Runemaster Sigrun harpoons dragons hovering out of reach, the chained elder dragon breathes lanes of fire across her chamber, and at 60% she hides behind a rune shield until her three guards fall. Beat her and the dragon's chains shatter and it flies off, free.
+  - **Loot**: everyone in the run gets their own. Monsters drop like tougher vikings. The mini-boss gives Rare+ gear. The boss gives Epic or Legendary gear at the dungeon's item level, a chance at a **relic** (named gear with a little lifesteal or health regen, found nowhere else) and a chance at the dungeon's **egg**. That chance grows with every clear until one drops. First clears give a title (Barrow Breaker, Chainbreaker).
+  - **Lifesteal and regen are capped**: gear relics and pets together add at most 8% lifesteal and 0.8% regen, on top of talents, and totals stop at 30% and 3% a second.
+  - **Ylva the Grave-Singer** and **Old Kael** wait at the cave mouths with quests for relics you can't get anywhere else, and repeatable monster bounties.
 - **Battle Zone**: the walled arena at the north end of town is PvP. Wins earn Glory (⚔️ on your player card: +1 a win, +3 for ending someone's streak of 3 or more; only PvP wins count) and gold, and kill streaks get announced to the server.
 - **Codes**: the 🎁 button redeems promo codes (set in `src/server/Config/AdminConfig.luau`).
 - **💎 Store** (Robux): a 9 R$ **Gold Rush** (+100% gold for 30 minutes of play; its clock only runs while you're in the game, and it stacks with 2x Gold), 2x XP and 2x Gold game passes, handy passes (**2x Flight Time**, **Never Hungry**, and **Wayfinder**: a 🌀 beside every place on the world map teleports you there, outside combat and boss fights, with a 20-second cooldown), gold packs sized to your level, the Mythic and Secret Eggs, a bag of Pet Treats and an instant shop restock. One small button under your player card shows its R$ price: the Starter Pack until level 10 (or until you buy it), then the Gold Rush. The game never pops the Store open: when you click to buy something you can't afford, the message under the window says how much gold you're missing and has a 💎 Get gold button that opens the Store at the gold packs. See "Robux store setup" below.
@@ -109,8 +119,8 @@ Messages about what you just did in a window ("Bought it!", "You need 300 more g
 Type the admin code into the 🎁 **Codes** window (the default is `DRAGONLORD`: **change it in `src/server/Config/AdminConfig.luau` before you publish**, or lock it to your user id with `ALLOWED_USER_IDS`). A 🛠️ button appears and opens the admin panel:
 
 - **Dragon**: pick any player in the server (🎯, top right), then set their level (1-30) and Paragon, dragon type, gold, gear, eggs, seeds, food, potions, robots and hunger; give any pet (including Secret ones, golden and at any level) and Pet Treats; fill or clear the pet book; max or reset achievements; unlock, lock or put on skins and titles; switch the 2x XP / 2x Gold passes on or off and hand out any store product for testing (no Robux involved); reset the Starter Pack; restock their shops; heal, god mode, no cooldowns, teleports.
-- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions, restock, close or reopen everyone's shops, set the time of day (dawn, noon, just before dusk, midnight), start a night raid or end it (repelled or lost), set a house on fire and rebuild every house.
-- **Balance**: live multipliers for every ability's damage and cooldown, every skill's values, and global damage, health, XP and gold rates. Changes apply to everyone on the server right away and reset when it restarts. **Print changes** lists the new numbers so you can paste them into `src/shared/Config`.
+- **World**: bring the boss in 10-60 seconds, respawn camps, refill chests, respawn champions, restock, close or reopen everyone's shops, set the time of day (dawn, noon, just before dusk, midnight), start a night raid or end it (repelled or lost), set a house on fire and rebuild every house, send the picked dragon into a dungeon alone (any level) and reset its dungeon clears.
+- **Balance**: live multipliers for every ability's damage and cooldown, every skill's values, global damage, health, XP and gold rates, the lifesteal and regen caps, and for each dungeon its monsters' health and damage, its bosses' health and damage, and the relic and egg luck (plus how much easier small groups have it). Changes apply to everyone on the server right away (dungeons from the next run) and reset when it restarts. **Print changes** lists the new numbers so you can paste them into `src/shared/Config`.
 
 ## Robux store setup
 
@@ -128,12 +138,13 @@ All balance numbers live in `src/shared/Config/`:
 
 | File | What it controls |
 |---|---|
-| `Game.luau` | Level cap, XP curve, Paragon levels, day and night length, player dragon size and starting camera distance, boss timers, regen, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
+| `Game.luau` | Level cap, XP curve, Paragon levels, day and night length, player dragon size and starting camera distance, boss timers, regen and the lifesteal / regen caps, flight, plot and robot prices, hunger, pet slots, camp respawn scaling, chest timer |
+| `Dungeons.luau` | Dungeons: unlock levels, group-size scaling, the combat rules (giving up, reviving, wipes), the queue and ready check, loot chances and pity, every layout (rooms, tunnels, ramps, lava, bridges, decorations, monster packs), and the bosses' moves and traits |
 | `Raids.luau` | Night raids: the chance, the pity rule, raid tiers by level (waves, Raid Captain, burn time), the raid's clock, how raiders chase and spread out, villager help and knockouts, the ships (speed, deck room, leaps, the retreat), water for fires (splashes per scoop, reach), how houses burn down, rewards, how long the shops close, bosses vs raids |
 | `Range.luau` | Target practice: the 10 levels (targets, patterns, time, XP), hit radius, the practice Fireball cooldown, camera distance, AFK practice |
 | `Classes.luau` | Dragon stats, colors, fire styles |
 | `Talents.luau`, `Abilities.luau` | Skill trees and abilities |
-| `Enemies.luau` | Viking, champion (mini-boss) and boss stats and attacks |
+| `Enemies.luau` | Viking, champion (mini-boss), boss and dungeon monster stats and attacks |
 | `Animals.luau`, `Food.luau` | Wild animals, meat and fish, fishing difficulty |
 | `Potions.luau`, `Pets.luau` | Potion ranks and prices; pet species (including Secret ones), boosts, eggs, levels, treat costs and golden merges |
 | `Shops.luau` | Limited stock: restock timer, how many items, rarities and amounts |
@@ -144,7 +155,7 @@ All balance numbers live in `src/shared/Config/`:
 | `Zones.luau` | Map layout: camps, shops, bases, houses, town wells, the villagers' walking routes, Battle Zone, hunting grounds, lakes, river and the fjord channel, fishing spots, training grounds, target practice range |
 | `Sounds.luau` | Sound effect IDs. Paste Creator Store audio IDs here; blank entries are silent |
 
-**Testing quickly:** use admin mode (the World page sets the time of day, starts or ends a raid, sets a house on fire and closes or reopens the shops), or in `Game.luau` set `BOSS_FIRST_SPAWN = 40` and `BOSS_WARNING = 20`.
+**Testing quickly:** use admin mode (the World page sets the time of day, starts or ends a raid, sets a house on fire, closes or reopens the shops and drops you into a dungeon), or in `Game.luau` set `BOSS_FIRST_SPAWN = 40` and `BOSS_WARNING = 20`. To try dungeon groups, invites and ready checks in Studio: **Test → Clients and Servers** with 2-4 players, set them to level 15 in the admin panel, and invite each other from the 🏰 window.
 
 ## Project layout
 
@@ -157,7 +168,8 @@ src/
 
 ## Ideas for next steps
 
-- **End-game mechanics** (dungeons and more to chase after level 30): next up.
+- **Cross-server dungeon queue** (next up): match dragons from every server, not just yours. A shared queue (MemoryStore) forms the groups and teleports them into a private copy of the game for their run (reserved servers of this same place), then sends them back to the server they came from. Friends in other servers could be invited directly. Teleports only work in the published game, not in Studio, and saves need a hand-off first (see session locking below). In-server groups keep working as they do now.
+- **More endgame**: more dungeons (and harder versions of these two), more bosses and more camps.
 - **PvP tournament as a world event**: when the world boss timer comes up, randomly pick between the boss and a PvP battle arena.
   - Players join from the same banner and War Horn queue. The event fails (nobody wins anything) if fewer than 2 dragons join.
   - Inside the arena, **health and damage are normalized to a level 30 dragon** so low levels have a chance. Everything else still counts: gear, pets and potions keep their bonuses.
@@ -165,5 +177,4 @@ src/
   - Everyone else gets much smaller prizes, scaled by where they placed.
 - **Villagers rebuild burned houses**: after a raid the village dragons gather at a ruin with timber and hammers and patch it up bit by bit (scaffolding, fresh planks going up), instead of it simply popping back after a few minutes. Dragons could chip in (carry logs from the woods) to speed it up.
 - Add sound effects and music IDs in `Config/Sounds.luau` (and music that gets more intense in fights, raids and boss battles).
-- Add DataStore session locking (for example with ProfileStore) before a big public launch.
-- Add more bosses and more camps.
+- Add DataStore session locking (for example with ProfileStore) before a big public launch, and before the cross-server queue: a dragon teleporting to another server mustn't load its save before the old server has written it.

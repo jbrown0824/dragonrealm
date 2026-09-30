@@ -35,6 +35,10 @@ local function inTown(): boolean
 	return root ~= nil and Zones.isIn("Town", root.Position)
 end
 
+local function inDungeon(): boolean
+	return Players.LocalPlayer:GetAttribute("InDungeon") ~= nil
+end
+
 local function place()
 	if App.Windows.mobile then
 		bar.AnchorPoint = Vector2.new(0, 1)
@@ -114,6 +118,13 @@ local function updateWater()
 end
 
 function RaidUI.update()
+	if inDungeon() then
+		-- off in a dungeon: the raid (if any) shows again when you come back
+		bar.Visible = false
+		pill.Visible = false
+		waterChip.Visible = false
+		return
+	end
 	RaidUI.updateBar()
 	updateWater()
 end

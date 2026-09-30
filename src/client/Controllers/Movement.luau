@@ -90,6 +90,11 @@ local function stopFlight()
 	Remotes.event("SetFlying"):FireServer(false)
 end
 
+-- Stop flying (a dungeon boss's harpoon dragged you down).
+function Movement.land()
+	stopFlight()
+end
+
 function Movement.toggleFlight()
 	if flying then
 		stopFlight()

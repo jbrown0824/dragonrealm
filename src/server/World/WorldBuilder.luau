@@ -14,12 +14,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
+local Dungeons = require(Shared.Config.Dungeons)
 local Game = require(Shared.Config.Game)
 
 local Props = require(script.Parent.Props)
 local WorldUtil = require(script.Parent.WorldUtil)
 local Wilds = require(script.Parent.Wilds)
 local Camps = require(script.Parent.Camps)
+local DungeonBuilder = require(script.Parent.DungeonBuilder)
 
 local WorldBuilder = {}
 
@@ -35,6 +37,16 @@ local placeDragon = WorldUtil.placeDragon
 local function nearCamp(p: Vector3, extra: number): boolean
 	for _, camp in ipairs(Zones.Camps) do
 		if (Vector3.new(p.X, 0, p.Z) - camp.center).Magnitude < camp.radius + extra then
+			return true
+		end
+	end
+	return false
+end
+
+local function nearDungeon(p: Vector3, margin: number): boolean
+	for _, id in ipairs(Dungeons.Order) do
+		local e = Dungeons.List[id].entrance
+		if (Vector3.new(p.X, 0, p.Z) - Vector3.new(e.X, 0, e.Z)).Magnitude < 36 + margin then
 			return true
 		end
 	end
@@ -280,13 +292,21 @@ local function buildStall(parent: Instance, shop)
 	placeDragon(parent, style.keeper, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
 end
 
-local function buildQuestGivers(parent: Instance)
+-- The quest givers in town, or (dungeonKeepers) the ones at the dungeon entrances.
+local function buildQuestGivers(parent: Instance, dungeonKeepers: boolean)
 	for _, giverId in ipairs(Quests.GiverOrder) do
 		local giver = Quests.Givers[giverId]
+		if (giver.dungeon ~= nil) ~= dungeonKeepers then
+			continue
+		end
 		local spot = Zones.QuestGivers[giverId]
+		local at = spot.position
+		if dungeonKeepers then
+			at = Vector3.new(at.X, Props.groundY(at.X, at.Z), at.Z) -- (out on the hills)
+		end
 		-- little platform
-		Props.column(parent, spot.position - Vector3.new(0, 0.5, 0), 1.2, 22, Color3.fromRGB(170, 160, 150), Enum.Material.Cobblestone)
-		local model = placeDragon(parent, giver.look, spot.position + Vector3.new(0, 0.7, 0), spot.facing, { scale = 1.05, name = giver.name })
+		Props.column(parent, at - Vector3.new(0, 0.5, 0), 1.2, 22, Color3.fromRGB(170, 160, 150), Enum.Material.Cobblestone)
+		local model = placeDragon(parent, giver.look, at + Vector3.new(0, 0.7, 0), spot.facing, { scale = 1.05, name = giver.name })
 		model:SetAttribute("GiverId", giverId)
 		CollectionService:AddTag(model, "QuestGiver")
 
@@ -492,7 +512,7 @@ local function buildTown(map: Folder)
 	for _, shop in ipairs(Zones.Shops) do
 		buildStall(town, shop)
 	end
-	buildQuestGivers(town)
+	buildQuestGivers(town, false)
 	buildWarHorn(town)
 	buildTraining(town)
 	buildRange(town)
@@ -761,7 +781,7 @@ local function buildVikingLands(map: Folder)
 			break
 		end
 		local p = Vector3.new(rng:NextNumber(-530, 530), 0, rng:NextNumber(330, 1090))
-		if not nearCamp(p, 45) and not nearPath(p, 6) and not Wilds.inAnyLake(p, 10) and not Wilds.inRiver(p, 10) then
+		if not nearCamp(p, 45) and not nearPath(p, 6) and not nearDungeon(p, 20) and not Wilds.inAnyLake(p, 10) and not Wilds.inRiver(p, 10) then
 			placed += 1
 			local ground = Vector3.new(p.X, Props.groundY(p.X, p.Z), p.Z)
 			if rng:NextNumber() < 0.75 then
@@ -771,6 +791,18 @@ local function buildVikingLands(map: Folder)
 			end
 		end
 	end
+end
+
+---------------------------------------------------------------- dungeon entrances
+
+-- The cave mouths into the dungeons (DungeonBuilder) and the dragons keeping watch beside them.
+-- The interiors are carved later, one copy per group, by DungeonService.
+local function buildDungeonEntrances(map: Folder)
+	local entrances = folder("DungeonEntrances", map)
+	for _, id in ipairs(Dungeons.Order) do
+		DungeonBuilder.entrance(entrances, Dungeons.List[id])
+	end
+	buildQuestGivers(entrances, true)
 end
 
 ---------------------------------------------------------------- boss arena
@@ -836,6 +868,7 @@ function WorldBuilder.build()
 	buildBattleZone(map)
 	buildVikingLands(map)
 	Wilds.build(map)
+	buildDungeonEntrances(map)
 	local barriers = Instance.new("Folder")
 	barriers.Name = "Barriers"
 	buildBossArena(map, barriers)

@@ -833,8 +833,10 @@ local function matName(m)
 	return type(m) == "table" and m.Name or tostring(m)
 end
 function M.FillBlock(_, cf, size, mat)
+	-- (tilted blocks make ramps: a column's interval is found by clipping the vertical line
+	-- against the block's three slabs, so the radius covers the whole block)
 	table.insert(TERRAIN_OPS, { kind = "block", inv = cf:Inverse(), cy = cf.p.Y, size = size, mat = matName(mat),
-		r = math.sqrt(size.X * size.X + size.Z * size.Z) / 2, cx = cf.p.X, cz = cf.p.Z })
+		r = math.sqrt(size.X * size.X + size.Y * size.Y + size.Z * size.Z) / 2, cx = cf.p.X, cz = cf.p.Z })
 end
 function M.FillBall(_, c, radius, mat)
 	table.insert(TERRAIN_OPS, { kind = "ball", cx = c.X, cy = c.Y, cz = c.Z, r = radius, mat = matName(mat) })
@@ -917,9 +919,27 @@ function TERRAIN_COLUMN(x, z)
 			elseif op.kind == "cyl" then
 				list = setInterval(list, op.cy - op.h / 2, op.cy + op.h / 2, op.mat)
 			elseif op.kind == "block" then
-				local l = op.inv * v3(x, op.cy, z)
-				if math.abs(l.X) <= op.size.X / 2 and math.abs(l.Z) <= op.size.Z / 2 then
-					list = setInterval(list, op.cy - op.size.Y / 2, op.cy + op.size.Y / 2, op.mat)
+				-- the vertical line (x, t, z) in the block's space: origin o + t * d
+				local o = op.inv * v3(x, 0, z)
+				local o1 = op.inv * v3(x, 1, z)
+				local d = { o1.X - o.X, o1.Y - o.Y, o1.Z - o.Z }
+				local oo = { o.X, o.Y, o.Z }
+				local half = { op.size.X / 2, op.size.Y / 2, op.size.Z / 2 }
+				local lo, hi = -math.huge, math.huge
+				for a = 1, 3 do
+					if math.abs(d[a]) < 1e-9 then
+						if math.abs(oo[a]) > half[a] + 1e-6 then
+							lo, hi = 1, 0
+							break
+						end
+					else
+						local t1, t2 = (-half[a] - oo[a]) / d[a], (half[a] - oo[a]) / d[a]
+						lo = math.max(lo, math.min(t1, t2))
+						hi = math.min(hi, math.max(t1, t2))
+					end
+				end
+				if lo <= hi then
+					list = setInterval(list, lo, hi, op.mat)
 				end
 			elseif op.kind == "replace" then
 				if x >= op.min.X and x <= op.max.X and z >= op.min.Z and z <= op.max.Z then

@@ -7,8 +7,11 @@ local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local Players = game:GetService("Players")
+
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DayNight = require(Shared.DayNight)
+local Dungeons = require(Shared.Config.Dungeons)
 
 local Sky = {}
 
@@ -63,7 +66,32 @@ local function apply(dark: number)
 	tint.Saturation = -0.15 * dark
 end
 
+-- Inside a dungeon: no sun, and the cave's own dim ambient light (its braziers do the rest).
+local inCave = nil
+local function cave(def)
+	Lighting.ClockTime = 0
+	if inCave == def.id then
+		return
+	end
+	inCave = def.id
+	lastDark = -1
+	Lighting.OutdoorAmbient = def.theme.ambient
+	Lighting.Ambient = def.theme.ambient
+	Lighting.Brightness = 0.6
+	tint.TintColor = Color3.new(1, 1, 1)
+	tint.Saturation = 0
+end
+
 function Sky.update()
+	local dungeon = Dungeons.get(Players.LocalPlayer:GetAttribute("InDungeon") or "")
+	if dungeon then
+		if not day then
+			apply(0) -- (read the place's daytime values before changing them)
+		end
+		cave(dungeon)
+		return
+	end
+	inCave = nil
 	local _, clock = DayNight.now()
 	Lighting.ClockTime = clock
 	local dark = DayNight.darkness(clock)

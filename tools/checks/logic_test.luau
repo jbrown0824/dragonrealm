@@ -264,7 +264,7 @@ for _, a in ipairs(Zones.Areas) do
 	zoneIds[a.id] = true
 end
 local validTypes = { kill = 1, plant = 1, care = 1, harvest = 1, buy = 1, sell = 1, upgrade = 1, pvpKill = 1, bossJoin = 1, bossKill = 1, visitZone = 1, level = 1,
-	hunt = 1, fish = 1, eat = 1, openChest = 1, miniBoss = 1, hatch = 1, potion = 1 }
+	hunt = 1, fish = 1, eat = 1, openChest = 1, miniBoss = 1, hatch = 1, potion = 1, dungeonClear = 1, dungeonKill = 1 }
 for _, q in ipairs(Quests.List) do
 	check(Quests.Givers[q.giver] ~= nil, q.id .. " giver")
 	check(validTypes[q.objective.type] ~= nil, q.id .. " objective type")
@@ -293,11 +293,12 @@ for _, q in ipairs(Quests.List) do
 		check(Items.Rarities[q.rewards.gear.rarity] ~= nil, q.id .. " gear rarity")
 	end
 end
--- a brand-new player sees first quests from every giver
+-- a brand-new player sees first quests from every giver in town (the dungeon keepers wait for
+-- their dungeon's level)
 local fresh = { active = {}, done = {} }
 for _, g in ipairs(Quests.GiverOrder) do
-	local offer = QuestUtil.nextOffer(g, fresh, 1)
-	check(offer ~= nil, "giver " .. g .. " has a level-1 offer")
+	local offer = QuestUtil.nextOffer(g, fresh, Quests.Givers[g].dungeon and 30 or 1)
+	check(offer ~= nil, "giver " .. g .. " has a first offer")
 end
 -- walk the Elder chain
 local state = { active = {}, done = {} }
@@ -331,7 +332,11 @@ for _, shop in ipairs(Zones.Shops) do
 	check(areaId(shop.position) == "Town", "shop in town " .. shop.id)
 end
 for id, g in pairs(Zones.QuestGivers) do
-	check(areaId(g.position) == "Town", "giver in town " .. id)
+	if Quests.Givers[id].dungeon then
+		check(areaId(g.position) ~= "Town", "dungeon keeper out by its cave " .. id)
+	else
+		check(areaId(g.position) == "Town", "giver in town " .. id)
+	end
 end
 check(areaId(Zones.WarHorn) == "Town", "war horn in town")
 local bz = Zones.getArea("BattleZone")
@@ -620,7 +625,7 @@ do
 			check(Pets.Eggs[eggId] ~= nil, key .. " egg exists")
 		end
 	end
-	check(#Pets.speciesFor("SecretEgg", "Secret") == 3, "the Secret Egg hatches three Secret pets")
+	check(#Pets.speciesFor("SecretEgg", "Secret") == 4, "the Secret Egg hatches four Secret pets")
 	local mythicSecret = Pets.speciesFor("MythicEgg", "Secret")
 	check(#mythicSecret == 1 and mythicSecret[1] == "AuroraSerpent", "the Mythic Egg's Secret is the Aurora Serpent")
 	check(not table.find(Pets.speciesFor("SecretEgg", "Secret"), "AuroraSerpent"), "the Aurora Serpent only comes from Mythic Eggs")
@@ -872,6 +877,224 @@ do
 			local dx = math.max(0, math.abs(camX - house.pos.X) - halfX)
 			local dz = math.max(0, math.abs(z - house.pos.Z) - halfZ)
 			check(math.max(dx, dz) >= 6, "the practice camera on lane z " .. z .. " clears house at " .. house.pos.X .. ", " .. house.pos.Z)
+		end
+	end
+end
+
+---------------------------------------------------------------- dungeons
+do
+	local Dungeons = require(Config.Dungeons)
+	local BOSS_MOVES = { Cleave = 1, GroundSlam = 1, RuneStrikes = 1, AxeVolley = 1, Leap = 1, Charge = 1, Whirlwind = 1, Harpoon = 1, Lane = 1 }
+	local function flatDist(a, b)
+		return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+	end
+	check(Dungeons.UNLOCK_LEVEL == Dungeons.List[Dungeons.Order[1]].minLevel, "the first dungeon unlocks with the 🏰 button")
+	local lastLevel = 0
+	local entrances = {}
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		check(def and def.id == id, "dungeon " .. id)
+		check(def.minLevel > lastLevel and def.minLevel <= Game.LEVEL_CAP, id .. " unlocks after the one before, by the level cap")
+		lastLevel = def.minLevel
+		check(def.level >= def.minLevel and def.ilvl >= def.level, id .. " levels")
+		-- the cave mouth: on the map, clear of camps, lakes, the river, town and the other mouth
+		local e = def.entrance
+		check(Zones.inWorld(e) and areaId(e) ~= "Town", id .. " entrance is out in the wilds")
+		for _, camp in ipairs(Zones.Camps) do
+			check(flatDist(e, camp.center) > camp.radius + 60, id .. " entrance is clear of " .. camp.id)
+		end
+		for _, lake in ipairs(Zones.Lakes) do
+			for _, lobe in ipairs(lake.lobes) do
+				check(flatDist(e, lake.center + Vector3.new(lobe[1], 0, lobe[2])) > lobe[3] + 40, id .. " entrance is clear of " .. lake.id)
+			end
+		end
+		for _, other in ipairs(entrances) do
+			check(flatDist(e, other) > 120, id .. " entrance is apart from the others")
+		end
+		table.insert(entrances, e)
+		local giver = Quests.Givers[def.giver]
+		check(giver ~= nil and giver.dungeon == id and Zones.QuestGivers[def.giver] ~= nil, id .. " keeper")
+		check(Zones.QuestGivers[def.giver] and flatDist(Zones.QuestGivers[def.giver].position, e) < 60, id .. " keeper stands by the mouth")
+		check(Zones.getPlace("dungeon:" .. id) ~= nil, id .. " is on the map and a Wayfinder stop")
+		-- spaces fit in their slot and the boss rooms exist
+		local rooms = {}
+		local reachX, reachZ = 0, 0
+		for _, sp in ipairs(def.spaces) do
+			check(({ box = 1, round = 1, path = 1 })[sp.kind] ~= nil, id .. " space kind " .. tostring(sp.id))
+			if sp.kind == "path" then
+				check(#sp.points >= 2 and sp.width >= 20 and sp.height >= 24, id .. " tunnel " .. sp.id .. " is big enough for dragons")
+				for _, p in ipairs(sp.points) do
+					reachX, reachZ = math.max(reachX, math.abs(p.X)), math.max(reachZ, math.abs(p.Z))
+				end
+			else
+				rooms[sp.id] = sp
+				local r = sp.kind == "round" and sp.radius or math.max(sp.size.X, sp.size.Y) / 2
+				reachX, reachZ = math.max(reachX, math.abs(sp.at.X) + r), math.max(reachZ, math.abs(sp.at.Z) + r)
+			end
+		end
+		check(reachX < Dungeons.SLOT_SPACING / 2 - 40 and reachZ < Dungeons.ROW_SPACING - 60, id .. " fits in its slot (" .. reachX .. ", " .. reachZ .. ")")
+		check(rooms[def.boss.room] ~= nil and rooms[def.miniBoss.room] ~= nil, id .. " boss rooms")
+		check(Dungeons.Bosses[def.boss.id] ~= nil and not Dungeons.Bosses[def.boss.id].mini, id .. " boss")
+		check(Dungeons.Bosses[def.miniBoss.id] ~= nil and Dungeons.Bosses[def.miniBoss.id].mini, id .. " mini-boss")
+		for pi, pack in ipairs(def.packs) do
+			local mobs = Dungeons.packMobs(pack)
+			check(#mobs >= 2 and #mobs <= 4, id .. " pack " .. pi .. " has 2-4 monsters")
+			for _, m in ipairs(mobs) do
+				local mdef = Enemies.Dungeon[m[1]]
+				check(mdef ~= nil and mdef.dungeon == id, id .. " pack " .. pi .. " monster " .. tostring(m[1]))
+			end
+		end
+		for _, relic in ipairs(def.loot.relics) do
+			local u = Items.Uniques[relic]
+			check(u ~= nil and u.dungeon == id and u.special ~= nil and not u.quest, id .. " relic " .. relic)
+		end
+		local egg = Pets.Eggs[def.loot.egg]
+		check(egg ~= nil and egg.dungeon == id and egg.price == nil and egg.store == nil and table.find(Pets.EggOrder, def.loot.egg) ~= nil, id .. " egg can't be bought")
+		for rarity in pairs(egg and egg.weights or {}) do
+			for _, sp in ipairs(Pets.speciesFor(def.loot.egg, rarity)) do
+				check(Pets.Species[sp].egg == def.loot.egg, id .. " egg only hatches its own pets: " .. sp)
+			end
+		end
+		check(def.title ~= nil and table.find(Collections.allTitles(), def.title) ~= nil, id .. " first-clear title")
+		check(def.victory ~= nil and def.story ~= nil, id .. " texts")
+	end
+	for id in pairs(Enemies.Dungeon) do
+		check(Enemies.Vikings[id] == nil, "dungeon monster ids are their own: " .. id)
+	end
+	-- bosses: every move and trait exists, and the phases come in order
+	for bossId, b in pairs(Dungeons.Bosses) do
+		local function movesOk(moves, where)
+			for name, cfg in pairs(moves) do
+				check(BOSS_MOVES[name] ~= nil and (cfg.cooldown or 0) > 0 and (cfg.mult or 0) > 0, bossId .. where .. " move " .. name)
+			end
+		end
+		movesOk(b.moves, "")
+		check(b.health > 0 and b.hit > 0 and b.scale > 1 and b.look ~= nil, bossId .. " numbers")
+		for _, s in ipairs(b.summons or {}) do
+			check(Enemies.Dungeon[s.add] ~= nil and s.at > 0 and s.at < 1 and s.count > 0, bossId .. " summons " .. tostring(s.add))
+		end
+		if b.secondLife then
+			check(b.secondLife.health > 0 and b.secondLife.health < 1 and b.secondLife.delay > 0 and b.secondLife.name ~= nil, bossId .. " second life")
+			movesOk(b.secondLife.moves, " (second life)")
+		end
+		local lastAt = 1
+		for i, ph in ipairs(b.phases or {}) do
+			check(ph.at < lastAt, bossId .. " phase " .. i .. " comes after the one before")
+			lastAt = ph.at
+			movesOk(ph.moves, " phase " .. i)
+			if ph.shield then
+				check(Enemies.Dungeon[ph.shield.add] ~= nil and ph.shield.count > 0, bossId .. " shield guards")
+			end
+		end
+		check(not b.enrage or (b.enrage.at > 0 and b.enrage.at < 1), bossId .. " enrage")
+	end
+	check(Dungeons.Bosses.Grimvald.enrage == nil and Dungeons.Bosses.Grimvald.moves.Charge ~= nil, "Grimvald charges and never enrages")
+	check(Dungeons.Bosses.Haldor.secondLife ~= nil and Dungeons.Bosses.Haldor.secondLife.moves.Leap ~= nil and Dungeons.Bosses.Haldor.enrage == nil, "Haldor rises again, and leaps")
+	check(Dungeons.Bosses.Brakki.moves.Leap ~= nil and Dungeons.Bosses.Brakki.enrage ~= nil, "Brakki leaps and enrages")
+	check(Dungeons.Bosses.Sigrun.moves.Harpoon ~= nil and Dungeons.Bosses.Sigrun.moves.Lane ~= nil and #Dungeons.Bosses.Sigrun.phases == 2, "Sigrun: harpoon, fire lanes, two phases")
+	-- the dungeon keepers' quests
+	for _, q in ipairs(Quests.List) do
+		local t = q.objective.type
+		if t == "dungeonClear" or t == "dungeonKill" then
+			local def = Dungeons.get(q.objective.target)
+			check(def ~= nil and q.minLevel >= def.minLevel and Quests.Givers[q.giver].dungeon == def.id, q.id .. " belongs to its dungeon")
+		end
+		if q.rewards.unique then
+			local u = Items.Uniques[q.rewards.unique]
+			check(u ~= nil and u.quest == true, q.id .. " quest relic")
+		end
+	end
+	-- relics: a flat lifesteal / regen that doesn't grow with level or upgrades, and shows in tooltips
+	local low = ItemUtil.getStats(ItemUtil.new("Claws", 10, "Legendary", "DraugrFang"))
+	local highItem = ItemUtil.new("Claws", 30, "Legendary", "DraugrFang")
+	highItem.up = 5
+	check(low.lifesteal == Items.Uniques.DraugrFang.special.lifesteal and ItemUtil.getStats(highItem).lifesteal == low.lifesteal, "relic lifesteal doesn't grow")
+	check(table.concat(ItemUtil.describeStats(low), " "):find("Lifesteal") ~= nil, "relic tooltips show their lifesteal")
+	check(ItemUtil.score(ItemUtil.new("Head", 17, "Legendary", "HollowKingsCrown")) > ItemUtil.score(ItemUtil.new("Head", 17, "Legendary")), "a relic beats a plain item of its level")
+	-- caps: every relic plus three golden level-5 lifesteal/regen pets on top of full talent builds
+	local lsGear, regenGear = {}, {}
+	for id, u in pairs(Items.Uniques) do
+		if u.special then
+			local item = ItemUtil.new(u.slot, 30, "Legendary", id)
+			if (u.special.lifesteal or 0) > ((lsGear[u.slot] and ItemUtil.getStats(lsGear[u.slot]).lifesteal) or 0) then
+				lsGear[u.slot] = item
+			end
+			if (u.special.regen or 0) > ((regenGear[u.slot] and ItemUtil.getStats(regenGear[u.slot]).regen) or 0) then
+				regenGear[u.slot] = item
+			end
+		end
+	end
+	local pets = {}
+	for _, species in ipairs({ "HeartbloomWyrm", "DraugrDrake", "ChainbreakerWyrm" }) do
+		table.insert(pets, { stats = BonusUtil.petBoosts({ species = species, level = Pets.MAX_LEVEL, golden = true }), extra = true })
+	end
+	local bare = StatCalc.compute("Shadowstalker", 30, lsGear, {}, pets)
+	check(bare.extraLifesteal > Game.EXTRA_LIFESTEAL_CAP and bare.lifesteal <= Game.EXTRA_LIFESTEAL_CAP + 1e-6, "gear and pets stop at their lifesteal cap (" .. bare.extraLifesteal .. " -> " .. bare.lifesteal .. ")")
+	local regenBare = StatCalc.compute("Venomspine", 30, regenGear, {}, pets)
+	check(regenBare.extraRegen > Game.EXTRA_REGEN_CAP and math.abs(regenBare.regen - Game.EXTRA_REGEN_CAP) < 1e-6, "gear and pets stop at their regen cap (" .. regenBare.extraRegen .. ")")
+	local function fullBranch(classId, want)
+		local talents = {}
+		for bi = 1, 3 do
+			local stacked = false
+			for _, t in ipairs(Talents[classId][bi].talents) do
+				if (t.effects[want] or 0) > 0 then
+					stacked = true
+				end
+			end
+			if stacked then
+				TalentUtil.autoFill(classId, Game.LEVEL_CAP, talents, bi)
+				return talents
+			end
+		end
+		return talents
+	end
+	local ls = StatCalc.compute("Shadowstalker", 30, lsGear, fullBranch("Shadowstalker", "lifesteal"), pets)
+	check(ls.lifesteal <= Game.LIFESTEAL_CAP + 1e-6, "a full lifesteal build stays under the cap (" .. ls.lifesteal .. ")")
+	local rg = StatCalc.compute("Venomspine", 30, regenGear, fullBranch("Venomspine", "regen"), pets)
+	check(rg.regen <= Game.REGEN_CAP + 1e-6 and rg.regen > Game.EXTRA_REGEN_CAP, "a full regen build stays under the cap (" .. rg.regen .. ")")
+	Tuning.values.global.extraLifestealCap = 0.5
+	check(StatCalc.compute("Shadowstalker", 30, lsGear, {}, pets).lifesteal <= Game.EXTRA_LIFESTEAL_CAP * 0.5 + 1e-6, "the admin panel can lower the gear-and-pets cap")
+	Tuning.reset()
+	check(#Pets.speciesFor("SecretEgg", "Secret") == 4 and table.find(Pets.speciesFor("SecretEgg", "Secret"), "HeartbloomWyrm") ~= nil, "the Secret Egg can hatch the Heartbloom Wyrm")
+
+	-- balance: an average dragon of the dungeon's level (Rare gear, no talents) against its boss and
+	-- packs, for groups of 1-4. StatCalc.dps is the same yardstick the world bosses are sized by.
+	print("Dungeon | dragons | boss HP   kill(s) | pack HP kill(s) | a pack's hits/s on one dragon, lasts(s)")
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		local level = def.minLevel + 1
+		local dps, hp, defense = 0, 0, 0
+		for _, classId in ipairs(Classes.Order) do
+			local s = StatCalc.compute(classId, level, gearAt(level, "Rare"), {}, {})
+			dps += StatCalc.dps(s) / #Classes.Order
+			hp += s.maxHealth / #Classes.Order
+			defense += s.defense / #Classes.Order
+		end
+		local boss = Dungeons.Bosses[def.boss.id]
+		for n = 1, 4 do
+			local bossHp = boss.health * Dungeons.groupHealth(n) * (1 + (boss.secondLife and boss.secondLife.health or 0))
+			local bossTime = bossHp / (dps * n)
+			local packHp, packHit = 0, 0
+			for _, pack in ipairs(def.packs) do
+				for _, m in ipairs(Dungeons.packMobs(pack)) do
+					local mdef = Enemies.Dungeon[m[1]]
+					local mob = def.level
+					packHp += mdef.health * (1 + Enemies.HEALTH_PER_LEVEL * (mob - 1)) * Dungeons.groupHealth(n) / #def.packs
+					local hit = mdef.damage * (1 + Enemies.DAMAGE_PER_LEVEL * (mob - 1)) * Dungeons.groupDamage(n)
+					hit *= 1 - defense / (defense + Game.DEFENSE_CONSTANT + 5 * mob)
+					packHit += hit / mdef.attackCooldown / #def.packs
+				end
+			end
+			local packTime = packHp / (dps * n)
+			local lasts = hp / packHit
+			print(string.format("%-7s | %7d | %8d %7.0f | %7d %7.1f | %6.1f  %6.1f", id, n, bossHp, bossTime, packHp, packTime, packHit, lasts))
+			if n == 4 then
+				check(bossTime >= 45 and bossTime <= 200, id .. ": four dragons beat the boss in 45-200 s (" .. math.floor(bossTime) .. ")")
+			end
+			if n == 1 then
+				check(packTime < 60 and lasts > packTime, id .. ": one dragon can beat a pack before it falls (" .. math.floor(packTime) .. "s vs " .. math.floor(lasts) .. "s)")
+				check(bossTime < 900, id .. ": a lone dragon can still beat the boss, slowly (" .. math.floor(bossTime) .. ")")
+			end
 		end
 	end
 end

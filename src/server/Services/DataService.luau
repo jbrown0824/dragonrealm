@@ -75,6 +75,9 @@ local function defaultProfile()
 		raidsRepelled = 0, -- night raids on Dragon Town beaten (RaidService)
 		rangeLevel = 0, -- highest target practice level cleared (RangeService)
 		settings = { minimap = true },
+		-- added in the dungeons update
+		dungeons = { seen = 0, clears = {}, pity = {} }, -- seen: the highest dungeon level the 🏰 badge was cleared for; clears / pity by dungeon id
+		dungeonClears = 0, -- every dungeon boss beaten (the Dungeon Delver achievement)
 	}
 end
 

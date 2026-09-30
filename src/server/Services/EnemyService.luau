@@ -14,6 +14,8 @@
 -- reach. They give up on dragons that fly high or far away, and only Raids.CROWD of them go after
 -- the same dragon, so a raid spreads out over the town instead of trailing one dragon around.
 -- Killed vikings topple over (away from the killer), lie there a moment, then vanish in a puff.
+-- Dungeon monsters (opts.run, DungeonService) only fight the dragons in their run, pull their whole
+-- pack when one of them is pulled, and share every kill with the whole run.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -55,6 +57,9 @@ local function statusIcons(model: Model): string
 	local icons = ""
 	if model:GetAttribute("Shielded") then
 		icons ..= "🛡️" -- (raiders huddled on a longship's deck take less damage)
+	end
+	if model:GetAttribute("RuneShield") then
+		icons ..= "🔮" -- (a dungeon boss that can't be hurt until its guards fall)
 	end
 	if model:GetAttribute("Blowing") then
 		icons ..= "📯"
@@ -164,7 +169,7 @@ local function createNametag(e)
 
 	gui.Parent = head
 	e.nametag = gui
-	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing", "Shielded" }) do
+	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing", "Shielded", "RuneShield" }) do
 		e.model:GetAttributeChangedSignal(attr):Connect(function()
 			updateNametag(e)
 		end)
@@ -261,7 +266,15 @@ local function targetRoot(e, player: Player)
 	if not character or character:GetAttribute("Stealthed") then
 		return nil
 	end
-	if e.arena then
+	if e.run then
+		-- dungeon monsters only see the dragons in their own run
+		if player:GetAttribute("DungeonRun") ~= e.run then
+			return nil
+		end
+		if (root.Position - e.spawnPos).Magnitude > e.leash + 40 then
+			return nil
+		end
+	elseif e.arena then
 		if not S.BossService.isInFight(player) then
 			return nil
 		end
@@ -296,7 +309,19 @@ function EnemyService.onDamaged(e, attacker: Player)
 	if not e.target or not targetRoot(e, e.target) then
 		if targetRoot(e, attacker) then
 			e.target = attacker
+			if e.run then
+				S.DungeonService.pullPack(e, attacker)
+			end
 		end
+	end
+end
+
+-- Change the name over an enemy's head (a dungeon boss rising in its second life).
+function EnemyService.rename(e, name: string)
+	e.displayName = name
+	local label = e.nametag and e.nametag:FindFirstChildOfClass("TextLabel")
+	if label then
+		label.Text = string.format("%s  Lv %d", name, e.level)
 	end
 end
 
@@ -305,7 +330,8 @@ end
 -- Register any model as something dragons can hit. opts:
 --   def, typeId, displayName, level, scale, kind ("viking" | "animal" | "dummy" | "boss"),
 --   camp, area, customAI, isBoss, miniBoss, arena, noRewards, onDeath, onHit, dummy, keepBody,
---   leash, aggroRange, speed, damage, defense, tagOffset, radius, height, raid, objective
+--   leash, aggroRange, speed, damage, defense, tagOffset, radius, height, raid, objective,
+--   run, pack (DungeonService: the run it belongs to, and its pack there)
 function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart, opts)
 	local def = opts.def or {}
 	local scale = opts.scale or def.scale or 1
@@ -353,6 +379,9 @@ function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart,
 		slam = opts.slam,
 		raid = opts.raid == true,
 		objective = opts.objective,
+		run = opts.run,
+		pack = opts.pack,
+		lastCombat = now() - 60, -- last hit it took or dealt (dungeon monsters give up without one)
 	}
 	enemies[model] = e
 	createNametag(e)
@@ -384,7 +413,8 @@ end
 
 -- Spawn a viking (or, with opts.builder, any creature). opts are passed on to register, plus:
 --   builder(look, scale, name) -> model, hipHeight   (default VikingBuilder.build)
---   look, healthMult, tag ("Viking" by default)
+--   look, healthMult, tag ("Viking" by default), ground (where it stands: default the terrain
+--   under `position`, cast from high above, which inside a dungeon would hit the cave's roof)
 function EnemyService.spawn(typeId: string, level: number, position: Vector3, opts)
 	opts = opts or {}
 	local def = opts.def or Enemies.Vikings[typeId]
@@ -409,7 +439,7 @@ function EnemyService.spawn(typeId: string, level: number, position: Vector3, op
 		end
 	end
 
-	local ground = terrainGround(position)
+	local ground = opts.ground or terrainGround(position)
 	model:PivotTo(CFrame.new(ground + Vector3.new(0, hipHeight + model.PrimaryPart.Size.Y / 2 + 0.5, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	model.Parent = folder
 	local root = model.PrimaryPart
@@ -543,7 +573,12 @@ function EnemyService.kill(e, killer: Player?)
 	if e.onDeath then
 		task.spawn(e.onDeath, e, killer)
 	end
-	if not e.noRewards then
+	if not e.noRewards and e.run then
+		-- dungeon monsters: the whole run shares the kill
+		for _, player in ipairs(S.DungeonService.rewardees(e)) do
+			reward(player, e)
+		end
+	elseif not e.noRewards then
 		-- Everyone who helped gets their own drops, so teaming up never means losing the loot.
 		-- Champions only reward helpers who are still around the camp.
 		for player, dealt in pairs(e.damageBy) do
@@ -615,6 +650,7 @@ function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number,
 		for _, p in ipairs(Players:GetPlayers()) do
 			local character, _, r = S.PlayerService.getCharacter(p)
 			if character and (r.Position - targetPos).Magnitude <= 5 + 2.5 * (character:GetAttribute("DragonScale") or 1) then
+				e.lastCombat = now()
 				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil }
 				for k, v in pairs(dmgOpts or {}) do
 					o[k] = v
@@ -639,6 +675,7 @@ local function meleeSwing(e, player: Player)
 		local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
 		local reach = (e.def.attackRange or 6) + 3 * ((player.Character and player.Character:GetAttribute("DragonScale")) or 1) + 2
 		if flat <= reach and math.abs(offset.Y) <= 9 + e.scale * 2 then
+			e.lastCombat = now()
 			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil })
 		end
 	end)
@@ -661,6 +698,7 @@ local function slam(e)
 			if character then
 				local offset = root.Position - center
 				if Vector3.new(offset.X, 0, offset.Z).Magnitude <= cfg.radius + 3 and offset.Y < 14 then
+					e.lastCombat = now()
 					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil })
 				end
 			end
@@ -852,7 +890,9 @@ local function think(e, t: number, dt: number)
 		e.target = nil
 		e.returning = true
 		e.damageBy = {}
-		humanoid.Health = humanoid.MaxHealth
+		if not e.run then
+			humanoid.Health = humanoid.MaxHealth -- (dungeon monsters heal slowly instead: DungeonService)
+		end
 		humanoid:MoveTo(e.spawnPos)
 		return
 	end
@@ -871,6 +911,10 @@ local function think(e, t: number, dt: number)
 		e.target = nil
 		if behavior == "aggressive" then
 			e.target = findTarget(e)
+			if e.target and e.run then
+				e.lastCombat = t -- pulled: the give-up clock starts now
+				S.DungeonService.pullPack(e, e.target)
+			end
 		end
 		troot = e.target and targetRoot(e, e.target)
 	end

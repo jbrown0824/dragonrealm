@@ -23,6 +23,8 @@ local EVENTS = {
 	"TuningChanged", -- admin balance overrides for every client
 	"AdminState", -- tells a player they're an admin
 	"RangeState", -- your target practice session (level, hits, time, result)
+	"DungeonState", -- your dungeon group, queue, ready check and run
+	"DungeonInvite", -- someone asked you into their dungeon group
 	-- client -> server
 	"CastAbility",
 	"SetFlying",
@@ -72,6 +74,7 @@ local FUNCTIONS = {
 	"AdminAction",
 	"GetTuning",
 	"RangeAction",
+	"DungeonAction", -- groups, the queue, ready checks, leaving a run (DungeonService)
 }
 
 local Remotes = {}

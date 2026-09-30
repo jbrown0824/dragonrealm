@@ -109,7 +109,7 @@ end
 function BonusUtil.entries(profile)
 	local list = {}
 	table.insert(list, { stats = BonusUtil.potionStats(profile.potions) })
-	table.insert(list, { stats = BonusUtil.petStats(profile) })
+	table.insert(list, { stats = BonusUtil.petStats(profile), extra = true }) -- (lifesteal / regen share gear's cap)
 	table.insert(list, { stats = BonusUtil.paragonStats(profile.paragon) })
 	local hungry = Game.hungerLevel(profile.hunger or Game.HUNGER_MAX)
 	if hungry then

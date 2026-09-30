@@ -169,10 +169,35 @@ task.spawn(function()
 	Remotes.func("RangeAction"):InvokeServer("start", 1)
 	task.wait(1)
 	shot("range_session")
+	Remotes.func("RangeAction"):InvokeServer("stop")
+	-- dungeons: the window, the pill while queued, a ready check from a friend's group, the run
+	S.PlayerService.setLevel(me, 16)
+	task.wait(11) -- (the unlock news has gone)
+	Windows.open("Dungeons")
+	shot("dungeons")
+	Windows.close()
+	invoke("DungeonAction", me, "queue", { dungeonId = "Barrow" })
+	task.wait(1.2)
+	shot("dungeon_queue")
+	invoke("DungeonAction", me, "unqueue")
+	invoke("DungeonAction", me, "leaveGroup")
+	local buddy = addPlayer(302, "Wingmate")
+	task.wait(1)
+	invoke("ChooseClass", buddy, "Behemoth")
+	S.PlayerService.setLevel(buddy, 18)
+	task.wait(0.5)
+	invoke("DungeonAction", buddy, "invite", { userId = me.UserId })
+	invoke("DungeonAction", me, "accept", { groupId = S.DungeonService.groupOf(buddy).id })
+	invoke("DungeonAction", buddy, "enter", { dungeonId = "Barrow" })
+	task.wait(1.2)
+	shot("dungeon_ready")
+	click(Windows.guis.HUD:FindFirstChild("DungeonPill"), "Enter")
+	task.wait(2)
+	shot("dungeon_run")
 	SIM.done = true
 end)
 
-local limit = 120
+local limit = 160
 while not SIM.done and SIM.now < limit do
 	SIM.step(1 / 30)
 end

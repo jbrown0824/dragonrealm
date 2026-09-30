@@ -1,4 +1,5 @@
--- Client-side copy of the player's profile and the boss state, with change signals.
+-- Client-side copy of the player's profile, the boss state and your dungeon state (group, queue,
+-- ready check, run), with change signals.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -9,8 +10,10 @@ local Signal = require(Shared.Signal)
 local State = {
 	profile = nil,
 	boss = nil,
+	dungeon = nil,
 	changed = Signal.new(),
 	bossChanged = Signal.new(),
+	dungeonChanged = Signal.new(),
 }
 
 function State.init()
@@ -21,6 +24,10 @@ function State.init()
 	Remotes.event("BossState").OnClientEvent:Connect(function(data)
 		State.boss = data
 		State.bossChanged:Fire(data)
+	end)
+	Remotes.event("DungeonState").OnClientEvent:Connect(function(data)
+		State.dungeon = data
+		State.dungeonChanged:Fire(data)
 	end)
 	task.spawn(function()
 		local snapshot = Remotes.func("GetProfile"):InvokeServer()

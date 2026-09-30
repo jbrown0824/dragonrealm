@@ -11,10 +11,12 @@ local LEATHER = Color3.fromRGB(95, 60, 35)
 local WOOD = Color3.fromRGB(120, 80, 45)
 local GOLD = Color3.fromRGB(255, 200, 60)
 
--- look: { shirt, pants, beard, hair?, weapon, shield, bigShield?, cape?, crown?, warpaint?, quiver?, glow? }
+-- look: { shirt, pants, beard, hair?, weapon, shield, bigShield?, cape?, crown?, warpaint?, quiver?, glow?,
+--         skin? (face and hands: pale for the draugr), eyes? (glowing eyes instead of dark ones) }
 -- Returns model, hipHeight
 function VikingBuilder.build(look, scale: number, name: string)
 	local s = scale
+	local skin = look.skin or SKIN
 	local model = Instance.new("Model")
 	model.Name = name
 
@@ -124,12 +126,16 @@ function VikingBuilder.build(look, scale: number, name: string)
 		-- fur collar
 		ellipsoid(V(2.3, 0.6, 1.3), V(0, 0.95, 0), Color3.fromRGB(110, 90, 70))
 
-		local head = mesh(part("Part", V(1.25, 1.25, 1.25), CFrame.new(V(0, 1.65, 0)), SKIN), Enum.MeshType.Head)
+		local head = mesh(part("Part", V(1.25, 1.25, 1.25), CFrame.new(V(0, 1.65, 0)), skin), Enum.MeshType.Head)
 		head.Name = "Head"
 		for _, x in ipairs({ -0.22, 0.22 }) do
-			part("Part", V(0.14, 0.18, 0.05), CFrame.new(V(x, 1.78, -0.6)), Color3.fromRGB(25, 25, 25))
+			if look.eyes then
+				part("Part", V(0.18, 0.14, 0.06), CFrame.new(V(x, 1.78, -0.61)), look.eyes, Enum.Material.Neon)
+			else
+				part("Part", V(0.14, 0.18, 0.05), CFrame.new(V(x, 1.78, -0.6)), Color3.fromRGB(25, 25, 25))
+			end
 		end
-		part("Part", V(0.2, 0.25, 0.2), CFrame.new(V(0, 1.6, -0.66)), Color3.fromRGB(220, 160, 130))
+		part("Part", V(0.2, 0.25, 0.2), CFrame.new(V(0, 1.6, -0.66)), look.skin and skin:Lerp(Color3.new(0, 0, 0), 0.15) or Color3.fromRGB(220, 160, 130))
 
 		if look.beard then
 			ellipsoid(V(1.15, 1.05, 0.55), V(0, 1.2, -0.52), look.beard)
@@ -184,7 +190,7 @@ function VikingBuilder.build(look, scale: number, name: string)
 		arm.Name = side > 0 and "RightArm" or "LeftArm"
 		arms[side] = arm
 		weldAll(arm, collect(function()
-			ellipsoid(V(0.75, 0.75, 0.75), V(1.42 * side, -1.05, 0), SKIN)
+			ellipsoid(V(0.75, 0.75, 0.75), V(1.42 * side, -1.05, 0), skin)
 			part("Part", V(0.85, 0.35, 0.9), CFrame.new(V(1.42 * side, -0.6, 0)), LEATHER)
 		end))
 		motor(side > 0 and "ArmR" or "ArmL", torso, arm, CFrame.new(V(1.42 * side, 0.8, 0)))

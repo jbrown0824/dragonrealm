@@ -81,22 +81,29 @@ local function flat(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
 end
 
+-- Raid news skips dragons off in a dungeon (they'll see the raid bar when they come back).
 local function broadcast(title: string, text: string, color: Color3, duration: number?)
-	Remotes.event("Announce"):FireAllClients({ title = title, text = text, color = color, duration = duration or 6, sound = "horn" })
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not S.DungeonService.inRun(player) then
+			Remotes.event("Announce"):FireClient(player, { title = title, text = text, color = color, duration = duration or 6, sound = "horn" })
+		end
+	end
 end
 
 local function notifyAll(text: string, color: Color3, icon: string)
 	for _, player in ipairs(Players:GetPlayers()) do
-		S.PlayerService.notify(player, text, color, icon)
+		if not S.DungeonService.inRun(player) then
+			S.PlayerService.notify(player, text, color, icon)
+		end
 	end
 end
 
--- Dragons who could defend the town (in the game with a dragon chosen).
+-- Dragons who could defend the town (in the game with a dragon chosen, and not off in a dungeon).
 local function defenders(): { Player }
 	local list = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		local profile = S.PlayerService.getProfile(player)
-		if profile and profile.class then
+		if profile and profile.class and not S.DungeonService.inRun(player) then
 			table.insert(list, player)
 		end
 	end
@@ -1950,7 +1957,7 @@ giversFight = function(r)
 			for _, model in ipairs(CollectionService:GetTagged("QuestGiver")) do
 				local root = model.PrimaryPart
 				local giver = Quests.Givers[model:GetAttribute("GiverId") or ""]
-				if root and giver and os.clock() >= (nextPuff[model] or 0) then
+				if root and giver and not giver.dungeon and os.clock() >= (nextPuff[model] or 0) then
 					local e = RaidService.nearestRaider(root.Position)
 					if e and flat(root.Position, e.root.Position) <= Raids.ELDER_RANGE then
 						nextPuff[model] = os.clock() + Raids.ELDER_INTERVAL * (0.85 + math.random() * 0.3)

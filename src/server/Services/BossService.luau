@@ -18,6 +18,8 @@ local Zones = require(Shared.Config.Zones)
 local StatCalc = require(Shared.StatCalc)
 local Remotes = require(Shared.Remotes)
 
+local BossKit = require(script.Parent.Parent.Combat.BossKit)
+
 local BossService = {}
 local S
 
@@ -71,8 +73,13 @@ local function broadcastState()
 	Remotes.event("BossState"):FireAllClients(data)
 end
 
+-- (dragons in a dungeon aren't told: they can't come anyway)
 local function announce(title: string, text: string, color: Color3, duration: number?)
-	Remotes.event("Announce"):FireAllClients({ title = title, text = text, color = color, duration = duration or 6, sound = "horn" })
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not S.DungeonService.inRun(player) then
+			Remotes.event("Announce"):FireClient(player, { title = title, text = text, color = color, duration = duration or 6, sound = "horn" })
+		end
+	end
 end
 
 ---------------------------------------------------------------- queries used by other services
@@ -145,6 +152,9 @@ local function joinQueue(player: Player, join: boolean)
 	if not profile or not profile.class then
 		return false, "Choose your dragon first!"
 	end
+	if join and S.DungeonService.inRun(player) then
+		return false, "You're in a dungeon right now."
+	end
 	if join then
 		queue[player] = true
 		S.PlayerService.notify(player, "You joined the boss queue! You'll be teleported when the boss arrives.", Color3.fromRGB(255, 200, 90), "⚔️")
@@ -176,88 +186,6 @@ local function aliveParticipants()
 		end
 	end
 	return list
-end
-
-local function telegraph(pos: Vector3, radius: number, delay: number, color: Color3?)
-	S.CombatService.broadcastVFX({ kind = "telegraph", pos = pos, radius = radius, duration = delay, color = color })
-end
-
-local function hitPlayersInRadius(center: Vector3, radius: number, damage: number, maxHeight: number, effects)
-	for _, p in ipairs(aliveParticipants()) do
-		local offset = p.root.Position - center
-		local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
-		if flat <= radius + 3 and offset.Y <= maxHeight then
-			S.CombatService.damagePlayer(p.player, damage, { sourceLevel = fight.level })
-			if effects and effects.slowPct then
-				S.CombatService.applySlow(p.character, effects.slowPct, 3)
-			end
-		end
-	end
-end
-
-local function bossAttack(name: string, cfg, target)
-	local boss = fight.boss
-	local root = boss.root
-	local hit = fight.hit * (cfg.mult or 1) * (fight.enraged and 1.25 or 1)
-
-	if name == "Cleave" then
-		boss.model:SetAttribute("Swing", os.clock())
-		local range = cfg.range * (boss.scale / 3)
-		task.delay(0.55, function()
-			if boss.dead or not fight then
-				return
-			end
-			local look = root.CFrame.LookVector
-			for _, p in ipairs(aliveParticipants()) do
-				local offset = p.root.Position - root.Position
-				local flat = Vector3.new(offset.X, 0, offset.Z)
-				if flat.Magnitude <= range + 4 and offset.Y < 20 then
-					if flat.Magnitude < 6 or look:Dot(flat.Unit) > 0.2 then
-						S.CombatService.damagePlayer(p.player, hit, { sourceLevel = fight.level })
-					end
-				end
-			end
-		end)
-	elseif name == "GroundSlam" then
-		local center = S.EnemyService.groundAt(root.Position, 10)
-		telegraph(center, cfg.radius, cfg.delay, Color3.fromRGB(255, 60, 40))
-		boss.model:SetAttribute("Swing", os.clock() + cfg.delay - 0.3)
-		task.delay(cfg.delay, function()
-			if boss.dead or not fight then
-				return
-			end
-			S.CombatService.broadcastVFX({ kind = "slam", pos = center, radius = cfg.radius, color = Enemies.Bosses[currentBossId].color })
-			hitPlayersInRadius(center, cfg.radius, hit, 14, { slowPct = cfg.slowPct })
-		end)
-	elseif name == "RuneStrikes" then
-		local players = aliveParticipants()
-		for i = 1, cfg.count do
-			local p = players[((i - 1) % math.max(1, #players)) + 1]
-			if p then
-				local jitter = i > #players and Vector3.new(math.random(-25, 25), 0, math.random(-25, 25)) or Vector3.new()
-				local pos = S.EnemyService.groundAt(p.root.Position + jitter, 10)
-				telegraph(pos, cfg.radius, cfg.delay, Enemies.Bosses[currentBossId].color)
-				task.delay(cfg.delay, function()
-					if boss.dead or not fight then
-						return
-					end
-					S.CombatService.broadcastVFX({ kind = "strike", pos = pos, radius = cfg.radius, delay = 0, style = "lightning", color = Enemies.Bosses[currentBossId].color })
-					hitPlayersInRadius(pos, cfg.radius, hit, 25, nil)
-				end)
-			end
-		end
-	elseif name == "AxeVolley" then
-		local players = aliveParticipants()
-		for i = 1, math.min(cfg.count, #players * 2) do
-			local p = players[((i - 1) % #players) + 1]
-			task.delay((i - 1) * 0.2, function()
-				if boss.dead or not fight or not p.root.Parent then
-					return
-				end
-				S.EnemyService.throwAt(boss, p.player, p.root, hit, "axe")
-			end)
-		end
-	end
 end
 
 local function summonAdds()
@@ -466,6 +394,21 @@ local function startFight()
 	boss.defense = 10 + level
 	boss.radius = 2.2 * def.scale
 	boss.height = 3.6 * def.scale
+	local thisFight = fight
+	fight.brain = BossKit.new(S, {
+		boss = boss,
+		level = level,
+		hit = fight.hit,
+		color = def.color,
+		moves = def.attacks,
+		participants = aliveParticipants,
+		over = function()
+			return fight ~= thisFight or phase ~= "fight"
+		end,
+		center = Zones.BossArena.center,
+		radius = Zones.BossArena.radius,
+		speed = def.speed,
+	})
 
 	phase = "fight"
 	for _, player in ipairs(players) do
@@ -517,6 +460,9 @@ local function thinkBoss()
 	if pct <= 0.25 and not fight.enraged then
 		fight.enraged = true
 		boss.baseSpeed = def.speed * 1.35
+		fight.brain.speed = boss.baseSpeed
+		fight.brain.cdMult = 0.7
+		fight.brain.dmgMult = 1.25
 		announce("😡 ENRAGED", def.name .. " is enraged!", Color3.fromRGB(255, 60, 60), 3)
 	end
 
@@ -527,96 +473,7 @@ local function thinkBoss()
 		boss.model:PivotTo(CFrame.new(S.EnemyService.groundAt(c, 20) + Vector3.new(0, boss.humanoid.HipHeight + boss.root.Size.Y / 2 + 1, 0)))
 	end
 
-	local speedMult = S.CombatService.speedMultiplier(boss.model)
-	boss.humanoid.WalkSpeed = boss.baseSpeed * speedMult
-	if speedMult == 0 then
-		boss.humanoid:MoveTo(boss.root.Position)
-		return
-	end
-
-	local players = aliveParticipants()
-	if #players == 0 then
-		boss.humanoid:MoveTo(Zones.BossArena.center)
-		return
-	end
-	if not fight.target or t >= fight.retargetAt or not S.PlayerService.getCharacter(fight.target.player) then
-		fight.retargetAt = t + 4 + math.random() * 3
-		local best, bestDist = nil, math.huge
-		for _, p in ipairs(players) do
-			local d = (p.root.Position - boss.root.Position).Magnitude + math.random() * 25
-			if d < bestDist then
-				best, bestDist = p, d
-			end
-		end
-		fight.target = best
-	end
-	local target = fight.target
-	local offset = target.root.Position - boss.root.Position
-	local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
-	local cleave = def.attacks.Cleave
-	local cleaveRange = cleave and cleave.range * (boss.scale / 3) or 14
-
-	if flat > cleaveRange * 0.8 then
-		boss.humanoid:MoveTo(Vector3.new(target.root.Position.X, boss.root.Position.Y, target.root.Position.Z))
-	else
-		boss.humanoid:MoveTo(boss.root.Position)
-		local p = boss.root.Position
-		boss.root.CFrame = CFrame.lookAt(p, Vector3.new(target.root.Position.X, p.Y, target.root.Position.Z))
-	end
-
-	local cdMult = fight.enraged and 0.7 or 1
-	local function ready(name)
-		return def.attacks[name] and t >= (fight.nextAttack[name] or (fight.startedAt or 0))
-	end
-	local function use(name)
-		fight.nextAttack[name] = t + def.attacks[name].cooldown * cdMult
-		bossAttack(name, def.attacks[name], target)
-	end
-
-	if not fight.startedAt then
-		fight.startedAt = t + 3 -- short grace period after teleporting in
-		return
-	end
-	if t < fight.startedAt then
-		return
-	end
-	if fight.busyUntil and t < fight.busyUntil then
-		return
-	end
-
-	if ready("GroundSlam") then
-		local near = 0
-		for _, p in ipairs(players) do
-			if (p.root.Position - boss.root.Position).Magnitude < def.attacks.GroundSlam.radius then
-				near += 1
-			end
-		end
-		if near > 0 then
-			use("GroundSlam")
-			fight.busyUntil = t + def.attacks.GroundSlam.delay
-			return
-		end
-	end
-	if ready("RuneStrikes") then
-		use("RuneStrikes")
-		fight.busyUntil = t + 1
-		return
-	end
-	if ready("AxeVolley") and (flat > cleaveRange or math.random() < 0.4) then
-		use("AxeVolley")
-		fight.busyUntil = t + 1
-		return
-	end
-	if ready("Cleave") and flat <= cleaveRange + 4 and offset.Y < 20 then
-		use("Cleave")
-		fight.busyUntil = t + 0.8
-		return
-	end
-	-- Flyers staying out of reach get axes thrown at them.
-	if ready("AxeVolley") and offset.Y > 15 then
-		use("AxeVolley")
-		fight.busyUntil = t + 1
-	end
+	BossKit.think(fight.brain, t)
 end
 
 local function startWarning()

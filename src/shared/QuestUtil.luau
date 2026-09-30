@@ -3,6 +3,7 @@
 
 local Quests = require(script.Parent.Config.Quests)
 local Pets = require(script.Parent.Config.Pets)
+local Items = require(script.Parent.Config.Items)
 
 local QuestUtil = {}
 
@@ -89,6 +90,10 @@ function QuestUtil.rewardText(quest): string
 	end
 	if r.gear then
 		table.insert(parts, r.gear.rarity .. " Gear")
+	end
+	if r.unique then
+		local unique = Items.Uniques[r.unique]
+		table.insert(parts, "✨ " .. (unique and unique.name or r.unique))
 	end
 	if r.seeds then
 		for seedId, n in pairs(r.seeds) do

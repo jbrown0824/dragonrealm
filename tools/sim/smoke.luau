@@ -1,6 +1,338 @@
 -- Server smoke test: adds fake players and walks them through the game's features on a
 -- virtual clock. Prints every script error with a traceback, plus any failed expectations.
 -- Run: ./run.sh (boot.luau is prepended)
+-- Dungeons: unlocking, groups and invites, the queue and ready checks, a Barrow run (pulls, the
+-- give-up fail-safe, knocked out until the fight's over, a wipe, Grimvald, Haldor's second life and
+-- leap, loot and pity, the hoard, Ylva's quest) and a solo Forge run (harpoon, fire lanes, the rune
+-- shield, phases, Brakki's enrage, the freed dragon, admin tuning). (Its own function: the main
+-- scenario is out of local variables.)
+local function dungeonScenario(p1, p2, profile)
+	step("dungeons: unlock + groups")
+	local Dungeons = require(__proxy("Shared/Config/Dungeons"))
+	local Pets = require(__proxy("Shared/Config/Pets"))
+	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+	local Props = require(__proxy("Server/World/Props"))
+	local profile2 = S.PlayerService.getProfile(p2)
+	local function dungeon(p, name, args)
+		return invoke("DungeonAction", p, name, args or {})
+	end
+	local function lastRemote(name, p)
+		for i = #REMOTE_LOG, 1, -1 do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == name and (entry.player == p or entry.all) then
+				return entry.args[1]
+			end
+		end
+		return nil
+	end
+	local function vfxSince(kind: string, from: number): number
+		local n = 0
+		for i = from + 1, #REMOTE_LOG do
+			local entry = REMOTE_LOG[i]
+			if entry.remote == "VFX" and type(entry.args[1]) == "table" and entry.args[1].kind == kind then
+				n += 1
+			end
+		end
+		return n
+	end
+	local function flatDist(a: Vector3, b: Vector3): number
+		return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+	end
+	S.PlayerService.setLevel(p2, 14)
+	local okLow, whyLow = dungeon(p2, "queue", { dungeonId = "Barrow" })
+	check(not okLow and tostring(whyLow):find("level 15") ~= nil, "level 14 can't go into the Barrow (" .. tostring(whyLow) .. ")")
+	dungeon(p2, "leaveGroup")
+	local announced = remoteCount("Announce", p2)
+	S.PlayerService.addXP(p2, Game.xpToNext(14) + 5, true)
+	check(profile2.level == 15, "p2 reaches level 15")
+	task.wait(5)
+	check(remoteCount("Announce", p2) >= announced + 2, "LEVEL UP, then DUNGEONS UNLOCKED")
+	local unlockToast = false
+	for _, entry in ipairs(REMOTE_LOG) do
+		if entry.remote == "Notify" and entry.player == p2 and entry.args[1].open == "Dungeons" then
+			unlockToast = true
+		end
+	end
+	check(unlockToast, "the unlock toast offers to open the Dungeons window")
+	check(profile2.dungeons.seen == 0, "the 🏰 badge waits for the window")
+	check(dungeon(p2, "seen") and profile2.dungeons.seen == 15, "...and clears once it's been seen")
+	-- p2 picks up Ylva's quest at the Barrow's mouth first
+	local ylva = Zones.QuestGivers.Ylva.position
+	tp(p2, Vector3.new(ylva.X, Props.groundY(ylva.X, ylva.Z) + 6, ylva.Z - 12))
+	task.wait(0.3)
+	local okQuest, whyQuest = invoke("AcceptQuest", p2, "D1")
+	check(okQuest, "Ylva's quest: " .. tostring(whyQuest))
+	local cameFrom = rootOf(p2).Position
+
+	local okInvite, whyInvite = dungeon(p1, "invite", { userId = 102 })
+	check(okInvite, "invite: " .. tostring(whyInvite))
+	local invite = lastRemote("DungeonInvite", p2)
+	check(invite ~= nil and invite.from == p1.DisplayName, "p2 got the invite")
+	check(dungeon(p2, "accept", { groupId = invite and invite.groupId }), "p2 joins")
+	local group = S.DungeonService.groupOf(p1)
+	check(group ~= nil and S.DungeonService.groupOf(p2) == group and #group.members == 2 and group.leader == p1, "one group of two, p1 leads")
+	check(not dungeon(p2, "queue", { dungeonId = "Barrow" }), "only the leader queues the group")
+	check(not dungeon(p1, "queue", { dungeonId = "Forge" }), "everyone in the group must be high enough level")
+
+	step("dungeons: queue + ready check")
+	local partial = Dungeons.QUEUE_PARTIAL_AFTER
+	Dungeons.QUEUE_PARTIAL_AFTER = 3
+	check(dungeon(p1, "queue", { dungeonId = "Barrow" }), "queue for the Barrow")
+	check(S.DungeonService.matchmaker.looking("Barrow") == 2, "2 dragons looking")
+	task.wait(1.2)
+	local st = lastRemote("DungeonState", p1)
+	check(st and st.queue and st.queue.dungeonId == "Barrow", "the pill shows the queue")
+	task.wait(3)
+	st = lastRemote("DungeonState", p2)
+	check(st and st.check ~= nil and st.check.total == 2, "after a while 2 dragons are enough: a ready check")
+	check(dungeon(p2, "ready", { yes = false }), "p2 isn't ready")
+	check(not group.queued and S.DungeonService.matchmaker.looking("Barrow") == 0, "saying no takes the group out of the queue")
+	check(dungeon(p1, "queue", { dungeonId = "Barrow" }), "queue again")
+	task.wait(4)
+	check(dungeon(p1, "ready", { yes = true }), "p1 is ready")
+	check(S.DungeonService.runOf(p1) == nil, "nobody goes in until everyone's ready")
+	check(dungeon(p2, "ready", { yes = true }), "p2 is ready")
+	Dungeons.QUEUE_PARTIAL_AFTER = partial
+	task.wait(0.5)
+	local run = S.DungeonService.runOf(p1)
+	check(run ~= nil and S.DungeonService.runOf(p2) == run, "both dragons are in the same run")
+
+	step("dungeons: the Draugr Barrow")
+	local origin = run.built.origin
+	check(p1:GetAttribute("InDungeon") == "Barrow" and p1:GetAttribute("DungeonRun") == run.id, "run attributes")
+	check(rootOf(p1) ~= nil and (rootOf(p1).Position - origin).Magnitude < 60, "teleported to the entrance")
+	local mobCount = 0
+	for _, pack in ipairs(Dungeons.List.Barrow.packs) do
+		mobCount += #Dungeons.packMobs(pack)
+	end
+	check(#run.mobs == mobCount, "every pack spawned (" .. #run.mobs .. "/" .. mobCount .. ")")
+	local onFloor = true
+	for _, e in ipairs(run.mobs) do
+		local floor = DungeonBuilder.floorAt(e.home)
+		if math.abs(e.home.Y - floor.Y) > 1 or e.home.Y > origin.Y + 2 or e.root.Position.Y > e.home.Y + 12 then
+			onFloor = false
+		end
+	end
+	check(onFloor, "monsters stand on the cave floor, not on its roof")
+	check(run.bosses.boss ~= nil and run.bosses.mini ~= nil, "a mini-boss and a boss are waiting")
+	check(run.hpMult == Dungeons.GROUP_HEALTH[2] and run.dmgMult == Dungeons.GROUP_DAMAGE[2], "a group of 2 gets the 2-dragon scaling")
+	local barrowHp = Dungeons.Bosses.Haldor.health * Dungeons.GROUP_HEALTH[2]
+	check(math.abs(run.bosses.boss.e.humanoid.MaxHealth - barrowHp) < 2, "Haldor's health is set for the group")
+	task.wait(1.5)
+	check((rootOf(p1).Position - origin).Magnitude < 80, "ZoneService leaves dragons in a dungeon alone")
+	local annP1 = remoteCount("Announce", p1)
+	check(invoke("AdminAction", p1, "bossNow", { seconds = 200 }), "a world boss warning")
+	task.wait(1)
+	check(remoteCount("Announce", p1) == annP1, "no world boss warning reaches a dragon in a dungeon")
+	check(not invoke("BossQueue", p1, true), "and it can't queue for the world boss")
+	check(not invoke("TeleportHome", p1), "no flying home from a dungeon")
+
+	step("dungeons: pulls, giving up, getting back up")
+	local pack = run.packs[1]
+	local a, b = pack.mobs[1], pack.mobs[2]
+	tp(p1, a.root.Position + Vector3.new(0, 3, 10))
+	S.CombatService.damageEnemy(p1, a, 1, false)
+	task.wait(0.4)
+	check(a.target == p1 and b.target == p1, "hitting one draugr pulls its whole pack")
+	check(run.inCombat, "the run is in combat")
+	local _, hum2 = S.PlayerService.getCharacter(p2)
+	hum2.Health = 0
+	task.wait(Game.RESPAWN_TIME + 2)
+	check(rootOf(p2) == nil and run.members[p2].dead, "knocked out mid-fight: no respawn yet")
+	check(lastRemote("Died", p2) == -1, "the death screen waits for the group")
+	-- the fail-safe: nobody's hit anybody for Dungeons.EVADE_TIME, so the monster gives up
+	a.customAI = true
+	a.target = p1
+	a.lastCombat = os.clock() - Dungeons.EVADE_TIME - 1
+	task.wait(0.5)
+	check(a.target == nil and a.returning, "a monster nobody fights gives up and walks home")
+	a.customAI = false
+	-- out of combat: p2 gets back up beside p1
+	rootOf(p1).Parent:SetAttribute("Stealthed", true)
+	task.wait(Dungeons.COMBAT_LINGER + Dungeons.REVIVE_DELAY + 1.5)
+	check(rootOf(p2) ~= nil and not run.members[p2].dead, "out of combat (the pack lost p1): p2 is back up")
+	check(rootOf(p2) and flatDist(rootOf(p2).Position, rootOf(p1).Position) < 20, "...beside p1")
+	local _, humUp = S.PlayerService.getCharacter(p2)
+	check(humUp and humUp.Health < humUp.MaxHealth * 0.8, "...not at full health (a revive, not a respawn)")
+	local idle = run.packs[3].mobs[1] -- (a pack nobody's touched)
+	idle.humanoid.Health = idle.humanoid.MaxHealth * 0.5
+	task.wait(2)
+	local frac = idle.humanoid.Health / idle.humanoid.MaxHealth
+	check(frac > 0.52 and frac < 0.8, "out of combat, monsters heal slowly (" .. string.format("%.2f", frac) .. ")")
+	rootOf(p1).Parent:SetAttribute("Stealthed", nil)
+
+	step("dungeons: Grimvald and a wipe")
+	invoke("AdminAction", p1, "god", { on = true })
+	invoke("AdminAction", p1, "god", { on = true, userId = 102 })
+	local grim = run.bosses.mini
+	tp(p1, grim.e.root.Position + Vector3.new(0, 3, 14))
+	tp(p2, grim.e.root.Position + Vector3.new(0, 3, -14))
+	task.wait(0.6)
+	check(grim.engaged, "Grimvald wakes when dragons come close")
+	S.CombatService.damageEnemy(p1, grim.e, grim.e.humanoid.MaxHealth * 0.6, false)
+	task.wait(0.6)
+	check(grim.summoned[1] and #grim.adds == 2, "at half health Grimvald calls two Barrow Hounds")
+	check(not grim.enraged, "Grimvald never enrages")
+	local gold2 = profile2.gold
+	S.CombatService.damageEnemy(p1, grim.e, 1e9, false)
+	task.wait(0.6)
+	check(grim.e.dead and profile2.gold > gold2, "Grimvald down: loot for everyone in the run")
+	check(#grim.adds == 0 or grim.adds[1].dead, "his hounds fall with him")
+	-- the boss: wake him, hurt him, then everybody falls
+	invoke("AdminAction", p1, "god", { on = false })
+	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
+	local boss = run.bosses.boss
+	tp(p1, boss.e.root.Position + Vector3.new(0, 3, 20))
+	tp(p2, boss.e.root.Position + Vector3.new(0, 3, -20))
+	S.CombatService.damageEnemy(p1, boss.e, boss.e.humanoid.MaxHealth * 0.3, false)
+	task.wait(0.6)
+	check(boss.engaged, "hitting Haldor wakes him")
+	for _, p in ipairs({ p1, p2 }) do
+		local _, h = S.PlayerService.getCharacter(p)
+		if h then
+			h.Health = 0
+		end
+	end
+	task.wait(Dungeons.WIPE_DELAY + 1)
+	check(rootOf(p1) ~= nil and rootOf(p2) ~= nil, "a wipe: everyone gets up...")
+	check((rootOf(p1).Position - run.built.spawn.Position).Magnitude < 30, "...at the entrance")
+	check(boss.e.humanoid.Health == boss.e.humanoid.MaxHealth and not boss.engaged, "Haldor heals to full and goes back to sleep")
+	check(a.dead or (a.home and flatDist(a.root.Position, a.home) < 8 and a.humanoid.Health == a.humanoid.MaxHealth), "pulled monsters reset too")
+
+	step("dungeons: Haldor's second life")
+	invoke("AdminAction", p1, "god", { on = true })
+	invoke("AdminAction", p1, "god", { on = true, userId = 102 })
+	tp(p1, boss.e.root.Position + Vector3.new(0, 3, 16))
+	tp(p2, boss.e.root.Position + Vector3.new(0, 3, -16))
+	task.wait(0.5)
+	S.CombatService.damageEnemy(p1, boss.e, 1e9, false)
+	task.wait(0.3)
+	check(not boss.e.dead and boss.lifeUsed and boss.e.immune, "at 0 Haldor collapses instead of dying")
+	check(S.CombatService.damageEnemy(p1, boss.e, 100, false) == 0, "...and can't be hurt while he's down")
+	check(not run.cleared, "no loot yet")
+	task.wait(Dungeons.Bosses.Haldor.secondLife.delay + 1)
+	local hp = boss.e.humanoid.Health / boss.e.humanoid.MaxHealth
+	check(not boss.e.immune and math.abs(hp - Dungeons.Bosses.Haldor.secondLife.health) < 0.05, "he rises again at 40% (" .. string.format("%.2f", hp) .. ")")
+	check(boss.brain.moves.Leap ~= nil and boss.e.displayName == "Haldor Unbound", "...as Haldor Unbound, who leaps")
+	-- the leap: p2 stands far across the mound
+	local room = boss.room
+	local farSpot = DungeonBuilder.floorAt(room.center + Vector3.new(0, 2, -44))
+	tp(p1, boss.e.root.Position + Vector3.new(6, 3, 6))
+	tp(p2, farSpot + Vector3.new(0, 4, 0))
+	local leapt = false
+	for _ = 1, 40 do
+		task.wait(0.25)
+		if flatDist(boss.e.root.Position, farSpot) < 14 then
+			leapt = true
+			break
+		end
+	end
+	check(leapt, "Haldor Unbound leaps across the mound onto the farthest dragon")
+
+	step("dungeons: loot, the hoard, the quest")
+	local clears = profile2.dungeons.clears.Barrow or 0
+	local items2 = #profile2.inventory
+	profile2.dungeons.pity.Barrow = 1 -- (pity this high guarantees the egg)
+	S.CombatService.damageEnemy(p1, boss.e, 1e9, false)
+	task.wait(1)
+	check(boss.e.dead and run.cleared, "Haldor falls for good: the Barrow is cleared")
+	check(profile2.dungeons.clears.Barrow == clears + 1 and profile2.dungeonClears >= 1, "the clear is counted")
+	check((profile2.eggs.BarrowEgg or 0) >= 1 and profile2.dungeons.pity.Barrow == 0, "pity guarantees the Barrow Egg, then resets")
+	check(#profile2.inventory > items2, "boss gear")
+	check(profile2.titles["Barrow Breaker"] == true, "first clear: the Barrow Breaker title")
+	check(profile2.quests.active.D1 == 1, "Ylva's quest is done")
+	local okPet, pet = invoke("HatchEgg", p2, "BarrowEgg")
+	check(okPet and Pets.Species[pet.species] and Pets.Species[pet.species].egg == "BarrowEgg", "the Barrow Egg hatches a Barrow pet")
+	local hoard = run.built.chest and run.built.chest:FindFirstChildOfClass("ProximityPrompt")
+	check(hoard ~= nil, "the hidden hoard")
+	if hoard then
+		local g0 = profile2.gold
+		hoard.Triggered:Fire(p2)
+		task.wait(0.2)
+		local g1 = profile2.gold
+		hoard.Triggered:Fire(p2)
+		task.wait(0.2)
+		check(g1 > g0 and profile2.gold == g1, "the hoard pays each dragon once")
+	end
+	check(dungeon(p2, "leaveRun"), "p2 leaves")
+	task.wait(0.3)
+	check(S.DungeonService.runOf(p2) == nil and p2:GetAttribute("InDungeon") == nil, "out of the run")
+	check(rootOf(p2) ~= nil and (rootOf(p2).Position - cameFrom).Magnitude < 10, "back where p2 came in from")
+	local items3 = #profile2.inventory
+	local okTurn, whyTurn = invoke("TurnInQuest", p2, "D1")
+	check(okTurn, "turn in to Ylva: " .. tostring(whyTurn))
+	local relic = profile2.inventory[#profile2.inventory]
+	check(#profile2.inventory > items3 and relic.uniq == "BarrowlightLantern" and relic.ilvl == Dungeons.List.Barrow.ilvl, "the Barrowlight Lantern, at the Barrow's item level")
+	check(dungeon(p1, "leaveRun"), "p1 leaves")
+	task.wait(0.5)
+	check(run.ended, "the run ends when everyone's gone")
+
+	step("dungeons: the Rune Forge")
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "admin: into the Forge alone")
+	local forge = S.DungeonService.runOf(p1)
+	check(forge ~= nil and forge.def.id == "Forge" and forge.hpMult == Dungeons.GROUP_HEALTH[1], "a solo Forge run")
+	check(forge.built.chained ~= nil and forge.built.chained.Parent ~= nil, "the elder dragon hangs in its chains")
+	local sig = forge.bosses.boss
+	-- hovering high above Sigrun: she harpoons you down
+	local sigFloor = sig.home
+	tp(p1, sigFloor + Vector3.new(8, 32, 8))
+	local pulled = false
+	for _ = 1, 40 do
+		task.wait(0.25)
+		local r = rootOf(p1)
+		if r and r.Position.Y < sigFloor.Y + 12 then
+			pulled = true
+			break
+		end
+	end
+	check(sig.engaged, "Sigrun wakes")
+	check(pulled, "her harpoon drags a hovering dragon down")
+	local log0 = #REMOTE_LOG
+	task.wait(4)
+	check(sig.brain.nextMove.Lane ~= nil and vfxSince("telegraph", log0) > 3, "the chained dragon breathes a fire lane across the room")
+	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.45, false)
+	task.wait(0.6)
+	check(sig.phase == 1 and sig.shielded and sig.e.immune, "at 60% Sigrun raises her rune shield")
+	check(sig.shieldAdds and #sig.shieldAdds == 3, "...with three Forge Guards")
+	check(S.CombatService.damageEnemy(p1, sig.e, 1000, false) == 0, "she can't be hurt behind it")
+	for _, g in ipairs(sig.shieldAdds or {}) do
+		S.CombatService.damageEnemy(p1, g, 1e9, false)
+	end
+	task.wait(0.6)
+	check(not sig.shielded and not sig.e.immune, "the shield shatters when the guards fall")
+	S.CombatService.damageEnemy(p1, sig.e, sig.e.humanoid.MaxHealth * 0.3, false)
+	task.wait(0.6)
+	check(sig.phase == 2 and sig.brain.moves.Whirlwind ~= nil, "below 30% she whirls")
+	local brakki = forge.bosses.mini
+	S.CombatService.damageEnemy(p1, brakki.e, brakki.e.humanoid.MaxHealth * 0.75, false)
+	task.wait(0.8)
+	check(brakki.engaged and brakki.enraged, "Brakki enrages at 30%")
+	local forgeClears = profile.dungeons.clears.Forge or 0
+	log0 = #REMOTE_LOG
+	S.CombatService.damageEnemy(p1, sig.e, 1e9, false)
+	task.wait(1)
+	check(forge.cleared and profile.dungeons.clears.Forge == forgeClears + 1, "Sigrun falls: the Forge is cleared")
+	check(vfxSince("shatter", log0) >= 1, "the elder dragon's chains shatter")
+	task.wait(4.5)
+	check(forge.built.chained.Parent == nil, "...and it flies off, free")
+	check(invoke("AdminAction", p1, "tuneDungeon", { dungeonId = "Forge", key = "bossHp", value = 2 }) and Tuning.dungeon("Forge", "bossHp") == 2, "admin: tune a dungeon")
+	local okReport, report = invoke("AdminAction", p1, "printTuning", {})
+	check(okReport and tostring(report):find("Dungeons.Bosses.Sigrun.health") ~= nil, "the tuning report has the new boss health")
+	invoke("AdminAction", p1, "resetTuning", {})
+	check(dungeon(p1, "leaveRun"), "p1 leaves the Forge")
+	task.wait(0.5)
+	check(forge.ended, "the Forge run ends")
+	-- the same copy of the Forge is used again, with its dragon back in chains
+	check(invoke("AdminAction", p1, "enterDungeon", { dungeonId = "Forge" }), "the Forge again")
+	local again = S.DungeonService.runOf(p1)
+	check(again and again.built == forge.built and again.built.chained.Parent ~= nil, "the next group finds the elder dragon chained again")
+	dungeon(p1, "leaveRun")
+	invoke("AdminAction", p1, "god", { on = false })
+	invoke("AdminAction", p1, "god", { on = false, userId = 102 })
+	task.wait(1)
+
+end
+
 task.spawn(function()
 	task.wait(3)
 	-- keep it daytime (no nightfall raids) until the day/night section below
@@ -135,7 +467,11 @@ task.spawn(function()
 	step("limited stock")
 	local Shops = require(__proxy("Shared/Config/Shops"))
 	local stock = S.StockService.get(p1)
-	check(#stock.gear >= Shops.Gear.count[1], "armory has gear in stock")
+	local gearCount = 0
+	for _, row in ipairs(stock.gear) do
+		gearCount += row.left -- (the same slot and rarity twice is one row)
+	end
+	check(gearCount >= Shops.Gear.count[1], "armory has gear in stock")
 	local epics = 0
 	for _, entry in ipairs(stock.gear) do
 		if entry.rarity == "Epic" then
@@ -968,6 +1304,8 @@ task.spawn(function()
 	task.wait(0.5)
 	check(p1:GetAttribute("RangeMode") == nil, "walking off the mat ends practice")
 
+	dungeonScenario(p1, p2, profile)
+
 	step("snapshot + leave")
 	local snap = S.PlayerService.snapshot(p1)
 	check(snap and snap.garden and snap.pets and snap.isAdmin == true, "snapshot fields")
@@ -978,7 +1316,7 @@ task.spawn(function()
 	SIM.done = true
 end)
 
-local limit = 1600
+local limit = 2400
 while not SIM.done and SIM.now < limit do
 	SIM.step(0.1)
 end

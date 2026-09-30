@@ -40,6 +40,13 @@ Game.ROBOTS = {
 Game.RESPAWN_TIME = 4
 Game.OUT_OF_COMBAT_TIME = 6 -- seconds without taking damage before fast regen kicks in
 Game.OUT_OF_COMBAT_REGEN = 0.04 -- fraction of max health per second
+-- Lifesteal (% of damage dealt healed) and regen (% of max health healed per second) caps. Gear
+-- relics and pets share their own smaller cap on top of what talents give, so stacking them never
+-- makes a dragon unkillable. All four can be tuned live in the admin panel.
+Game.LIFESTEAL_CAP = 30
+Game.REGEN_CAP = 3
+Game.EXTRA_LIFESTEAL_CAP = 8
+Game.EXTRA_REGEN_CAP = 0.8
 Game.DEFENSE_CONSTANT = 100 -- damage reduction = def / (def + DEFENSE_CONSTANT + 5 * attackerLevel)
 Game.MAX_DAMAGE_REDUCTION = 0.75
 Game.PVP_DAMAGE_MULT = 0.45 -- keeps battles in the Battle Zone from ending instantly

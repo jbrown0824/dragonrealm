@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local PetInfo = require(Shared.Config.Pets)
 local StoreInfo = require(Shared.Config.Store)
+local DungeonInfo = require(Shared.Config.Dungeons)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local DragonBuilder = require(Shared.DragonBuilder)
@@ -358,7 +359,8 @@ local function refreshEggs(p)
 			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -160, 0, 70), Size = UDim2.fromOffset(152, 24), TextSize = 13, Parent = card })
 			Theme.setButtonEnabled(hatch, not nestFull)
 		elseif not sold then
-			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
+			local where = egg.dungeon and string.format("Only from the boss of %s (🏰 Dungeons)", DungeonInfo.get(egg.dungeon).name) or "Not sold anywhere: found on champions, bosses and chests"
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = where, Parent = card })
 		end
 		if not open then
 			continue
