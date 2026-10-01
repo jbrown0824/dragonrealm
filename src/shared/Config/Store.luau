@@ -50,7 +50,7 @@ Store.Products = {
 		goldMinutes = 60, eggs = { StormEgg = 2 }, treats = 30, epicGear = true, skin = "Sunrise" },
 	-- the Starter Pack where paid random items are restricted: one chosen pet, nothing random
 	-- (change `pet` to give a different species or level; keep it a species without goldPct)
-	StarterPet = { productId = 0, restrictedOnly = true, name = "Starter Pack", icon = "🎁", robux = 49, once = true,
+	StarterPet = { productId = 3715749854, restrictedOnly = true, name = "Starter Pack", icon = "🎁", robux = 49, once = true,
 		desc = "A head start for new dragons: Thunderhatch, an Epic nano dragon that hits harder and flies faster.",
 		pet = { species = "Thunderhatch", level = 1 } },
 	GoldSmall = { productId = 3715732494, paidRandom = true, name = "Pouch of Gold", icon = "💰", robux = 25, goldMinutes = 20,
