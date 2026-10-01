@@ -1164,6 +1164,11 @@ function services.MarketplaceService.UserOwnsGamePassAsync()
 end
 function services.MarketplaceService.PromptProductPurchase() end
 function services.MarketplaceService.PromptGamePassPurchase() end
+-- PolicyService: a player's `MockPaidRandomRestricted` attribute stands in for where they live
+services.PolicyService = Instance.new("PolicyService")
+function services.PolicyService.GetPolicyInfoForPlayerAsync(_, player)
+	return { ArePaidRandomItemsRestricted = player:GetAttribute("MockPaidRandomRestricted") == true, AllowedExternalLinkReferences = {}, IsSubjectToChinaPolicies = false }
+end
 services.RunService.BindToRenderStep = function(_, _name, _priority, fn)
 	services.RunService.RenderStepped:Connect(fn)
 end

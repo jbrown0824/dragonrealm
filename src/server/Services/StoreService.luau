@@ -14,8 +14,15 @@
 -- Studio testing: items whose id is still 0 can be "bought" for free in Studio only
 -- (StudioPurchase). Pass ownership is checked with UserOwnsGamePassAsync when you join and
 -- updated when you buy one.
+--
+-- Paid random items: when a player joins we ask PolicyService whether they may buy them
+-- (ArePaidRandomItemsRestricted) and set the player attribute `PaidRandomItems` to true only
+-- when they may. Until the answer comes, or if the call keeps failing, the answer is no. The
+-- Store hides every `paidRandom` item (Config/Store) from those players and StudioPurchase
+-- refuses them.
 
 local MarketplaceService = game:GetService("MarketplaceService")
+local PolicyService = game:GetService("PolicyService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -112,6 +119,28 @@ local function passGranted(player: Player, passId: string)
 	S.PlayerService.notify(player, string.format("Thank you! %s %s is now active.", pass.icon, pass.name), Color3.fromRGB(120, 230, 140), "💎")
 	S.PlayerService.recompute(player)
 	S.PlayerService.markDirty(player)
+end
+
+---------------------------------------------------------------- paid random items
+
+-- May this player buy the `paidRandom` items? (No until PolicyService says yes.)
+function StoreService.paidRandomAllowed(player: Player): boolean
+	return player:GetAttribute("PaidRandomItems") == true
+end
+
+function StoreService.checkPolicy(player: Player)
+	for attempt = 1, 3 do
+		local ok, info = pcall(function()
+			return PolicyService:GetPolicyInfoForPlayerAsync(player)
+		end)
+		if ok and type(info) == "table" then
+			player:SetAttribute("PaidRandomItems", info.ArePaidRandomItemsRestricted == false)
+			return
+		end
+		task.wait(2 * attempt)
+	end
+	warn("[StoreService] Couldn't read the policy for", player.Name, "- paid random items stay off")
+	player:SetAttribute("PaidRandomItems", false)
 end
 
 ---------------------------------------------------------------- products
@@ -225,6 +254,9 @@ local function onStudioPurchase(player: Player, kind, key)
 	if not profile or type(key) ~= "string" then
 		return false, "Unknown item."
 	end
+	if Store.isPaidRandom(kind, key) and not StoreService.paidRandomAllowed(player) then
+		return false, "That item isn't available where you live."
+	end
 	if kind == "pass" and Store.Passes[key] then
 		profile.passes[key] = true
 		passGranted(player, key)
@@ -257,9 +289,11 @@ function StoreService.start()
 	Remotes.func("StudioPurchase").OnServerInvoke = onStudioPurchase
 	Players.PlayerAdded:Connect(function(player)
 		task.spawn(checkPasses, player)
+		task.spawn(StoreService.checkPolicy, player)
 	end)
 	for _, player in ipairs(Players:GetPlayers()) do
 		task.spawn(checkPasses, player)
+		task.spawn(StoreService.checkPolicy, player)
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		owned[player] = nil

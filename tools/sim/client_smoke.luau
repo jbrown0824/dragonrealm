@@ -359,6 +359,51 @@ task.spawn(function()
 	mod("UI/Store").buy("product", "TreatBag")
 	task.wait(1)
 	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Studio test)")
+	-- where paid random items are restricted: no eggs, gold or restocks for Robux anywhere
+	local function shows(root: Instance, text: string): boolean
+		for _, d in ipairs(root:GetDescendants()) do
+			if (d.ClassName == "TextLabel" or d.ClassName == "TextButton") and tostring(d.Text):find(text, 1, true) then
+				local shown, node = true, d
+				while node and node ~= root do
+					shown = shown and node.Visible ~= false
+					node = node.Parent
+				end
+				if shown then
+					return true
+				end
+			end
+		end
+		return false
+	end
+	local storeFrame = Windows.registry.Store.frame
+	check(me:GetAttribute("PaidRandomItems") == true and shows(storeFrame, "Mythic Egg") and shows(storeFrame, "Pouch of Gold"), "the Store sells eggs and gold where that's allowed")
+	me:SetAttribute("MockPaidRandomRestricted", true)
+	S.StoreService.checkPolicy(me)
+	task.wait(0.3)
+	check(not shows(storeFrame, "Mythic Egg") and not shows(storeFrame, "Secret Egg") and not shows(storeFrame, "Pouch of Gold") and not shows(storeFrame, "Gold Rush")
+		and not shows(storeFrame, "Restock") and not shows(storeFrame, "2x Gold") and not shows(storeFrame, "Starter Pack"), "restricted: no eggs, gold, boosts to gold or restocks in the Store")
+	check(shows(storeFrame, "Bag of Treats") and shows(storeFrame, "2x XP"), "restricted: the rest of the Store is still there")
+	check(not shows(Windows.guis.HUD, "Starter Pack") and not shows(Windows.guis.HUD, "Gold Rush"), "restricted: no Robux offer on the HUD")
+	mod("UI/Pets").open("Eggs")
+	task.wait(0.2)
+	local petsFrame = Windows.registry.Pets.frame
+	check(not shows(petsFrame, "Restock now"), "restricted: no Restock button in the Eggs tab")
+	check(not shows(petsFrame, "Buy one"), "restricted: no Robux egg buttons in the Eggs tab")
+	check(shows(petsFrame, "Find one free on champions"), "restricted: the Mythic Egg says where to find one free")
+	local goldKeep = S.PlayerService.getProfile(me).gold
+	S.PlayerService.getProfile(me).gold = 0
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Store").needGold(1000)
+	local restrictedBanner = petsFrame:FindFirstChild("StatusBanner")
+	check(restrictedBanner and restrictedBanner.Visible and not restrictedBanner.Action.Visible, "restricted: needing gold doesn't offer gold for Robux")
+	S.PlayerService.getProfile(me).gold = goldKeep
+	S.PlayerService.markDirty(me)
+	me:SetAttribute("MockPaidRandomRestricted", nil)
+	S.StoreService.checkPolicy(me)
+	task.wait(0.3)
+	Windows.open("Store")
+	check(shows(storeFrame, "Mythic Egg"), "the eggs come back when the policy allows them")
 	Windows.open("SkillTree")
 	local keySlot = Windows.registry.SkillTree.frame:FindFirstChild("KeySlot1", true)
 	check(keySlot ~= nil, "skill tree has the keys 2-5 strip")

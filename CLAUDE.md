@@ -107,7 +107,7 @@ tools/preview/  world renders, terrain map, clipping, walk, water and dungeon ch
 - **Text glyphs**: use emoji or plain ASCII in UI text. Symbol characters like ✕ ▲ ● − ↺ ✔ can render as empty boxes in Roblox fonts (the old close button did). Draw shapes (pips, arrows) with Frames instead.
 - **Map data**: roads, trails, lakes, the river, camps and shops all come from `Config/Zones`, which both the world builder and the map UI read. Add new places there so they show up on the map.
 - **Balance numbers** belong in `src/shared/Config/`, not in service code.
-- **Robux**: products are granted only in `StoreService` (ProcessReceipt records the receipt id on the profile and saves before returning PurchaseGranted). Never grant paid items anywhere else. Ids live in `Config/Store`; with an id of 0, Studio grants items free for testing (`StudioPurchase` refuses outside Studio).
+- **Robux**: products are granted only in `StoreService` (ProcessReceipt records the receipt id on the profile and saves before returning PurchaseGranted). Never grant paid items anywhere else. Ids live in `Config/Store`; with an id of 0, Studio grants items free for testing (`StudioPurchase` refuses outside Studio). Anything that's a random item or a way to buy one (eggs, gold, gold boosts, egg restocks) gets `paidRandom = true`: `StoreService.checkPolicy` sets the player attribute `PaidRandomItems` from PolicyService's `ArePaidRandomItemsRestricted` (no until it answers), and every Robux button asks `App.Store.available(kind, key)` first. A new Robux item that gives eggs or gold needs the flag.
 - Match the existing style: tabs, typed function parameters, and short header comments explaining *why*.
 
 ## Gotchas (learned the hard way)

@@ -7,6 +7,13 @@
 --      whatever the dashboard says, so keep them the same).
 -- Until an id is filled in, the item still shows in the Store. In Studio, "Buy" on an item with
 -- no id grants it for free so you can test; in a live game it says the item is coming soon.
+--
+-- PAID RANDOM ITEMS: eggs hatch a random pet, and they can be bought with Robux (the Mythic and
+-- Secret Eggs, the Starter Pack's eggs) or with gold, which Robux can buy too. Where the law
+-- restricts that (PolicyService's ArePaidRandomItemsRestricted, checked by StoreService when a
+-- player joins), everything marked `paidRandom` is off the shelf: the eggs, and every way to turn
+-- Robux into gold (gold packs, the Gold Rush, 2x Gold, the Starter Pack) or into more egg stock
+-- (Restock). Those players still hatch eggs with gold they earn by playing.
 
 local Store = {}
 
@@ -21,7 +28,7 @@ Store.PassOrder = { "DoubleXP", "DoubleGold", "DoubleFlight", "NeverHungry", "Wa
 Store.Passes = {
 	DoubleXP = { assetId = 0, name = "2x XP", icon = "📘", robux = 199,
 		desc = "Double XP from everything, forever. Level up (and earn Paragon levels) twice as fast." },
-	DoubleGold = { assetId = 0, name = "2x Gold", icon = "💰", robux = 199,
+	DoubleGold = { assetId = 0, paidRandom = true, name = "2x Gold", icon = "💰", robux = 199,
 		desc = "Double the gold you earn from vikings, quests, chests, harvests and battles, forever." },
 	DoubleFlight = { assetId = 0, name = "2x Flight Time", icon = "🦅", robux = 99, handy = true,
 		desc = "Twice the flight stamina, so you stay in the air twice as long. Stacks with Wing Tonic and pets." },
@@ -34,24 +41,24 @@ Store.Passes = {
 Store.ProductOrder = { "StarterPack", "GoldRush", "GoldSmall", "GoldMedium", "GoldLarge", "MythicEgg", "SecretEgg", "TreatBag", "Restock" }
 Store.Products = {
 	-- the cheap one: a short boost you feel right away (its clock only runs while you play)
-	GoldRush = { productId = 0, name = "Gold Rush", icon = "💸", robux = 9, goldRushMinutes = 30,
+	GoldRush = { productId = 0, paidRandom = true, name = "Gold Rush", icon = "💸", robux = 9, goldRushMinutes = 30,
 		desc = "+100% gold for 30 minutes of play (the clock only runs while you're in the game). Stacks with 2x Gold. Buy more to add time." },
-	StarterPack = { productId = 0, name = "Starter Pack", icon = "🎁", robux = 49, once = true,
+	StarterPack = { productId = 0, paidRandom = true, name = "Starter Pack", icon = "🎁", robux = 49, once = true,
 		desc = "A head start for new dragons: an hour's worth of gold, 2 Storm Eggs, 30 Pet Treats, an Epic piece of gear and the Sunrise skin.",
 		goldMinutes = 60, eggs = { StormEgg = 2 }, treats = 30, epicGear = true, skin = "Sunrise" },
-	GoldSmall = { productId = 0, name = "Pouch of Gold", icon = "💰", robux = 25, goldMinutes = 20,
+	GoldSmall = { productId = 0, paidRandom = true, name = "Pouch of Gold", icon = "💰", robux = 25, goldMinutes = 20,
 		desc = "About 20 minutes of adventuring's worth of gold." },
-	GoldMedium = { productId = 0, name = "Chest of Gold", icon = "💰", robux = 99, goldMinutes = 100,
+	GoldMedium = { productId = 0, paidRandom = true, name = "Chest of Gold", icon = "💰", robux = 99, goldMinutes = 100,
 		desc = "About 1.5 hours of adventuring's worth of gold." },
-	GoldLarge = { productId = 0, name = "Dragon's Hoard", icon = "💰", robux = 399, goldMinutes = 500,
+	GoldLarge = { productId = 0, paidRandom = true, name = "Dragon's Hoard", icon = "💰", robux = 399, goldMinutes = 500,
 		desc = "About 8 hours of adventuring's worth of gold." },
-	MythicEgg = { productId = 0, name = "Mythic Egg", icon = "🌟", robux = 49, eggs = { MythicEgg = 1 },
+	MythicEgg = { productId = 0, paidRandom = true, name = "Mythic Egg", icon = "🌟", robux = 49, eggs = { MythicEgg = 1 },
 		desc = "Always an Epic or Legendary nano dragon, with a 1% chance of the Aurora Serpent. Also found free on champions, bosses and camp chests." },
-	SecretEgg = { productId = 0, name = "Secret Egg", icon = "🔮", robux = 149, eggs = { SecretEgg = 1 },
+	SecretEgg = { productId = 0, paidRandom = true, name = "Secret Egg", icon = "🔮", robux = 149, eggs = { SecretEgg = 1 },
 		desc = "Hatches one of three Secret nano dragons you can't get anywhere else." },
 	TreatBag = { productId = 0, name = "Bag of Treats", icon = "🍬", robux = 29, treats = 40,
 		desc = "40 Pet Treats to level up your nano dragons." },
-	Restock = { productId = 0, name = "Restock Shops", icon = "🔄", robux = 15, restock = true,
+	Restock = { productId = 0, paidRandom = true, name = "Restock Shops", icon = "🔄", robux = 15, restock = true,
 		desc = "Fresh stock at the Armory, the Hatchery and the Cauldron, right now." },
 }
 
@@ -67,6 +74,12 @@ function Store.goldFor(minutes: number, level: number, paragon: number?): number
 	-- round to a friendly number
 	local step = gold >= 100000 and 5000 or (gold >= 10000 and 500 or 50)
 	return math.max(step, math.floor(gold / step + 0.5) * step)
+end
+
+-- Is this pass or product off the shelf for a player whose paid random items are restricted?
+function Store.isPaidRandom(kind: string, key: string): boolean
+	local info = if kind == "pass" then Store.Passes[key] else Store.Products[key]
+	return info ~= nil and info.paidRandom == true
 end
 
 function Store.productByAssetId(productId: number): string?

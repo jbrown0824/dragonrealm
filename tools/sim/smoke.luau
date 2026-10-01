@@ -1518,6 +1518,23 @@ task.spawn(function()
 	check(okAgain, "Wayfinder works again after the cooldown (" .. tostring(whyAgain) .. ")")
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
 
+	step("paid random items (PolicyService)")
+	check(p1:GetAttribute("PaidRandomItems") == true and p2:GetAttribute("PaidRandomItems") == true, "paid random items are on where the policy allows them")
+	p2:SetAttribute("MockPaidRandomRestricted", true)
+	S.StoreService.checkPolicy(p2)
+	check(p2:GetAttribute("PaidRandomItems") == false, "... and off where ArePaidRandomItemsRestricted says so")
+	local buddyEggs = S.PlayerService.getProfile(p2).eggs.MythicEgg or 0
+	for _, item in ipairs({ { "product", "MythicEgg" }, { "product", "SecretEgg" }, { "product", "StarterPack" }, { "product", "GoldSmall" }, { "product", "GoldRush" }, { "product", "Restock" }, { "pass", "DoubleGold" } }) do
+		local okBuy, whyBuy = invoke("StudioPurchase", p2, item[1], item[2])
+		check(not okBuy and tostring(whyBuy):find("where you live") ~= nil, "restricted: no " .. item[2] .. " (" .. tostring(whyBuy) .. ")")
+	end
+	check((S.PlayerService.getProfile(p2).eggs.MythicEgg or 0) == buddyEggs, "restricted: no egg was granted")
+	check(invoke("StudioPurchase", p2, "product", "TreatBag"), "restricted: Pet Treats are still for sale")
+	check(not S.StoreService.hasPass(p2, "DoubleGold") and invoke("StudioPurchase", p2, "pass", "DoubleXP"), "restricted: 2x XP is still for sale")
+	p2:SetAttribute("MockPaidRandomRestricted", nil)
+	S.StoreService.checkPolicy(p2)
+	check(p2:GetAttribute("PaidRandomItems") == true, "paid random items back on for Buddy")
+
 	step("admin: paragon, pets, collection, store")
 	local function admin(action, args)
 		args = args or {}

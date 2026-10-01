@@ -138,6 +138,8 @@ The Store needs real ids from Roblox before it can sell anything:
 
 Until an item has an id, clicking Buy in **Studio** grants it for free so you can test it; in a live game it says "coming soon". Purchases are saved with a receipt id first, so Roblox's retries never grant anything twice.
 
+**Paid random items**: eggs hatch a random pet, and they can be bought with Robux or with gold that Robux can buy, so the game respects Roblox's `ArePaidRandomItemsRestricted` policy (answer **Yes** to that question in the Content Rating questionnaire). When a player joins, the server asks `PolicyService` about them. Where paid random items are restricted, the Store and every Robux button hide the eggs (Mythic, Secret, the Starter Pack) and every way to buy gold or egg stock with Robux (gold packs, Gold Rush, 2x Gold, Restock Shops), and the server refuses them too. Those players still hatch eggs with gold they earn by playing, and can buy 2x XP, the handy passes and Pet Treats. Until the answer comes back, or if Roblox can't be reached, those items stay hidden. Which items count is the `paidRandom` flag in `Store.luau`.
+
 ## Tuning
 
 All balance numbers live in `src/shared/Config/`:
