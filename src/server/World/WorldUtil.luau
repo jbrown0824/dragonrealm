@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DragonBuilder = require(Shared.DragonBuilder)
+local Quests = require(Shared.Config.Quests)
 
 local Props = require(script.Parent.Props)
 
@@ -63,7 +64,70 @@ function WorldUtil.placeDragon(parent: Instance, classId: string, pos: Vector3, 
 	return model
 end
 
+-- A quest giver: a dragon on a little platform, with its Talk prompt (tag QuestPrompt) and its
+-- name. Town givers are built by WorldBuilder; the dungeon keepers also stand inside their dungeon.
+function WorldUtil.questGiver(parent: Instance, giverId: string, at: Vector3, facing: Vector3): Model
+	local giver = Quests.Givers[giverId]
+	-- little platform
+	Props.column(parent, at - Vector3.new(0, 0.5, 0), 1.2, 22, Color3.fromRGB(170, 160, 150), Enum.Material.Cobblestone)
+	local model = WorldUtil.placeDragon(parent, giver.look, at + Vector3.new(0, 0.7, 0), facing, { scale = 1.05, name = giver.name })
+	model:SetAttribute("GiverId", giverId)
+	CollectionService:AddTag(model, "QuestGiver")
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Talk"
+	prompt.ObjectText = giver.name
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 18
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("GiverId", giverId)
+	prompt.Parent = model.PrimaryPart
+	CollectionService:AddTag(prompt, "QuestPrompt")
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "GiverName"
+	gui.Size = UDim2.fromOffset(220, 44)
+	gui.StudsOffset = Vector3.new(0, 7, 0)
+	gui.MaxDistance = 90
+	gui.LightInfluence = 0
+	local name = Instance.new("TextLabel")
+	name.BackgroundTransparency = 1
+	name.Size = UDim2.new(1, 0, 0.6, 0)
+	name.Font = Enum.Font.FredokaOne
+	name.TextScaled = true
+	name.TextColor3 = Color3.fromRGB(255, 225, 120)
+	name.TextStrokeTransparency = 0.3
+	name.Text = giver.name
+	name.Parent = gui
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.fromScale(0, 0.6)
+	title.Size = UDim2.new(1, 0, 0.4, 0)
+	title.Font = Enum.Font.GothamBold
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(220, 220, 230)
+	title.TextStrokeTransparency = 0.5
+	title.Text = "<" .. giver.title .. ">"
+	title.Parent = gui
+	gui.Parent = model:FindFirstChild("Head") or model.PrimaryPart
+	return model
+end
+
 -- Distance from p to the segment a-b, ignoring height.
+-- Let an anchored enemy go again (after a pose, a leap, a throne): unanchored, with the server
+-- keeping its physics. Unanchoring hands an assembly back to automatic network ownership, so the
+-- nearest player's client would simulate it (Haldor stood up sunk into the floor that way).
+function WorldUtil.release(root: BasePart, humanoid: Humanoid?)
+	root.Anchored = false
+	pcall(function()
+		root:SetNetworkOwner(nil)
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end)
+end
+
 function WorldUtil.flatDistToSegment(p: Vector3, a: Vector3, b: Vector3): number
 	local ab = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
 	local ap = Vector3.new(p.X - a.X, 0, p.Z - a.Z)

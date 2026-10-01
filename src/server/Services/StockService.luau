@@ -168,7 +168,9 @@ function StockService.start()
 				local profile = S.PlayerService.getProfile(player)
 				if profile and profile.class then
 					StockService.get(player)
-					S.PlayerService.notify(player, "The shops in town just restocked!", Color3.fromRGB(140, 230, 120), "🛒")
+					if not S.DungeonService.inRun(player) then -- (no shop news in a dungeon)
+						S.PlayerService.notify(player, "The shops in town just restocked!", Color3.fromRGB(140, 230, 120), "🛒")
+					end
 				end
 			end
 		end

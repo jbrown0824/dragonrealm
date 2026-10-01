@@ -40,6 +40,20 @@ Game.ROBOTS = {
 Game.RESPAWN_TIME = 4
 Game.OUT_OF_COMBAT_TIME = 6 -- seconds without taking damage before fast regen kicks in
 Game.OUT_OF_COMBAT_REGEN = 0.04 -- fraction of max health per second
+-- Lifesteal (% of damage dealt healed) and regen (% of max health healed per second) caps. Gear
+-- relics and pets share their own smaller cap on top of what talents give, so stacking them never
+-- makes a dragon unkillable. All four can be tuned live in the admin panel.
+Game.LIFESTEAL_CAP = 30
+Game.REGEN_CAP = 3
+Game.EXTRA_LIFESTEAL_CAP = 8
+Game.EXTRA_REGEN_CAP = 0.8
+
+-- Level gap: hitting something lower level than you hurts it more, something higher level less.
+-- With d = your level - theirs: d > 0 multiplies the damage by 1 + linear*d + curve*d^2 (mild for
+-- the first few levels, bigger past 10), at most `cap`; d < 0 divides by the same (at least
+-- `floor`). It works both ways (dragons hitting monsters, monsters hitting dragons), but not in
+-- PvP or the world boss arena. The admin Balance page tunes linear, curve and cap.
+Game.LEVEL_GAP = { linear = 0.02, curve = 0.004, cap = 2.5, floor = 0.4 }
 Game.DEFENSE_CONSTANT = 100 -- damage reduction = def / (def + DEFENSE_CONSTANT + 5 * attackerLevel)
 Game.MAX_DAMAGE_REDUCTION = 0.75
 Game.PVP_DAMAGE_MULT = 0.45 -- keeps battles in the Battle Zone from ending instantly
@@ -111,12 +125,15 @@ function Game.xpToNext(level: number): number
 	return math.floor(60 * level ^ 1.45 + 40)
 end
 
--- Paragon: past the level cap, XP keeps filling Paragon levels. Each one adds a small permanent
--- bonus (up to PARAGON_BONUS_CAP levels), and every PARAGON_POINT_EVERY levels gives an extra
--- skill point, so long-time players can slowly fill more of their skill tree.
+-- Paragon: past the level cap, XP keeps filling Paragon levels. Each one adds a permanent bonus
+-- (PARAGON_BONUS per level up to PARAGON_BONUS_CAP, then PARAGON_BONUS_LATE per level forever: it
+-- never stops, it just slows down), and every PARAGON_POINT_EVERY levels gives an extra skill
+-- point, so long-time players can slowly fill more of their skill tree. (At level 30 an early
+-- Paragon level is about 12 health and 1.4 attack: a third of a real level.)
 Game.PARAGON_POINT_EVERY = 5
-Game.PARAGON_BONUS = { attackPct = 0.3, healthPct = 0.3 } -- per Paragon level
+Game.PARAGON_BONUS = { attackPct = 1.0, healthPct = 1.0, defensePct = 0.5 } -- per Paragon level
 Game.PARAGON_BONUS_CAP = 100
+Game.PARAGON_BONUS_LATE = { attackPct = 0.4, healthPct = 0.4, defensePct = 0.2 } -- per level past the cap
 
 function Game.paragonXp(paragon: number): number
 	return math.floor(8000 * (1 + 0.02 * paragon))

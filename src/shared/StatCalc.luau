@@ -27,6 +27,7 @@ StatCalc.STAT_INFO = {
 	regen = { label = "Max Health regenerated per second", pct = true },
 	cooldownPct = { label = "Cooldown Reduction", pct = true },
 	breathPct = { label = "Breath Damage", pct = true },
+	breathRange = { label = "Breath Range", pct = true },
 	fireballPct = { label = "Fireball Damage", pct = true },
 	abilityPct = { label = "Ability Damage", pct = true },
 	poisonPct = { label = "Breath Poison (extra damage over time)", pct = true },
@@ -46,13 +47,38 @@ local ADDITIVE_KEYS = {
 	"attackPct", "healthPct", "defensePct", "critChance", "critDamage", "speedPct", "staminaPct",
 	"dodge", "lifesteal", "regen", "cooldownPct", "breathPct", "fireballPct", "abilityPct",
 	"poisonPct", "burnPct", "slowPct", "executePct", "bossPct", "pvpPct", "thorns",
-	"goldPct", "xpPct", "lootPct", "cheatDeath", "flightSpeedPct", "hungerPct",
+	"goldPct", "xpPct", "lootPct", "cheatDeath", "flightSpeedPct", "hungerPct", "breathRange",
 }
 
-local CAPS = { dodge = 50, cooldownPct = 40, critChance = 75, lifesteal = 30, hungerPct = 80 }
+local CAPS = { dodge = 50, cooldownPct = 40, critChance = 75, hungerPct = 80 }
+
+-- Lifesteal and regen caps (Config/Game, times the admin Tuning): the overall ones, and the
+-- smaller shared one for gear relics and pets.
+function StatCalc.caps()
+	return {
+		lifesteal = Game.LIFESTEAL_CAP * Tuning.global("lifestealCap"),
+		regen = Game.REGEN_CAP * Tuning.global("regenCap"),
+		extraLifesteal = Game.EXTRA_LIFESTEAL_CAP * Tuning.global("extraLifestealCap"),
+		extraRegen = Game.EXTRA_REGEN_CAP * Tuning.global("extraRegenCap"),
+	}
+end
+
+-- The level gap's damage multiplier for an attacker `diff` levels above (below, if negative) its
+-- target (Config/Game LEVEL_GAP, with the admin's Tuning).
+function StatCalc.levelGap(diff: number): number
+	local g = Game.LEVEL_GAP
+	local d = math.abs(diff)
+	local mult = 1 + g.linear * Tuning.global("levelGapLinear") * d + g.curve * Tuning.global("levelGapCurve") * d * d
+	mult = math.min(mult, g.cap * Tuning.global("levelGapCap"))
+	if diff < 0 then
+		return math.max(1 / mult, g.floor)
+	end
+	return mult
+end
 
 -- equipped: { [slot] = itemRecord }, talents: { [talentId] = rank },
--- buffs: { { stats = {...} } } (ability buffs, potions, pets and hunger all come in this way)
+-- buffs: { { stats = {...}, extra? } } (ability buffs, potions, pets and hunger all come in this
+-- way; `extra` entries (pets) put their lifesteal and regen in the gear-and-pets pool)
 function StatCalc.compute(classId: string, level: number, equipped, talents, buffs)
 	local class = Classes.get(classId) or Classes.get("Shadowstalker")
 	local base = class.stats
@@ -75,8 +101,9 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 	s.critChance = base.crit
 	s.critDamage = base.critDamage
 
-	-- Gear: flat stats
+	-- Gear: flat stats (relics add lifesteal / regen to the gear-and-pets pool)
 	local gearSpeedPct = 0
+	local extraLifesteal, extraRegen = 0, 0
 	for _, item in pairs(equipped or {}) do
 		local st = ItemUtil.getStats(item)
 		s.attack += st.attack or 0
@@ -84,6 +111,8 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 		s.defense += st.defense or 0
 		s.critChance += st.crit or 0
 		gearSpeedPct += st.speed or 0
+		extraLifesteal += st.lifesteal or 0
+		extraRegen += st.regen or 0
 	end
 	s.speedPct += gearSpeedPct
 
@@ -128,9 +157,20 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 	-- Buffs
 	for _, buff in ipairs(buffs or {}) do
 		for stat, v in pairs(buff.stats or {}) do
-			s[stat] = (s[stat] or 0) + v
+			if buff.extra and stat == "lifesteal" then
+				extraLifesteal += v
+			elseif buff.extra and stat == "regen" then
+				extraRegen += v
+			else
+				s[stat] = (s[stat] or 0) + v
+			end
 		end
 	end
+	local caps = StatCalc.caps()
+	s.extraLifesteal = extraLifesteal
+	s.extraRegen = extraRegen
+	s.lifesteal = math.min(s.lifesteal + math.min(extraLifesteal, caps.extraLifesteal), caps.lifesteal)
+	s.regen = math.min(s.regen + math.min(extraRegen, caps.extraRegen), caps.regen)
 
 	-- Apply percentages
 	s.maxHealth = math.floor(s.maxHealth * (1 + s.healthPct / 100))
@@ -177,7 +217,7 @@ function StatCalc.resolveAbility(abilityId: string, classId: string, stats)
 	if a.kind == "breath" then
 		local class = Classes.get(classId)
 		local cb = class and class.breath or {}
-		a.range = cb.range or 24
+		a.range = (cb.range or 24) * (1 + stats.breathRange / 100)
 		a.angle = cb.angle or 30
 		a.cooldown = cb.cooldown or 0.5
 		a.mult = cb.mult or 1

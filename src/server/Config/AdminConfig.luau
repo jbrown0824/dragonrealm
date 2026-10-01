@@ -3,11 +3,13 @@
 --
 -- CHANGE CODE before you publish the game: anyone who knows it can open the admin panel.
 -- To lock admin mode to specific accounts, put their user ids in ALLOWED_USER_IDS (then the
--- code only works for them). In Studio test sessions, players have negative user ids (-1, -2...).
+-- code only works for them). Find yours in your profile's web address:
+-- roblox.com/users/<your id>/profile. Playing solo in Studio uses your real id; a Studio
+-- "Local Server" test's players have negative ids (-1, -2...), so add those to test admin there.
 
 return {
 	CODE = "DRAGONLORD",
-	ALLOWED_USER_IDS = {},
+	ALLOWED_USER_IDS = { 9079365122 },
 
 	-- Promo codes anyone can redeem once from the 🎁 Codes button.
 	--   gold, xp, seeds = { SeedId = n }, eggs = { EggId = n }, food = { FoodId = n }

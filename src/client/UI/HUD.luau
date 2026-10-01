@@ -14,6 +14,7 @@ local Game = require(Shared.Config.Game)
 local QuestUtil = require(Shared.QuestUtil)
 local TalentUtil = require(Shared.TalentUtil)
 local StoreInfo = require(Shared.Config.Store)
+local DungeonInfo = require(Shared.Config.Dungeons)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
 
@@ -31,7 +32,7 @@ local bars = {}
 local slots = {}
 local tooltip
 local tracker
-local skillBadge, petBadge
+local skillBadge, petBadge, dungeonBadge
 local mobile = {}
 local starterAd, rushAd
 
@@ -377,6 +378,7 @@ local function buildMenu()
 		{ id = "bag", icon = "🎒", label = "Bag [B]", action = function() App.Windows.toggle("Inventory") end },
 		{ id = "pets", icon = "🐲", label = "Pets [P]", action = function() App.Windows.toggle("Pets") end },
 		{ id = "quests", icon = "📜", label = "Quests [J]", action = function() App.Windows.toggle("QuestLog") end },
+		{ id = "dungeons", icon = "🏰", label = "Dungeons [I]", action = function() App.Windows.toggle("Dungeons") end },
 		{ id = "collection", icon = "📖", label = "Collection [L]", action = function() App.Windows.toggle("Collection") end },
 		{ id = "home", icon = "🏠", label = "Home [H]", action = function() HUD.goHome() end },
 		{ id = "admin", icon = "🛠️", label = "Admin", action = function() App.Windows.toggle("Admin") end },
@@ -389,8 +391,8 @@ local function buildMenu()
 			Parent = holder,
 		})
 		menuButtons[e.id] = b
-		if e.id == "admin" then
-			b.Visible = false
+		if e.id == "admin" or e.id == "dungeons" then
+			b.Visible = false -- (dungeons: from Dungeons.UNLOCK_LEVEL, see refresh)
 		end
 		Theme.stroke(b, C.accentDark, 2, 0.2)
 		Theme.label({
@@ -407,6 +409,8 @@ local function buildMenu()
 			skillBadge = Theme.badge(b) -- unspent skill points
 		elseif e.id == "pets" then
 			petBadge = Theme.badge(b) -- eggs waiting to hatch
+		elseif e.id == "dungeons" then
+			dungeonBadge = Theme.badge(b) -- a dungeon you've unlocked but not looked at yet
 		end
 	end
 end
@@ -644,6 +648,18 @@ function HUD.eat()
 	end)
 end
 
+-- Dungeons you've unlocked since you last opened the 🏰 window (the menu button's badge).
+function HUD.newDungeons(p): number
+	local seen = p.dungeons and p.dungeons.seen or 0
+	local n = 0
+	for _, id in ipairs(DungeonInfo.unlocked(p.level or 1)) do
+		if DungeonInfo.List[id].minLevel > seen then
+			n += 1
+		end
+	end
+	return n
+end
+
 function HUD.setAdmin(isAdmin: boolean)
 	if menuButtons.admin then
 		menuButtons.admin.Visible = isAdmin
@@ -745,8 +761,12 @@ local function refresh()
 	end
 	local class = Classes.get(p.class)
 	card.class.Text = class and string.format("Lv %d%s %s", p.level, (p.paragon or 0) > 0 and (" 💫" .. p.paragon) or "", class.name) or "Choose your dragon!"
-	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL
-	rushAd.Visible = class ~= nil and not starterAd.Visible
+	local starterKey = App.Store.starterKey()
+	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL and starterKey ~= nil
+	if starterKey then
+		starterAd.Price.Text = "R$ " .. StoreInfo.Products[starterKey].robux
+	end
+	rushAd.Visible = class ~= nil and not starterAd.Visible and App.Store.available("product", "GoldRush")
 	card.icon.Text = class and ({ Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" })[class.id] or "🐉"
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)
 	card.glory.Text = "⚔️ " .. Util.formatNumber(p.glory)
@@ -765,6 +785,8 @@ local function refresh()
 
 	Theme.setBadge(skillBadge, p.talentPoints)
 	Theme.setBadge(petBadge, HUD.eggsWaiting(p))
+	menuButtons.dungeons.Visible = class ~= nil and p.level >= DungeonInfo.UNLOCK_LEVEL
+	Theme.setBadge(dungeonBadge, HUD.newDungeons(p))
 	HUD.setAdmin(p.isAdmin == true)
 
 	-- Remind gardeners about thirsty plants.

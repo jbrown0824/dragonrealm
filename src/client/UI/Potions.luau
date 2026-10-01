@@ -15,7 +15,7 @@ local C = Theme.Colors
 local Potions = {}
 local App
 
-local window, list, goldLabel
+local window, list, goldLabel, restockButton
 local busy = false
 
 local function statText(stats, ranks: number): string
@@ -56,6 +56,7 @@ function Potions.refresh()
 		return
 	end
 	goldLabel.Text = Potions.headerText(p)
+	restockButton.Visible = App.Store.available("product", "Restock")
 	Theme.clear(list)
 	local stock = p.shopStock and p.shopStock.potions or {}
 	for i, id in ipairs(PotionInfo.Order) do
@@ -123,9 +124,9 @@ function Potions.init(app)
 		App.Windows.close("Potions")
 	end)
 	goldLabel = Theme.label({ Size = UDim2.new(1, -170, 0, 26), TextSize = 14, Text = "", Parent = content })
-	Theme.button("🔄 Restock now (R$)", Color3.fromRGB(40, 150, 70), function()
+	restockButton = Theme.button("🔄 Restock now (R$)", Color3.fromRGB(40, 150, 70), function()
 		App.Store.buy("product", "Restock")
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(160, 26), TextSize = 13, Parent = content })
+	end, { Name = "Restock", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(160, 26), TextSize = 13, Parent = content })
 	list = Theme.scroll(content, { Position = UDim2.fromOffset(0, 32), Size = UDim2.new(1, 0, 1, -32) })
 	Theme.list(list, 6)
 	App.Windows.register("Potions", window, Potions.refresh)

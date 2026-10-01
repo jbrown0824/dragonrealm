@@ -14,12 +14,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
+local Dungeons = require(Shared.Config.Dungeons)
 local Game = require(Shared.Config.Game)
 
 local Props = require(script.Parent.Props)
 local WorldUtil = require(script.Parent.WorldUtil)
 local Wilds = require(script.Parent.Wilds)
 local Camps = require(script.Parent.Camps)
+local DungeonBuilder = require(script.Parent.DungeonBuilder)
 
 local WorldBuilder = {}
 
@@ -35,6 +37,16 @@ local placeDragon = WorldUtil.placeDragon
 local function nearCamp(p: Vector3, extra: number): boolean
 	for _, camp in ipairs(Zones.Camps) do
 		if (Vector3.new(p.X, 0, p.Z) - camp.center).Magnitude < camp.radius + extra then
+			return true
+		end
+	end
+	return false
+end
+
+local function nearDungeon(p: Vector3, margin: number): boolean
+	for _, id in ipairs(Dungeons.Order) do
+		local e = Dungeons.List[id].entrance
+		if (Vector3.new(p.X, 0, p.Z) - Vector3.new(e.X, 0, e.Z)).Magnitude < 36 + margin then
 			return true
 		end
 	end
@@ -118,11 +130,12 @@ local function buildTerrain()
 	-- The river and lakes (curvy basins filled with water)
 	Wilds.buildWater()
 
-	-- Snowy mounds in the viking lands, kept off the paths, camps and water
+	-- Snowy mounds in the viking lands, kept off the paths, camps, water and the cave mouths
+	-- (a mound beside an entrance swallowed the Forge's brazier)
 	for _ = 1, 70 do
 		local p = Vector3.new(rng:NextNumber(-540, 540), -7, rng:NextNumber(330, 1100))
 		local r = rng:NextNumber(9, 18)
-		if not nearCamp(p, 30) and not nearPath(p, r + 4) and not Wilds.inAnyLake(p, r + 6) and not Wilds.inRiver(p, r + 10) then
+		if not nearCamp(p, 30) and not nearPath(p, r + 4) and not nearDungeon(p, r + 8) and not Wilds.inAnyLake(p, r + 6) and not Wilds.inRiver(p, r + 10) then
 			terrain:FillBall(p, r, Enum.Material.Snow)
 		end
 	end
@@ -280,53 +293,20 @@ local function buildStall(parent: Instance, shop)
 	placeDragon(parent, style.keeper, (cf * CFrame.new(-1.5, 2.4, 1.6)).Position, keeperFacing, { scale = 0.42, name = shop.name .. " Keeper" })
 end
 
-local function buildQuestGivers(parent: Instance)
+-- The quest givers in town, or (dungeonKeepers) the ones at the dungeon entrances. (The keepers
+-- also stand inside their dungeon: DungeonBuilder.)
+local function buildQuestGivers(parent: Instance, dungeonKeepers: boolean)
 	for _, giverId in ipairs(Quests.GiverOrder) do
 		local giver = Quests.Givers[giverId]
+		if (giver.dungeon ~= nil) ~= dungeonKeepers then
+			continue
+		end
 		local spot = Zones.QuestGivers[giverId]
-		-- little platform
-		Props.column(parent, spot.position - Vector3.new(0, 0.5, 0), 1.2, 22, Color3.fromRGB(170, 160, 150), Enum.Material.Cobblestone)
-		local model = placeDragon(parent, giver.look, spot.position + Vector3.new(0, 0.7, 0), spot.facing, { scale = 1.05, name = giver.name })
-		model:SetAttribute("GiverId", giverId)
-		CollectionService:AddTag(model, "QuestGiver")
-
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Talk"
-		prompt.ObjectText = giver.name
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = 18
-		prompt.RequiresLineOfSight = false
-		prompt:SetAttribute("GiverId", giverId)
-		prompt.Parent = model.PrimaryPart
-		CollectionService:AddTag(prompt, "QuestPrompt")
-
-		local gui = Instance.new("BillboardGui")
-		gui.Name = "GiverName"
-		gui.Size = UDim2.fromOffset(220, 44)
-		gui.StudsOffset = Vector3.new(0, 7, 0)
-		gui.MaxDistance = 90
-		gui.LightInfluence = 0
-		local name = Instance.new("TextLabel")
-		name.BackgroundTransparency = 1
-		name.Size = UDim2.new(1, 0, 0.6, 0)
-		name.Font = Enum.Font.FredokaOne
-		name.TextScaled = true
-		name.TextColor3 = Color3.fromRGB(255, 225, 120)
-		name.TextStrokeTransparency = 0.3
-		name.Text = giver.name
-		name.Parent = gui
-		local title = Instance.new("TextLabel")
-		title.BackgroundTransparency = 1
-		title.Position = UDim2.fromScale(0, 0.6)
-		title.Size = UDim2.new(1, 0, 0.4, 0)
-		title.Font = Enum.Font.GothamBold
-		title.TextScaled = true
-		title.TextColor3 = Color3.fromRGB(220, 220, 230)
-		title.TextStrokeTransparency = 0.5
-		title.Text = "<" .. giver.title .. ">"
-		title.Parent = gui
-		gui.Parent = model:FindFirstChild("Head") or model.PrimaryPart
+		local at = spot.position
+		if dungeonKeepers then
+			at = Vector3.new(at.X, Props.groundY(at.X, at.Z), at.Z) -- (out on the hills)
+		end
+		WorldUtil.questGiver(parent, giverId, at, spot.facing)
 	end
 end
 
@@ -492,7 +472,7 @@ local function buildTown(map: Folder)
 	for _, shop in ipairs(Zones.Shops) do
 		buildStall(town, shop)
 	end
-	buildQuestGivers(town)
+	buildQuestGivers(town, false)
 	buildWarHorn(town)
 	buildTraining(town)
 	buildRange(town)
@@ -504,6 +484,9 @@ local function buildTown(map: Folder)
 	for i, house in ipairs(Zones.Houses) do
 		local model = Props.dragonHouse(town, facingCF(house.pos, house.facing), size.X, size.Z, size.Y, walls[i % 3 + 1], roofs[i % 3 + 1])
 		model.Name = "House" .. i
+	end
+	for i, pos in ipairs(Zones.Wells) do
+		Props.well(town, pos).Name = "Well" .. i
 	end
 
 	-- Lamps along the main road: one at the top of the street, then one in each gap between houses
@@ -758,7 +741,7 @@ local function buildVikingLands(map: Folder)
 			break
 		end
 		local p = Vector3.new(rng:NextNumber(-530, 530), 0, rng:NextNumber(330, 1090))
-		if not nearCamp(p, 45) and not nearPath(p, 6) and not Wilds.inAnyLake(p, 10) and not Wilds.inRiver(p, 10) then
+		if not nearCamp(p, 45) and not nearPath(p, 6) and not nearDungeon(p, 20) and not Wilds.inAnyLake(p, 10) and not Wilds.inRiver(p, 10) then
 			placed += 1
 			local ground = Vector3.new(p.X, Props.groundY(p.X, p.Z), p.Z)
 			if rng:NextNumber() < 0.75 then
@@ -768,6 +751,18 @@ local function buildVikingLands(map: Folder)
 			end
 		end
 	end
+end
+
+---------------------------------------------------------------- dungeon entrances
+
+-- The cave mouths into the dungeons (DungeonBuilder) and the dragons keeping watch beside them.
+-- The interiors are carved later, one copy per group, by DungeonService.
+local function buildDungeonEntrances(map: Folder)
+	local entrances = folder("DungeonEntrances", map)
+	for _, id in ipairs(Dungeons.Order) do
+		DungeonBuilder.entrance(entrances, Dungeons.List[id])
+	end
+	buildQuestGivers(entrances, true)
 end
 
 ---------------------------------------------------------------- boss arena
@@ -833,6 +828,7 @@ function WorldBuilder.build()
 	buildBattleZone(map)
 	buildVikingLands(map)
 	Wilds.build(map)
+	buildDungeonEntrances(map)
 	local barriers = Instance.new("Folder")
 	barriers.Name = "Barriers"
 	buildBossArena(map, barriers)

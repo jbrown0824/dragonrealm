@@ -47,6 +47,7 @@ local ORDER = {
 	"CampService",
 	"CivilianService",
 	"RaidService",
+	"DungeonService",
 	"AchievementService",
 	"StoreService",
 	"AdminService",

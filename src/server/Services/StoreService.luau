@@ -14,8 +14,16 @@
 -- Studio testing: items whose id is still 0 can be "bought" for free in Studio only
 -- (StudioPurchase). Pass ownership is checked with UserOwnsGamePassAsync when you join and
 -- updated when you buy one.
+--
+-- Paid random items: when a player joins we ask PolicyService whether they may buy them
+-- (ArePaidRandomItemsRestricted) and set the player attribute `PaidRandomItems` to true only
+-- when they may (false when they may not). Until the answer comes the attribute is unset; if the
+-- call keeps failing, the answer is no. The Store only offers what `Store.offered` allows: no
+-- `paidRandom` items where they're restricted, and the `restrictedOnly` Starter Pack (one pet,
+-- marked `bought`) only there. StudioPurchase refuses the rest.
 
 local MarketplaceService = game:GetService("MarketplaceService")
+local PolicyService = game:GetService("PolicyService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -114,6 +122,28 @@ local function passGranted(player: Player, passId: string)
 	S.PlayerService.markDirty(player)
 end
 
+---------------------------------------------------------------- paid random items
+
+-- May this player buy the `paidRandom` items? (No until PolicyService says yes.)
+function StoreService.paidRandomAllowed(player: Player): boolean
+	return player:GetAttribute("PaidRandomItems") == true
+end
+
+function StoreService.checkPolicy(player: Player)
+	for attempt = 1, 3 do
+		local ok, info = pcall(function()
+			return PolicyService:GetPolicyInfoForPlayerAsync(player)
+		end)
+		if ok and type(info) == "table" then
+			player:SetAttribute("PaidRandomItems", info.ArePaidRandomItemsRestricted == false)
+			return
+		end
+		task.wait(2 * attempt)
+	end
+	warn("[StoreService] Couldn't read the policy for", player.Name, "- paid random items stay off")
+	player:SetAttribute("PaidRandomItems", false)
+end
+
 ---------------------------------------------------------------- products
 
 -- Gold for each pack at this player's strength (shown in the Store).
@@ -179,8 +209,17 @@ function StoreService.grantProduct(player: Player, key: string): string
 		S.StockService.restockNow(player)
 		table.insert(parts, "fresh shop stock")
 	end
-	if key == "StarterPack" then
-		profile.starterPack = true
+	if product.pet then
+		-- (paid for: it releases for no gold, see Pets.releaseGold)
+		local pet = S.PetService.givePet(player, product.pet.species, nil, product.pet.level)
+		if pet then
+			pet.bought = true
+			local species = Pets.get(pet.species)
+			table.insert(parts, string.format("%s (%s nano dragon)", species.name, species.rarity))
+		end
+	end
+	if product.once then
+		profile.starterPack = true -- one Starter Pack per dragon, whichever kind
 	end
 	S.PlayerService.markDirty(player)
 	local text = table.concat(parts, ", ")
@@ -225,6 +264,9 @@ local function onStudioPurchase(player: Player, kind, key)
 	if not profile or type(key) ~= "string" then
 		return false, "Unknown item."
 	end
+	if not Store.offered(kind, key, player:GetAttribute("PaidRandomItems")) then
+		return false, "That item isn't available where you live."
+	end
 	if kind == "pass" and Store.Passes[key] then
 		profile.passes[key] = true
 		passGranted(player, key)
@@ -257,9 +299,11 @@ function StoreService.start()
 	Remotes.func("StudioPurchase").OnServerInvoke = onStudioPurchase
 	Players.PlayerAdded:Connect(function(player)
 		task.spawn(checkPasses, player)
+		task.spawn(StoreService.checkPolicy, player)
 	end)
 	for _, player in ipairs(Players:GetPlayers()) do
 		task.spawn(checkPasses, player)
+		task.spawn(StoreService.checkPolicy, player)
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		owned[player] = nil

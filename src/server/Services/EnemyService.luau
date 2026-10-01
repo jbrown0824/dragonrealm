@@ -14,6 +14,11 @@
 -- reach. They give up on dragons that fly high or far away, and only Raids.CROWD of them go after
 -- the same dragon, so a raid spreads out over the town instead of trailing one dragon around.
 -- Killed vikings topple over (away from the killer), lie there a moment, then vanish in a puff.
+-- Dungeon monsters (opts.run, DungeonService) only fight the dragons in their run, pull their whole
+-- pack when one of them is pulled, and share every kill with the whole run. They find their way
+-- round the dungeon (DungeonService.steer: over bridges, never into lava), keep watch, amble or
+-- patrol when idle (DungeonService.idleSpot), run as fast as a dragon walks to catch one up, reach
+-- a dragon hovering low, and a rune shield's guards keep out of the bubble (`avoid`).
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -24,6 +29,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local Enemies = require(Shared.Config.Enemies)
 local Raids = require(Shared.Config.Raids)
+local Dungeons = require(Shared.Config.Dungeons)
 local Zones = require(Shared.Config.Zones)
 local Tuning = require(Shared.Tuning)
 local Remotes = require(Shared.Remotes)
@@ -53,6 +59,12 @@ end
 
 local function statusIcons(model: Model): string
 	local icons = ""
+	if model:GetAttribute("Shielded") then
+		icons ..= "🛡️" -- (raiders huddled on a longship's deck take less damage)
+	end
+	if model:GetAttribute("RuneShield") then
+		icons ..= "🔮" -- (a dungeon boss that can't be hurt until its guards fall)
+	end
 	if model:GetAttribute("Blowing") then
 		icons ..= "📯"
 	end
@@ -91,9 +103,9 @@ local function createNametag(e)
 	gui.Name = "Nametag"
 	gui.Size = UDim2.fromOffset(big and 220 or 180, 54)
 	gui.StudsOffset = Vector3.new(0, e.tagOffset or 2.2 * e.scale, 0)
-	gui.MaxDistance = e.isBoss and 400 or (e.miniBoss and 200 or 110)
+	gui.MaxDistance = e.run and (big and 140 or 100) or (e.isBoss and 400 or (e.miniBoss and 200 or 110))
 	gui.LightInfluence = 0
-	gui.AlwaysOnTop = e.isBoss
+	gui.AlwaysOnTop = e.isBoss and not e.run -- (a dungeon boss's tag stays behind the cave walls)
 
 	local name = Instance.new("TextLabel")
 	name.BackgroundTransparency = 1
@@ -161,7 +173,7 @@ local function createNametag(e)
 
 	gui.Parent = head
 	e.nametag = gui
-	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing" }) do
+	for _, attr in ipairs({ "Stunned", "Slowed", "Poisoned", "Burning", "Blowing", "Shielded", "RuneShield" }) do
 		e.model:GetAttributeChangedSignal(attr):Connect(function()
 			updateNametag(e)
 		end)
@@ -258,7 +270,19 @@ local function targetRoot(e, player: Player)
 	if not character or character:GetAttribute("Stealthed") then
 		return nil
 	end
-	if e.arena then
+	if e.run then
+		-- dungeon monsters only see the dragons in their own run
+		if player:GetAttribute("DungeonRun") ~= e.run then
+			return nil
+		end
+		if (root.Position - e.spawnPos).Magnitude > e.leash + 40 then
+			return nil
+		end
+		-- nor through a shut boss door
+		if S.DungeonService.doorBetween(e.run, e.root.Position, root.Position) then
+			return nil
+		end
+	elseif e.arena then
 		if not S.BossService.isInFight(player) then
 			return nil
 		end
@@ -293,7 +317,19 @@ function EnemyService.onDamaged(e, attacker: Player)
 	if not e.target or not targetRoot(e, e.target) then
 		if targetRoot(e, attacker) then
 			e.target = attacker
+			if e.run then
+				S.DungeonService.pullPack(e, attacker)
+			end
 		end
+	end
+end
+
+-- Change the name over an enemy's head (a dungeon boss rising in its second life).
+function EnemyService.rename(e, name: string)
+	e.displayName = name
+	local label = e.nametag and e.nametag:FindFirstChildOfClass("TextLabel")
+	if label then
+		label.Text = string.format("%s  Lv %d", name, e.level)
 	end
 end
 
@@ -302,7 +338,8 @@ end
 -- Register any model as something dragons can hit. opts:
 --   def, typeId, displayName, level, scale, kind ("viking" | "animal" | "dummy" | "boss"),
 --   camp, area, customAI, isBoss, miniBoss, arena, noRewards, onDeath, onHit, dummy, keepBody,
---   leash, aggroRange, speed, damage, defense, tagOffset, radius, height, raid, objective
+--   leash, aggroRange, speed, damage, defense, tagOffset, radius, height, raid, objective,
+--   run, pack (DungeonService: the run it belongs to, and its pack there)
 function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart, opts)
 	local def = opts.def or {}
 	local scale = opts.scale or def.scale or 1
@@ -350,6 +387,9 @@ function EnemyService.register(model: Model, humanoid: Humanoid, root: BasePart,
 		slam = opts.slam,
 		raid = opts.raid == true,
 		objective = opts.objective,
+		run = opts.run,
+		pack = opts.pack,
+		lastCombat = now() - 60, -- last hit it took or dealt (dungeon monsters give up without one)
 	}
 	enemies[model] = e
 	createNametag(e)
@@ -381,7 +421,8 @@ end
 
 -- Spawn a viking (or, with opts.builder, any creature). opts are passed on to register, plus:
 --   builder(look, scale, name) -> model, hipHeight   (default VikingBuilder.build)
---   look, healthMult, tag ("Viking" by default)
+--   look, healthMult, tag ("Viking" by default), ground (where it stands: default the terrain
+--   under `position`, cast from high above, which inside a dungeon would hit the cave's roof)
 function EnemyService.spawn(typeId: string, level: number, position: Vector3, opts)
 	opts = opts or {}
 	local def = opts.def or Enemies.Vikings[typeId]
@@ -406,7 +447,7 @@ function EnemyService.spawn(typeId: string, level: number, position: Vector3, op
 		end
 	end
 
-	local ground = terrainGround(position)
+	local ground = opts.ground or terrainGround(position)
 	model:PivotTo(CFrame.new(ground + Vector3.new(0, hipHeight + model.PrimaryPart.Size.Y / 2 + 0.5, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	model.Parent = folder
 	local root = model.PrimaryPart
@@ -540,7 +581,12 @@ function EnemyService.kill(e, killer: Player?)
 	if e.onDeath then
 		task.spawn(e.onDeath, e, killer)
 	end
-	if not e.noRewards then
+	if not e.noRewards and e.run then
+		-- dungeon monsters: the whole run shares the kill
+		for _, player in ipairs(S.DungeonService.rewardees(e)) do
+			reward(player, e)
+		end
+	elseif not e.noRewards then
 		-- Everyone who helped gets their own drops, so teaming up never means losing the loot.
 		-- Champions only reward helpers who are still around the camp.
 		for player, dealt in pairs(e.damageBy) do
@@ -612,7 +658,8 @@ function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number,
 		for _, p in ipairs(Players:GetPlayers()) do
 			local character, _, r = S.PlayerService.getCharacter(p)
 			if character and (r.Position - targetPos).Magnitude <= 5 + 2.5 * (character:GetAttribute("DragonScale") or 1) then
-				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil }
+				e.lastCombat = now()
+				local o = { sourceLevel = e.level, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil }
 				for k, v in pairs(dmgOpts or {}) do
 					o[k] = v
 				end
@@ -620,6 +667,12 @@ function EnemyService.throwAt(e, player: Player, root: BasePart, damage: number,
 			end
 		end
 	end)
+end
+
+-- How far above (or below) a monster a dragon can be and still get hit: dungeon monsters reach a
+-- dragon hovering low (Dungeons.HOVER_HEIGHT).
+local function verticalReach(e): number
+	return 8 + e.scale * 2 + (e.run and Dungeons.HOVER_HEIGHT or 0)
 end
 
 local function meleeSwing(e, player: Player)
@@ -635,8 +688,9 @@ local function meleeSwing(e, player: Player)
 		local offset = root.Position - e.root.Position
 		local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
 		local reach = (e.def.attackRange or 6) + 3 * ((player.Character and player.Character:GetAttribute("DragonScale")) or 1) + 2
-		if flat <= reach and math.abs(offset.Y) <= 9 + e.scale * 2 then
-			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil })
+		if flat <= reach and math.abs(offset.Y) <= verticalReach(e) + 1 then
+			e.lastCombat = now()
+			S.CombatService.damagePlayer(player, e.damage, { sourceLevel = e.level, melee = true, enemyInfo = e, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil })
 		end
 	end)
 end
@@ -658,7 +712,8 @@ local function slam(e)
 			if character then
 				local offset = root.Position - center
 				if Vector3.new(offset.X, 0, offset.Z).Magnitude <= cfg.radius + 3 and offset.Y < 14 then
-					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil })
+					e.lastCombat = now()
+					S.CombatService.damagePlayer(player, e.damage * cfg.mult, { sourceLevel = e.level, ignoreSafe = e.raid or nil, noLevelGap = e.arena or nil })
 				end
 			end
 		end
@@ -760,7 +815,36 @@ local function findTarget(e)
 	return best
 end
 
+-- Walk toward `goal`. Dungeon monsters find their way round (DungeonService.steer) and keep out of
+-- a boss's shield bubble.
+local function walkTo(e, goal: Vector3)
+	if e.run then
+		goal = S.DungeonService.steer(e, goal)
+		local center = e.avoid and e.avoid.center()
+		if center then
+			local off = Vector3.new(goal.X - center.X, 0, goal.Z - center.Z)
+			if off.Magnitude < e.avoid.radius then
+				goal = center + (off.Magnitude > 0.1 and off.Unit or Vector3.xAxis) * e.avoid.radius + Vector3.new(0, goal.Y - center.Y, 0)
+			end
+		end
+	end
+	e.humanoid:MoveTo(goal)
+end
+
 local function wander(e, t: number, radius: number)
+	if e.run then
+		-- dungeon monsters: keep watch, amble about, or walk their patrol (DungeonService.idleSpot
+		-- picks where, safely), at a stroll
+		local spot = S.DungeonService.idleSpot(e, t)
+		local off = spot - e.root.Position
+		if Vector3.new(off.X, 0, off.Z).Magnitude > 2.5 then
+			e.humanoid.WalkSpeed = e.baseSpeed * Dungeons.STROLL * S.CombatService.speedMultiplier(e.model)
+			walkTo(e, spot)
+		else
+			e.humanoid:MoveTo(e.root.Position)
+		end
+		return
+	end
 	if t >= e.wanderAt then
 		e.wanderAt = t + 4 + math.random() * 6
 		local angle = math.random() * math.pi * 2
@@ -837,7 +921,7 @@ local function think(e, t: number, dt: number)
 		if (root.Position - e.spawnPos).Magnitude < 15 then
 			e.returning = false
 		else
-			humanoid:MoveTo(e.spawnPos)
+			walkTo(e, e.spawnPos)
 			return
 		end
 	end
@@ -849,8 +933,10 @@ local function think(e, t: number, dt: number)
 		e.target = nil
 		e.returning = true
 		e.damageBy = {}
-		humanoid.Health = humanoid.MaxHealth
-		humanoid:MoveTo(e.spawnPos)
+		if not e.run then
+			humanoid.Health = humanoid.MaxHealth -- (dungeon monsters heal slowly instead: DungeonService)
+		end
+		walkTo(e, e.spawnPos)
 		return
 	end
 
@@ -868,6 +954,10 @@ local function think(e, t: number, dt: number)
 		e.target = nil
 		if behavior == "aggressive" then
 			e.target = findTarget(e)
+			if e.target and e.run then
+				e.lastCombat = t -- pulled: the give-up clock starts now
+				S.DungeonService.pullPack(e, e.target)
+			end
 		end
 		troot = e.target and targetRoot(e, e.target)
 	end
@@ -902,7 +992,14 @@ local function think(e, t: number, dt: number)
 		local vertical = math.abs(offset.Y)
 		local attackRange = def.attackRange or 6
 		local targetRadius = 3 * ((e.target.Character and e.target.Character:GetAttribute("DragonScale")) or 1)
-		local inMelee = flat <= attackRange + targetRadius + e.scale and vertical <= 8 + e.scale * 2
+		local inMelee = flat <= attackRange + targetRadius + e.scale and vertical <= verticalReach(e)
+		if e.run and flat > Dungeons.CHASE_CATCHUP then
+			-- a dungeon monster runs to catch a dragon up (you can't just walk away from a pack)
+			local th = e.target.Character and e.target.Character:FindFirstChildOfClass("Humanoid")
+			if th then
+				humanoid.WalkSpeed = math.max(humanoid.WalkSpeed, th.WalkSpeed * speedMult)
+			end
+		end
 
 		if e.slam and t >= e.nextSlam and flat <= e.slam.radius and vertical <= 14 then
 			e.nextSlam = t + e.slam.cooldown
@@ -935,16 +1032,16 @@ local function think(e, t: number, dt: number)
 			if flat < def.preferredRange * 0.6 then
 				local away = Vector3.new(-offset.X, 0, -offset.Z)
 				if away.Magnitude > 0.1 then
-					humanoid:MoveTo(root.Position + away.Unit * 12)
+					walkTo(e, root.Position + away.Unit * 12)
 				end
 			elseif flat > def.preferredRange then
-				humanoid:MoveTo(troot.Position)
+				walkTo(e, troot.Position)
 			else
 				humanoid:MoveTo(root.Position)
 				face(e, troot.Position)
 			end
 		else
-			humanoid:MoveTo(Vector3.new(troot.Position.X, root.Position.Y, troot.Position.Z))
+			walkTo(e, e.run and troot.Position or Vector3.new(troot.Position.X, root.Position.Y, troot.Position.Z))
 		end
 
 		-- Jump if stuck on something while chasing.

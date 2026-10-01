@@ -2,6 +2,8 @@
 -- and the same numbers drive zone detection, PvP, enemy camps and safe areas.
 -- Coordinates are studs; y = 0 is ground level.
 
+local Dungeons = require(script.Parent.Dungeons)
+
 local Zones = {}
 
 Zones.SPAWN = Vector3.new(0, 7, 32)
@@ -204,6 +206,9 @@ Zones.QuestGivers = {
 	Captain = { position = Vector3.new(42, 0, 48), facing = Vector3.new(-0.6, 0, -1) },
 	Gardener = { position = Vector3.new(-120, 0, 12), facing = Vector3.new(1, 0, 0) },
 	Scout = { position = Vector3.new(48, 0, -160), facing = Vector3.new(-1, 0, 0.3) },
+	-- beside the dungeon cave mouths in the viking lands (Config/Dungeons entrances)
+	Ylva = { position = Vector3.new(-116, 0, 704), facing = Vector3.new(-0.4, 0, -1) },
+	Kael = { position = Vector3.new(174, 0, 719), facing = Vector3.new(-0.4, 0, -1) },
 }
 
 Zones.WarHorn = Vector3.new(28, 0, 74)
@@ -239,6 +244,10 @@ function Zones.housePoint(house, x: number, z: number): Vector3
 	local cf = CFrame.lookAt(house.pos, house.pos + house.facing)
 	return (cf * CFrame.new(x, 0, z)).Position
 end
+-- Town wells (Props.well): dragons dip in to scoop up water for burning houses during a raid (the
+-- river below town is the other place close by). One on the main road between the house rows,
+-- one between the two houses at the south end of town.
+Zones.Wells = { Vector3.new(-24, 0, 129), Vector3.new(26, 0, -170) }
 Zones.HOUSE_FLOOR = 2.6 -- height of the floorboards
 Zones.HouseEntry = Vector3.new(0, 0, -8) -- just inside the door
 -- Where villagers potter about indoors: the rug, in the nest, the fireplace, the bookshelf, the table.
@@ -317,6 +326,11 @@ function Zones.places()
 	for _, camp in ipairs(Zones.Camps) do
 		table.insert(list, { id = "camp:" .. camp.id, label = string.format("⚔️ %s (Lv %d-%d)", camp.name, camp.levels[1], camp.levels[2]),
 			pos = camp.center, drop = camp.center - Vector3.new(0, 0, camp.radius + 25) })
+	end
+	for _, id in ipairs(Dungeons.Order) do
+		local d = Dungeons.List[id]
+		table.insert(list, { id = "dungeon:" .. id, label = string.format("🏰 %s (Lv %d+)", d.name, d.minLevel),
+			pos = d.entrance, drop = d.entrance + d.entranceFacing.Unit * 34 })
 	end
 	for _, place in ipairs(list) do
 		place.drop = place.drop or place.pos

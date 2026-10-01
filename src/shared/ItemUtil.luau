@@ -8,7 +8,8 @@ local Util = require(script.Parent.Util)
 
 local ItemUtil = {}
 
-local STAT_ORDER = { "attack", "health", "defense", "crit", "speed" }
+local STAT_ORDER = { "attack", "health", "defense", "crit", "speed", "lifesteal", "regen" }
+local PCT_STATS = { crit = true, speed = true, lifesteal = true, regen = true }
 
 function ItemUtil.new(slot: string, ilvl: number, rarity: string, uniq: string?)
 	return {
@@ -23,7 +24,7 @@ end
 
 function ItemUtil.power(item): number
 	local rarity = Items.Rarities[item.rarity] or Items.Rarities.Common
-	local p = (4 + item.ilvl * 1.6) * rarity.mult * (1 + 0.1 * (item.up or 0))
+	local p = (Items.POWER_BASE + item.ilvl * Items.POWER_PER_ILVL) * rarity.mult * (1 + 0.1 * (item.up or 0))
 	if item.uniq then
 		p *= 1.15
 	end
@@ -49,6 +50,12 @@ function ItemUtil.getStats(item)
 			stats[stat] = math.floor(v + 0.5)
 		end
 	end
+	-- relics: a flat lifesteal / regen on top (never scaled by item level or upgrades)
+	if unique and unique.special then
+		for stat, v in pairs(unique.special) do
+			stats[stat] = (stats[stat] or 0) + v
+		end
+	end
 	return stats
 end
 
@@ -57,7 +64,7 @@ function ItemUtil.describeStats(stats): { string }
 	for _, stat in ipairs(STAT_ORDER) do
 		local v = stats[stat]
 		if v and v ~= 0 then
-			if stat == "crit" or stat == "speed" then
+			if PCT_STATS[stat] then
 				table.insert(lines, string.format("+%s%s", Util.fmt(v), Items.StatLabels[stat]))
 			else
 				table.insert(lines, string.format("+%d %s", v, Items.StatLabels[stat]))
@@ -124,6 +131,7 @@ end
 function ItemUtil.score(item): number
 	local s = ItemUtil.getStats(item)
 	return (s.attack or 0) * 3 + (s.health or 0) * 0.35 + (s.defense or 0) * 2 + (s.crit or 0) * 6 + (s.speed or 0) * 4
+		+ (s.lifesteal or 0) * 20 + (s.regen or 0) * 120
 end
 
 -- Is `item` an upgrade over what's in its slot? (`equipped` = the worn item or nil)

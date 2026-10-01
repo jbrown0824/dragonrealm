@@ -1,4 +1,5 @@
--- Quests offered by the village dragons in town.
+-- Quests offered by the village dragons in town, and by the two dragons keeping watch at the
+-- dungeon entrances (givers with `dungeon` set: they stay at their posts during a night raid).
 -- Each giver offers their quests in order; a quest shows up once its `after` quest is done
 -- and you meet `minLevel`. Repeatable quests can be done again after turning them in.
 --
@@ -6,8 +7,9 @@
 --   kill (target = viking id or "any")  plant  care  harvest (target = "Flower" or "any")
 --   buy  sell  upgrade  pvpKill  bossJoin  bossKill  visitZone (target = zone id)  level
 --   hunt (target = animal id or "any")  fish  eat  openChest  miniBoss  hatch  potion
+--   dungeonClear (target = dungeon id: beat its boss)  dungeonKill (target = dungeon id: any monster in it)
 -- rewards: xp, gold, seeds = { SeedId = count }, gear = { rarity = "Epic" } (item level = your level),
---          eggs = { EggId = count }
+--          eggs = { EggId = count }, unique = Items.Uniques id (a relic at the dungeon's item level)
 
 local Quests = {}
 
@@ -38,9 +40,21 @@ Quests.Givers = {
 		idle = "Nothing new to report. I'll let you know when something exciting happens!",
 		look = "Shadowstalker",
 	},
+	Ylva = {
+		id = "Ylva", name = "Ylva the Grave-Singer", title = "Keeper of the Barrow", dungeon = "Barrow",
+		greeting = "Can you hear them down there? The old jarls are restless. Sing them to sleep with fire, little one.",
+		idle = "The barrow is quiet... for now. Come back when you're ready to go down again.",
+		look = "Frostwyrm",
+	},
+	Kael = {
+		id = "Kael", name = "Old Kael", title = "Watcher of the Forge", dungeon = "Forge",
+		greeting = "An elder dragon, chained to feed their forge! I'm too old to break those chains. You aren't.",
+		idle = "The forge still smokes. Rest, then go back and show them what dragonfire really is.",
+		look = "Behemoth",
+	},
 }
 
-Quests.GiverOrder = { "Elder", "Captain", "Gardener", "Scout" }
+Quests.GiverOrder = { "Elder", "Captain", "Gardener", "Scout", "Ylva", "Kael" }
 
 Quests.List = {
 	---------------------------------------------------------------- Elder (main story)
@@ -158,6 +172,23 @@ Quests.List = {
 		desc = "Every viking camp hides a treasure chest in the middle. Open one! (Opening it alerts the whole camp.)",
 		objective = { type = "openChest", count = 1 },
 		rewards = { xp = 500, gold = 250, eggs = { EmberEgg = 1 } } },
+	---------------------------------------------------------------- the dungeon keepers
+	{ id = "D1", giver = "Ylva", name = "Into the Barrow", minLevel = 15,
+		desc = "Go down into the Draugr Barrow (🏰 Dungeons) and put Haldor the Hollow King back in his grave.",
+		objective = { type = "dungeonClear", target = "Barrow", count = 1 },
+		rewards = { xp = 4000, gold = 2000, unique = "BarrowlightLantern" } },
+	{ id = "D2", giver = "Ylva", name = "Lay Them to Rest", minLevel = 15, after = "D1", repeatable = true,
+		desc = "Defeat 25 monsters in the Draugr Barrow.",
+		objective = { type = "dungeonKill", target = "Barrow", count = 25 },
+		rewards = { xp = 2500, gold = 1200 } },
+	{ id = "F1", giver = "Kael", name = "Break the Chains", minLevel = 30,
+		desc = "Fight through the Rune Forge (🏰 Dungeons), beat Runemaster Sigrun and set the chained elder dragon free.",
+		objective = { type = "dungeonClear", target = "Forge", count = 1 },
+		rewards = { xp = 9000, gold = 6000, unique = "EmberchainCirclet" } },
+	{ id = "F2", giver = "Kael", name = "Cool the Forge", minLevel = 30, after = "F1", repeatable = true,
+		desc = "Defeat 25 monsters in the Rune Forge.",
+		objective = { type = "dungeonKill", target = "Forge", count = 25 },
+		rewards = { xp = 6000, gold = 3000 } },
 	{ id = "S6", giver = "Scout", name = "Sell Your Spoils", minLevel = 2,
 		desc = "Sell 3 pieces of gear at the Hoard Exchange.",
 		objective = { type = "sell", count = 3 },
