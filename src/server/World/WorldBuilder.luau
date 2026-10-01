@@ -130,11 +130,12 @@ local function buildTerrain()
 	-- The river and lakes (curvy basins filled with water)
 	Wilds.buildWater()
 
-	-- Snowy mounds in the viking lands, kept off the paths, camps and water
+	-- Snowy mounds in the viking lands, kept off the paths, camps, water and the cave mouths
+	-- (a mound beside an entrance swallowed the Forge's brazier)
 	for _ = 1, 70 do
 		local p = Vector3.new(rng:NextNumber(-540, 540), -7, rng:NextNumber(330, 1100))
 		local r = rng:NextNumber(9, 18)
-		if not nearCamp(p, 30) and not nearPath(p, r + 4) and not Wilds.inAnyLake(p, r + 6) and not Wilds.inRiver(p, r + 10) then
+		if not nearCamp(p, 30) and not nearPath(p, r + 4) and not nearDungeon(p, r + 8) and not Wilds.inAnyLake(p, r + 6) and not Wilds.inRiver(p, r + 10) then
 			terrain:FillBall(p, r, Enum.Material.Snow)
 		end
 	end

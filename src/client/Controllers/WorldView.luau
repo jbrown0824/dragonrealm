@@ -301,6 +301,23 @@ local function addMarker(model: Instance)
 	gui.MaxDistance = 250
 	gui.LightInfluence = 0
 	gui.Adornee = head
+	if not head then
+		-- (a giver built while you play, like a keeper inside a dungeon, can reach this client
+		-- before its parts do: hang the marker on its head once that arrives)
+		task.spawn(function()
+			for _ = 1, 120 do
+				task.wait(0.25)
+				local h = model:FindFirstChild("Head") or model.PrimaryPart or model:FindFirstChild("Head", true)
+				if h then
+					gui.Adornee = h
+					return
+				end
+				if not model.Parent then
+					return
+				end
+			end
+		end)
+	end
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.fromScale(1, 1)

@@ -817,6 +817,13 @@ local function buildDoor(parent: Instance, def, mouth, origin: Vector3, theme, i
 		local spin = CFrame.Angles(0, math.rad(90), 0):VectorToWorldSpace(free):Dot(dir) > 0 and 1 or -1
 		leaves[s] = { model = leaf, hinge = hinge, closed = leaf:GetPivot(), spin = spin }
 	end
+	-- stone jambs either side, reaching well into the walls: where a tunnel meets a round room at
+	-- an angle the opening is wider than the tunnel, and a dragon could slip past the leaves
+	for _, s in ipairs({ -1, 1 }) do
+		local jamb = base + across * (s * (w / 2 + 6)) + Vector3.new(0, h / 2, 0)
+		local part = Props.part(model, Vector3.new(14, h + 4, 3), CFrame.lookAt(jamb, jamb + dir), forge and Color3.fromRGB(52, 46, 46) or Color3.fromRGB(70, 66, 60), Enum.Material.Slate)
+		part.Name = "Jamb"
+	end
 	local sealCF = CFrame.lookAt(base + Vector3.new(0, h / 2, 0) + dir * 1.4, base + Vector3.new(0, h / 2, 0) + dir * 2)
 	local seal = Props.part(model, Vector3.new(w + 2, h + 2, 0.6), sealCF, theme.accent, Enum.Material.ForceField)
 	seal.Name = "Seal"
@@ -902,8 +909,8 @@ end
 
 ---------------------------------------------------------------- way out signs
 
--- A glowing "Way out" plaque over the tunnel that leads back toward the entrance, in every room
--- with more than one way in or out (after a fight in there it's easy to get turned round).
+-- A glowing "Way out" plaque on the wall beside the tunnel that leads back toward the entrance, in
+-- every room with more than one way in or out (after a fight in there it's easy to get turned round).
 local WAY_OUT = Color3.fromRGB(120, 200, 255)
 local function wayOutSigns(parent: Instance, def, origin: Vector3)
 	for _, sp in ipairs(def.spaces) do
@@ -917,9 +924,50 @@ local function wayOutSigns(parent: Instance, def, origin: Vector3)
 						best, bestDist = m, d
 					end
 				end
-				local floor = DungeonBuilder.floorAt(origin + best.at)
-				local pos = floor + best.dir * 3 + Vector3.new(0, math.min(best.height - 4, 13), 0)
-				local cf = CFrame.lookAt(pos, pos + best.dir)
+				-- flat on the room's own wall beside that tunnel (along a box room's side or round
+				-- a round one), clear of the opening and of any other tunnel, at eye height
+				local edge = best.at + best.dir * 3
+				local spot, inward = nil, nil
+				for _, s in ipairs({ -1, 1 }) do
+					local p, n
+					if sp.kind == "box" then
+						local d = edge - sp.at
+						local hx, hz = sp.size.X / 2, sp.size.Y / 2
+						local onX = math.abs(math.abs(d.X) - hx) < math.abs(math.abs(d.Z) - hz)
+						n = onX and Vector3.new(-math.sign(d.X), 0, 0) or Vector3.new(0, 0, -math.sign(d.Z))
+						local t = Vector3.new(-n.Z, 0, n.X)
+						local open = best.width / 2 / math.max(0.3, math.abs(best.dir:Dot(n))) + 9
+						p = edge + t * open * s
+						p = onX and Vector3.new(sp.at.X - n.X * hx, p.Y, p.Z) or Vector3.new(p.X, p.Y, sp.at.Z - n.Z * hz)
+						local along = onX and math.abs(p.Z - sp.at.Z) or math.abs(p.X - sp.at.X)
+						if along > (onX and hz or hx) - 5 then
+							p = nil
+						end
+					else
+						local d = Vector3.new(edge.X - sp.at.X, 0, edge.Z - sp.at.Z)
+						local a = math.atan2(d.Z, d.X) + s * (best.width / 2 + 9) / sp.radius
+						local out = Vector3.new(math.cos(a), 0, math.sin(a))
+						p = Vector3.new(sp.at.X, edge.Y, sp.at.Z) + out * sp.radius
+						n = -out
+					end
+					if p then
+						for _, m in ipairs(mouths) do
+							if m ~= best and flat(m.at - p).Magnitude < m.width / 2 + 8 then
+								p = nil
+								break
+							end
+						end
+					end
+					if p and not spot then
+						spot, inward = p, n
+					end
+				end
+				if not spot then
+					continue
+				end
+				local floorY = DungeonBuilder.floorAt(origin + spot + inward * 5).Y -- (sampled in the room)
+				local pos = Vector3.new(origin.X + spot.X, floorY + 9, origin.Z + spot.Z) + inward * 1.2
+				local cf = CFrame.lookAt(pos, pos + inward)
 				local board = Props.part(parent, Vector3.new(12, 3.4, 0.8), cf, DARK_STONE, Enum.Material.Slate)
 				board.Name = "WayOutSign"
 				board.CanCollide = false
@@ -1149,6 +1197,8 @@ function DungeonBuilder.entrance(parent: Instance, def)
 	-- the passage back into it, and nothing standing in front of the doorway
 	terrain:FillBlock(cf * CFrame.new(0, (top + 1.5) / 2, DEPTH / 2 + 0.5), Vector3.new(HALF * 2, top + 0.5, DEPTH + 1), Enum.Material.Air)
 	terrain:FillBlock(cf * CFrame.new(0, top / 2 + 1, -8), Vector3.new(HALF * 2 + 8, top, 16), Enum.Material.Air)
+	-- and a clear forecourt for the braziers, stakes and stones (ground stays, anything above it goes)
+	terrain:FillBlock(cf * CFrame.new(0, top / 2 + 1, -14), Vector3.new(HALF * 2 + 26, top, 16), Enum.Material.Air)
 
 	-- the arch: two pillars and a round top
 	for _, xx in ipairs({ -HALF - 1.8, HALF + 1.8 }) do

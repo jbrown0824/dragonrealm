@@ -125,12 +125,15 @@ function Game.xpToNext(level: number): number
 	return math.floor(60 * level ^ 1.45 + 40)
 end
 
--- Paragon: past the level cap, XP keeps filling Paragon levels. Each one adds a small permanent
--- bonus (up to PARAGON_BONUS_CAP levels), and every PARAGON_POINT_EVERY levels gives an extra
--- skill point, so long-time players can slowly fill more of their skill tree.
+-- Paragon: past the level cap, XP keeps filling Paragon levels. Each one adds a permanent bonus
+-- (PARAGON_BONUS per level up to PARAGON_BONUS_CAP, then PARAGON_BONUS_LATE per level forever: it
+-- never stops, it just slows down), and every PARAGON_POINT_EVERY levels gives an extra skill
+-- point, so long-time players can slowly fill more of their skill tree. (At level 30 an early
+-- Paragon level is about 12 health and 1.4 attack: a third of a real level.)
 Game.PARAGON_POINT_EVERY = 5
-Game.PARAGON_BONUS = { attackPct = 0.3, healthPct = 0.3 } -- per Paragon level
+Game.PARAGON_BONUS = { attackPct = 1.0, healthPct = 1.0, defensePct = 0.5 } -- per Paragon level
 Game.PARAGON_BONUS_CAP = 100
+Game.PARAGON_BONUS_LATE = { attackPct = 0.4, healthPct = 0.4, defensePct = 0.2 } -- per level past the cap
 
 function Game.paragonXp(paragon: number): number
 	return math.floor(8000 * (1 + 0.02 * paragon))

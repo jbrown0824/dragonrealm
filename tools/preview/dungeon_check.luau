@@ -10,7 +10,7 @@
 --   * every boss room has its doors, and every patrol route is walkable
 --   * a rune shield's guard spots (phases[].shield.spots) stand on the floor of the boss's room,
 --     out of the lava and off any ledge, with a straight walk from the room's middle
---   * the "Way out" signs are up
+--   * the "Way out" signs are up, flat on a wall; a shut boss door leaves no gap across its opening
 --   * each cave mouth out in the viking lands is open: no hill or rock across the doorway, the
 --     passage behind it, or the way up to it (the hill once buried it), and a hill behind it
 -- Prints a line per dungeon and "N dungeon problems" at the end. With DUNGEON_MAP = "<id>" set
@@ -274,15 +274,56 @@ local function check(def)
 			end
 		end
 	end
-	-- the way out signs
+	-- the way out signs: on a wall (rock right behind them, air in front), not hanging in a doorway
+	local function solidAt(p: Vector3): boolean
+		for _, iv in ipairs(solids(p.X, p.Z)) do
+			if p.Y >= iv[1] and p.Y <= iv[2] then
+				return true
+			end
+		end
+		return false
+	end
 	local signs = 0
 	for _, d in ipairs(built.model:GetDescendants()) do
 		if d.Name == "WayOutSign" then
 			signs += 1
+			local look = d.CFrame.LookVector
+			if not solidAt(d.Position - look * 2.5) or solidAt(d.Position + look * 3) then
+				problem(string.format("a Way out sign at (%.0f, %.0f, %.0f) isn't on a wall", d.Position.X - origin.X, d.Position.Y - origin.Y, d.Position.Z - origin.Z))
+			end
 		end
 	end
 	if signs == 0 then
 		problem("no Way out signs")
+	end
+	-- a shut boss door seals its whole opening: every point across the door's plane is rock, a
+	-- leaf or a jamb (an angled tunnel's mouth is wider than the tunnel)
+	local function inPart(model: Instance, p: Vector3): boolean
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") and part.CanCollide then
+				local rel = part.CFrame:PointToObjectSpace(p)
+				local half = part.Size / 2
+				if math.abs(rel.X) <= half.X + 0.6 and math.abs(rel.Y) <= half.Y + 0.6 and math.abs(rel.Z) <= half.Z + 0.6 then
+					return true
+				end
+			end
+		end
+		return false
+	end
+	for i, door in ipairs(built.doors or {}) do
+		local across = Vector3.new(-door.dir.Z, 0, door.dir.X)
+		local gaps = 0
+		for x = -(door.width / 2 + 10), door.width / 2 + 10, 1.5 do
+			for y = 2, door.height - 2, 3 do
+				local p = door.pos + across * x + Vector3.new(0, y, 0)
+				if not solidAt(p) and not inPart(door.model, p) then
+					gaps += 1
+				end
+			end
+		end
+		if gaps > 0 then
+			problem(string.format("door %d (%s) has %d gaps a dragon could slip through", i, door.room, gaps))
+		end
 	end
 	problems += #found
 	print(string.format("%s %-8s %d spaces, %d packs, %d map nodes, %d doors, %d way out signs, %d problems", #found == 0 and "ok  " or "BAD ", def.id, #def.spaces, #def.packs, #DungeonNav.graph(def).nodes, #(built.doors or {}), signs, #found))

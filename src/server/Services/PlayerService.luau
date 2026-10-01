@@ -421,7 +421,7 @@ end
 
 ---------------------------------------------------------------- progression
 
--- Past the level cap, XP fills Paragon levels instead (small bonus each, a skill point every
+-- Past the level cap, XP fills Paragon levels instead (a bonus each, a skill point every
 -- Game.PARAGON_POINT_EVERY).
 local function gainParagon(player: Player, profile)
 	local gained = 0
@@ -434,11 +434,17 @@ local function gainParagon(player: Player, profile)
 		return
 	end
 	local points = math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) - math.floor((profile.paragon - gained) / Game.PARAGON_POINT_EVERY)
+	local st = state[player]
+	local before = st and st.stats
 	PlayerService.recompute(player)
+	local gains = ""
+	if before and st.stats then
+		gains = string.format("\n+%d health  •  +%d attack", math.floor(st.stats.maxHealth - before.maxHealth + 0.5), math.floor(st.stats.attack - before.attack + 0.5))
+	end
 	Remotes.event("Announce"):FireClient(player, {
 		title = "💫 PARAGON " .. profile.paragon .. "!",
-		text = points > 0 and string.format("+%d skill point%s! Spend %s in your skill tree (K).", points, points > 1 and "s" or "", points > 1 and "them" or "it")
-			or string.format("A little stronger. Next skill point at Paragon %d.", (math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) + 1) * Game.PARAGON_POINT_EVERY),
+		text = (points > 0 and string.format("+%d skill point%s! Spend %s in your skill tree (K).", points, points > 1 and "s" or "", points > 1 and "them" or "it")
+			or string.format("Stronger! Next skill point at Paragon %d.", (math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) + 1) * Game.PARAGON_POINT_EVERY)) .. gains,
 		color = Color3.fromRGB(190, 150, 255),
 		duration = 4,
 	})

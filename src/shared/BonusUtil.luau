@@ -96,12 +96,16 @@ function BonusUtil.petStats(profile)
 end
 
 -- Every non-gear, non-talent bonus as StatCalc buff entries.
--- The small permanent bonus from Paragon levels.
+-- The permanent bonus from Paragon levels (slower past PARAGON_BONUS_CAP, but it never stops).
 function BonusUtil.paragonStats(paragon: number?)
 	local levels = math.min(paragon or 0, Game.PARAGON_BONUS_CAP)
+	local late = math.max(0, (paragon or 0) - Game.PARAGON_BONUS_CAP)
 	local out = {}
 	for stat, v in pairs(Game.PARAGON_BONUS) do
 		out[stat] = v * levels
+	end
+	for stat, v in pairs(Game.PARAGON_BONUS_LATE) do
+		out[stat] = (out[stat] or 0) + v * late
 	end
 	return out
 end

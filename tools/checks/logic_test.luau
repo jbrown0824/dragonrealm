@@ -693,6 +693,12 @@ end
 do
 	check(TalentUtil.totalPoints(Game.LEVEL_CAP, Game.PARAGON_POINT_EVERY * 3) == Game.LEVEL_CAP - 1 + 3, "Paragon adds a point every few levels")
 	check(Game.paragonXp(10) > Game.paragonXp(0), "Paragon levels get a bit harder")
+	-- a Paragon level is worth a real chunk of a level, and they keep counting past the cap
+	local function paragonHp(n)
+		return StatCalc.compute("Shadowstalker", Game.LEVEL_CAP, gearAt(Game.LEVEL_CAP, "Rare"), {}, { { stats = BonusUtil.paragonStats(n) } }).maxHealth
+	end
+	check(paragonHp(1) - paragonHp(0) >= 8, "an early Paragon level adds real health (" .. (paragonHp(1) - paragonHp(0)) .. ")")
+	check(paragonHp(Game.PARAGON_BONUS_CAP + 20) > paragonHp(Game.PARAGON_BONUS_CAP), "Paragon levels past the cap still add stats")
 	local abilities = { "Breath", "Fireball", "Sig", "A", "B", "C", "D", "E" }
 	local out = TalentUtil.resolveLoadout(abilities, { "E", false, "Missing", "A" }, "Sig")
 	check(out[1] == "E" and out[4] == "A", "loadout keeps the player's picks")
