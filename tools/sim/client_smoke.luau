@@ -358,7 +358,8 @@ task.spawn(function()
 	Windows.open("Store")
 	mod("UI/Store").buy("product", "TreatBag")
 	task.wait(1)
-	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Studio test)")
+	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Roblox's prompt, then ProcessReceipt)")
+	check(table.find(S.PlayerService.getProfile(me).receipts, "mock-receipt-1") ~= nil, "... and the receipt is remembered")
 	-- where paid random items are restricted: no eggs, gold or restocks for Robux anywhere
 	local function shows(root: Instance, text: string): boolean
 		for _, d in ipairs(root:GetDescendants()) do
@@ -381,9 +382,21 @@ task.spawn(function()
 	S.StoreService.checkPolicy(me)
 	task.wait(0.3)
 	check(not shows(storeFrame, "Mythic Egg") and not shows(storeFrame, "Secret Egg") and not shows(storeFrame, "Pouch of Gold") and not shows(storeFrame, "Gold Rush")
-		and not shows(storeFrame, "Restock") and not shows(storeFrame, "2x Gold") and not shows(storeFrame, "Starter Pack"), "restricted: no eggs, gold, boosts to gold or restocks in the Store")
+		and not shows(storeFrame, "Restock") and not shows(storeFrame, "2x Gold") and not shows(storeFrame, "Storm Eggs"), "restricted: no eggs, gold, boosts to gold or restocks in the Store")
 	check(shows(storeFrame, "Bag of Treats") and shows(storeFrame, "2x XP"), "restricted: the rest of the Store is still there")
-	check(not shows(Windows.guis.HUD, "Starter Pack") and not shows(Windows.guis.HUD, "Gold Rush"), "restricted: no Robux offer on the HUD")
+	check(not shows(Windows.guis.HUD, "Gold Rush"), "restricted: no Gold Rush offer on the HUD")
+	check(mod("UI/Store").starterKey() == "StarterPet", "restricted: the one-pet Starter Pack is the one offered")
+	local meProfile = S.PlayerService.getProfile(me)
+	local starterKeep, levelKeep = meProfile.starterPack, meProfile.level
+	meProfile.starterPack, meProfile.level = false, 3
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	Windows.open("Store")
+	check(shows(storeFrame, "Thunderhatch") and not shows(storeFrame, "Storm Eggs"), "restricted: the Store's Starter Pack is the pet one")
+	check(shows(Windows.guis.HUD, "Starter Pack"), "restricted: the HUD offers that Starter Pack")
+	meProfile.starterPack, meProfile.level = starterKeep, levelKeep
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
 	mod("UI/Pets").open("Eggs")
 	task.wait(0.2)
 	local petsFrame = Windows.registry.Pets.frame
@@ -404,6 +417,7 @@ task.spawn(function()
 	task.wait(0.3)
 	Windows.open("Store")
 	check(shows(storeFrame, "Mythic Egg"), "the eggs come back when the policy allows them")
+	check(mod("UI/Store").starterKey() == "StarterPack", "... and the usual Starter Pack with them")
 	Windows.open("SkillTree")
 	local keySlot = Windows.registry.SkillTree.frame:FindFirstChild("KeySlot1", true)
 	check(keySlot ~= nil, "skill tree has the keys 2-5 strip")
@@ -674,7 +688,7 @@ task.spawn(function()
 	local codes = Windows.registry.Codes.frame
 	for _, d in ipairs(codes:GetDescendants()) do
 		if d.ClassName == "TextBox" then
-			d.Text = "DRAGONLORD"
+			d.Text = ADMIN_CODE
 		end
 	end
 	click(codes, "Redeem")

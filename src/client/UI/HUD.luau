@@ -761,7 +761,11 @@ local function refresh()
 	end
 	local class = Classes.get(p.class)
 	card.class.Text = class and string.format("Lv %d%s %s", p.level, (p.paragon or 0) > 0 and (" 💫" .. p.paragon) or "", class.name) or "Choose your dragon!"
-	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL and App.Store.available("product", "StarterPack")
+	local starterKey = App.Store.starterKey()
+	starterAd.Visible = class ~= nil and not p.starterPack and p.level < StoreInfo.STARTER_MAX_LEVEL and starterKey ~= nil
+	if starterKey then
+		starterAd.Price.Text = "R$ " .. StoreInfo.Products[starterKey].robux
+	end
 	rushAd.Visible = class ~= nil and not starterAd.Visible and App.Store.available("product", "GoldRush")
 	card.icon.Text = class and ({ Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" })[class.id] or "🐉"
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)

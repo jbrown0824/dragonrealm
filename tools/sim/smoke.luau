@@ -1028,8 +1028,14 @@ task.spawn(function()
 	ok = invoke("RedeemCode", p1, "DRAGONREALM")
 	check(not ok, "promo code only once")
 	check(not invoke("AdminAction", p1, "gold", { amount = 5 }), "not admin before code")
-	ok, msg = invoke("RedeemCode", p1, "DRAGONLORD")
+	-- ALLOWED_USER_IDS: the code only works for those accounts
+	AdminConfig.ALLOWED_USER_IDS = #OWNER_IDS > 0 and OWNER_IDS or { 999 }
+	ok, msg = invoke("RedeemCode", p1, ADMIN_CODE)
+	check(not ok and not S.AdminService.isAdmin(p1), "the admin code only works for ALLOWED_USER_IDS (" .. tostring(msg) .. ")")
+	AdminConfig.ALLOWED_USER_IDS = { p1.UserId }
+	ok, msg = invoke("RedeemCode", p1, ADMIN_CODE)
 	check(ok and S.AdminService.isAdmin(p1), "admin code: " .. tostring(msg))
+	AdminConfig.ALLOWED_USER_IDS = {}
 	check(invoke("AdminAction", p1, "gold", { amount = 200000 }), "admin gold")
 	check(invoke("AdminAction", p1, "setLevel", { level = 12 }) and profile.level == 12, "admin set level")
 	check(invoke("AdminAction", p1, "setLevel", { level = 30, userId = 102 }) and S.PlayerService.getProfile(p2).level == 30, "admin set other player's level")
@@ -1530,6 +1536,20 @@ task.spawn(function()
 	end
 	check((S.PlayerService.getProfile(p2).eggs.MythicEgg or 0) == buddyEggs, "restricted: no egg was granted")
 	check(invoke("StudioPurchase", p2, "product", "TreatBag"), "restricted: Pet Treats are still for sale")
+	-- their own Starter Pack: one fixed pet that releases for no gold
+	local buddyProfile = S.PlayerService.getProfile(p2)
+	buddyProfile.starterPack = false
+	local petsBefore = #buddyProfile.pets
+	check(invoke("StudioPurchase", p2, "product", "StarterPet") and buddyProfile.starterPack, "restricted: the one-pet Starter Pack")
+	local starterPet = buddyProfile.pets[#buddyProfile.pets]
+	check(#buddyProfile.pets == petsBefore + 1 and starterPet.species == StoreInfo.Products.StarterPet.pet.species and starterPet.bought == true, "... gives its pet, marked bought")
+	check(not invoke("StudioPurchase", p2, "product", "StarterPet"), "... once only")
+	local buddyGold = buddyProfile.gold
+	local okRelease, releaseGold = invoke("ReleasePet", p2, starterPet.uid)
+	check(okRelease and releaseGold == 0 and buddyProfile.gold == buddyGold, "a bought pet releases for no gold")
+	profile.starterPack = false
+	check(not invoke("StudioPurchase", p1, "product", "StarterPet"), "the one-pet Starter Pack isn't sold where paid random items are allowed")
+	profile.starterPack = true
 	check(not S.StoreService.hasPass(p2, "DoubleGold") and invoke("StudioPurchase", p2, "pass", "DoubleXP"), "restricted: 2x XP is still for sale")
 	p2:SetAttribute("MockPaidRandomRestricted", nil)
 	S.StoreService.checkPolicy(p2)

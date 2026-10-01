@@ -164,6 +164,16 @@ function Pets.multiplier(level: number?, golden: boolean?): number
 	return (1 + Pets.LEVEL_BONUS * ((level or 1) - 1)) * (golden and Pets.GOLDEN_MULT or 1)
 end
 
+-- Gold for releasing a pet. A pet bought with Robux (`bought`: the restricted regions' Starter
+-- Pack) gives none, so Robux can't turn into gold for eggs that way.
+function Pets.releaseGold(pet): number
+	local species = Pets.get(pet.species)
+	if pet.bought or not species then
+		return 0
+	end
+	return math.floor((Pets.ReleaseGold[species.rarity] or 50) * Pets.multiplier(pet.level, pet.golden))
+end
+
 function Pets.displayName(pet): string
 	local species = Pets.get(pet.species)
 	return (pet.golden and "✨ Golden " or "") .. (species and species.name or pet.species)

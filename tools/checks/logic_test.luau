@@ -625,6 +625,23 @@ do
 			check(Pets.Eggs[eggId] ~= nil, key .. " egg exists")
 		end
 	end
+	-- paid random items: anything that gives eggs, gold, more gold or egg stock is flagged, and the
+	-- restricted regions' Starter Pack is one fixed pet that can't be turned into gold
+	for key, product in pairs(StoreInfo.Products) do
+		local random = product.eggs ~= nil or product.goldMinutes ~= nil or product.goldRushMinutes ~= nil or product.restock == true or product.epicGear == true
+		check(not random or product.paidRandom == true, key .. " gives eggs or gold, so it's paidRandom")
+		check(not (product.paidRandom and product.restrictedOnly), key .. " isn't both paidRandom and restrictedOnly")
+		if product.pet then
+			local species = Pets.get(product.pet.species)
+			check(species ~= nil and (species.stats.goldPct or 0) == 0, key .. "'s pet exists and gives no gold")
+			check(not product.paidRandom and product.restrictedOnly == true and product.once == true, key .. " is the restricted regions' Starter Pack")
+			check(Pets.releaseGold({ species = product.pet.species, bought = true }) == 0 and Pets.releaseGold({ species = product.pet.species }) > 0, "a bought pet releases for no gold")
+		end
+	end
+	check(StoreInfo.Passes.DoubleGold.paidRandom == true, "2x Gold is paidRandom")
+	check(StoreInfo.offered("product", "MythicEgg", true) and not StoreInfo.offered("product", "MythicEgg", false) and not StoreInfo.offered("product", "MythicEgg", nil), "paidRandom items only where allowed")
+	check(StoreInfo.offered("product", "StarterPet", false) and not StoreInfo.offered("product", "StarterPet", true) and not StoreInfo.offered("product", "StarterPet", nil), "the one-pet Starter Pack only where restricted")
+	check(StoreInfo.offered("product", "TreatBag", nil) and StoreInfo.offered("pass", "DoubleXP", false), "everything else is always for sale")
 	check(#Pets.speciesFor("SecretEgg", "Secret") == 4, "the Secret Egg hatches four Secret pets")
 	local mythicSecret = Pets.speciesFor("MythicEgg", "Secret")
 	check(#mythicSecret == 1 and mythicSecret[1] == "AuroraSerpent", "the Mythic Egg's Secret is the Aurora Serpent")

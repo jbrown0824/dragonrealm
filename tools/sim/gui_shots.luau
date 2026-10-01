@@ -124,7 +124,7 @@ task.spawn(function()
 	Windows.open("Map")
 	shot("map")
 	-- the admin panel, scrolled through its Dragon page
-	Remotes.func("RedeemCode"):InvokeServer("DRAGONLORD")
+	Remotes.func("RedeemCode"):InvokeServer(ADMIN_CODE)
 	task.wait(0.5)
 	Windows.open("Admin")
 	shot("admin1")

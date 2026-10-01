@@ -244,7 +244,7 @@ local function refreshPets(p)
 		end
 		details.equip.Text = isEquipped and "Unequip" or "Equip"
 		details.equip.BackgroundColor3 = isEquipped and Color3.fromRGB(120, 60, 60) or Color3.fromRGB(60, 140, 70)
-		local releaseGold = math.floor((PetInfo.ReleaseGold[species.rarity] or 0) * PetInfo.multiplier(pet.level, pet.golden))
+		local releaseGold = PetInfo.releaseGold(pet)
 		details.release.Text = releaseArmed == pet.uid and "Really release?" or string.format("Release (+%d 💰)", releaseGold)
 		local shownKey = pet.uid .. (pet.golden and "g" or "")
 		if details.shown ~= shownKey then

@@ -10,7 +10,8 @@
 --
 -- Where paid random items are restricted (the server's `PaidRandomItems` player attribute isn't
 -- true), every `paidRandom` item (Config/Store: the eggs and every way to buy gold or egg stock)
--- is hidden, here and wherever another window offers it (Store.available).
+-- is hidden, here and wherever another window offers it (Store.available), and those players get
+-- their own Starter Pack (one pet) instead (Store.starterKey).
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -45,7 +46,18 @@ end
 
 -- Can this player buy that item here? (Paid random items stay hidden until the server says yes.)
 function Store.available(kind: string, key: string): boolean
-	return not StoreInfo.isPaidRandom(kind, key) or Players.LocalPlayer:GetAttribute("PaidRandomItems") == true
+	return StoreInfo.offered(kind, key, Players.LocalPlayer:GetAttribute("PaidRandomItems"))
+end
+
+-- Which Starter Pack this player is offered (the usual one, or the one-pet pack where paid
+-- random items are restricted), or nil when neither is for sale to them (yet).
+function Store.starterKey(): string?
+	for _, key in ipairs({ "StarterPack", "StarterPet" }) do
+		if Store.available("product", key) then
+			return key
+		end
+	end
+	return nil
 end
 
 -- Start a purchase: Roblox's prompt when the item has an id, the Studio test grant otherwise.
@@ -116,16 +128,22 @@ function Store.refresh()
 	local gold = p.goldPackAmounts or {}
 
 	local function starterSection()
-		if p.starterPack or p.level >= StoreInfo.STARTER_MAX_LEVEL or not Store.available("product", "StarterPack") then
+		local starterKey = Store.starterKey()
+		if p.starterPack or p.level >= StoreInfo.STARTER_MAX_LEVEL or not starterKey then
 			return
 		end
 		section(nextOrder(), "🎁 Just for new dragons")
-		local starter = products.StarterPack
-		local frame = card(nextOrder(), starter.icon, starter.name, starter.desc,
-			string.format("<font color=\"#FFD24A\">Right now: %s gold + everything above.</font> Only until level %d!", Util.formatNumber(gold.StarterPack or 0), StoreInfo.STARTER_MAX_LEVEL),
-			starter.robux, false, function()
-				Store.buy("product", "StarterPack")
-			end, 100)
+		local starter = products[starterKey]
+		local extra
+		if starter.pet then
+			local species = PetInfo.get(starter.pet.species)
+			extra = string.format("<font color=\"%s\">%s %s: %s.</font> Only until level %d!", Theme.colorHex(PetInfo.RarityColors[species.rarity]), species.rarity, species.name, statText(species.stats), StoreInfo.STARTER_MAX_LEVEL)
+		else
+			extra = string.format("<font color=\"#FFD24A\">Right now: %s gold + everything above.</font> Only until level %d!", Util.formatNumber(gold.StarterPack or 0), StoreInfo.STARTER_MAX_LEVEL)
+		end
+		local frame = card(nextOrder(), starter.icon, starter.name, starter.desc, extra, starter.robux, false, function()
+			Store.buy("product", starterKey)
+		end, 100)
 		frame.UIStroke.Color = Color3.fromRGB(255, 200, 80)
 		frame.UIStroke.Thickness = 3
 	end

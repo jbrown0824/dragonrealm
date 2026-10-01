@@ -1162,8 +1162,27 @@ services.MarketplaceService = Instance.new("MarketplaceService")
 function services.MarketplaceService.UserOwnsGamePassAsync()
 	return false
 end
-function services.MarketplaceService.PromptProductPurchase() end
-function services.MarketplaceService.PromptGamePassPurchase() end
+-- Purchase prompts act like Studio's test purchases: the player confirms, then Roblox calls
+-- ProcessReceipt (products) or fires PromptGamePassPurchaseFinished (passes).
+local mockReceipts = 0
+function services.MarketplaceService.PromptProductPurchase(self, player, productId)
+	task.spawn(function()
+		task.wait(0.2)
+		local process = self.ProcessReceipt
+		if not process then
+			return
+		end
+		mockReceipts += 1
+		local decision = process({ PlayerId = player.UserId, ProductId = productId, PurchaseId = "mock-receipt-" .. mockReceipts, CurrencySpent = 0, PlaceIdWherePurchased = 0 })
+		self.PromptProductPurchaseFinished:Fire(player.UserId, productId, decision == Enum.ProductPurchaseDecision.PurchaseGranted)
+	end)
+end
+function services.MarketplaceService.PromptGamePassPurchase(self, player, passId)
+	task.spawn(function()
+		task.wait(0.2)
+		self.PromptGamePassPurchaseFinished:Fire(player, passId, true)
+	end)
+end
 -- PolicyService: a player's `MockPaidRandomRestricted` attribute stands in for where they live
 services.PolicyService = Instance.new("PolicyService")
 function services.PolicyService.GetPolicyInfoForPlayerAsync(_, player)
