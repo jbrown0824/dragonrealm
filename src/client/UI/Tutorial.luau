@@ -1,7 +1,9 @@
--- The new-player tour: a small panel with one goal at a time, a glowing marker over where to
--- go, and a Skip button. Steps complete themselves when you do the thing (walk, fly, hit a
--- dummy...). Progress is saved on the server (TutorialService), which pays out a one-time
--- reward at the end. It can be restarted from the Help window.
+-- The new-player tour: a panel with one goal at a time, a glowing marker over where to go, and a
+-- Skip button. Each step pops up big in the middle of the screen so it can't be missed, then
+-- glides to the left edge once you get going (so it never blocks the view while you play).
+-- Steps with a button wait in the middle for the click. Steps complete themselves when you do
+-- the thing (walk, fly, hit a dummy...). Progress is saved on the server (TutorialService),
+-- which pays out a one-time reward at the end. It can be restarted from the Help window.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,17 +21,31 @@ local Tutorial = {}
 local App
 
 local player = Players.LocalPlayer
-local panel, stepLabel, titleLabel, bodyLabel, nextButton, skipButton
+local panel, zoom, stepLabel, titleLabel, bodyLabel, nextButton, skipButton
 local marker, markerAttachment, beam, beamStart
 local current = nil -- index into STEPS, or nil when not running
 local stepState = {}
 local dummyHit = false
 local skipArmed = false
+local docked = false -- the panel sits at the left edge (false: big in the middle)
+local shownAt, shownFrom = 0, nil -- when the step popped up, and where the dragon was
+-- Keeping up: a step done within this many seconds of showing means the player's on a roll, so
+-- the next one (unless it has a button to read) slides in at the side instead of the middle.
+local ON_A_ROLL = 25
+
+-- In the middle: a bit bigger than life. Docked: under the player card.
+local CENTER_ANCHOR, CENTER_POS = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.4)
+local DOCK_ANCHOR, DOCK_POS = Vector2.new(0, 0), UDim2.new(0, 12, 0, 132)
+local DOCK_AFTER = 10 -- seconds a step waits in the middle before moving aside anyway
+local DOCK_MOVE = 6 -- studs of moving (or flying up) that count as getting going
+local MIN_CENTER = 2.5 -- seconds every step stays in the middle, even if you're already moving
 
 local function root(): BasePart?
 	local character = player.Character
 	return character and character:FindFirstChild("HumanoidRootPart")
 end
+
+local freePlot -- (below)
 
 local function homePosition(): Vector3?
 	local p = App.State.profile
@@ -37,6 +53,33 @@ local function homePosition(): Vector3?
 	local base = p and p.baseIndex and bases and bases:FindFirstChild("Base" .. p.baseIndex)
 	local home = base and base:FindFirstChild("HomeSpawn")
 	return home and home.Position
+end
+
+-- The nearest empty planting spot in your lair (for the planting step's marker).
+freePlot = function(): BasePart?
+	local p = App.State.profile
+	local bases = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Bases")
+	local base = p and p.baseIndex and bases and bases:FindFirstChild("Base" .. p.baseIndex)
+	local plots = base and base:FindFirstChild("Plots")
+	local r = root()
+	if not plots or not r then
+		return nil
+	end
+	local used = {}
+	for _, g in ipairs(p.garden or {}) do
+		used[g.plot] = true
+	end
+	local best, bestDist = nil, math.huge
+	for _, plot in ipairs(plots:GetChildren()) do
+		local index = plot:GetAttribute("PlotIndex")
+		if index and index <= (p.plotsUnlocked or 0) and not used[index] then
+			local d = (plot.Position - r.Position).Magnitude
+			if d < bestDist then
+				best, bestDist = plot, d
+			end
+		end
+	end
+	return best
 end
 
 local STEPS = {
@@ -87,7 +130,7 @@ local STEPS = {
 			local p = App.State.profile
 			return p ~= nil and (next(p.quests.active) ~= nil or next(p.quests.done) ~= nil)
 		end },
-	{ title = "Your lair", text = "Press <b>H</b> (or the 🏠 button) to fly home to your lair.",
+	{ title = "Your lair", text = "Press <b>H</b> (or the 🏠 button) to fly home to your lair.", unlock = "home",
 		target = function()
 			local home = homePosition()
 			return home and home + Vector3.new(0, 10, 0)
@@ -97,19 +140,23 @@ local STEPS = {
 			local home = homePosition()
 			return r ~= nil and home ~= nil and (r.Position - home).Magnitude < 60
 		end },
-	{ title = "Plant a seed", text = "Walk up to a planting spot (the one you face glows) and press <b>E</b> to plant. When it gets thirsty (💧) press <b>R</b> to water it. Full flowers give seeds back!",
+	{ title = "Plant a seed", text = "The <b>green glowing</b> spots are free. Walk onto one and press <b>E</b>, or just <b>click</b> it, to plant. When it gets thirsty (💧) press <b>R</b> or click it to water. Full flowers give seeds back!", unlock = "bag",
+		target = function()
+			local spot = freePlot()
+			return spot and spot.Position + Vector3.new(0, 9, 0)
+		end,
 		check = function()
 			local p = App.State.profile
 			return p ~= nil and p.garden ~= nil and #p.garden > 0
 		end },
 	{ title = "Stay fed", text = "The orange bar is your <b>hunger</b>. Hunt animals in <b>Elk Meadows</b> (west) or <b>Whisperwood</b> (east), or fish at the 🎣 spots, then press <b>G</b> to eat. Hungry dragons fly and fight worse!", button = "Got it" },
 	{ title = "Pets & potions", text = "<b>Nestmother's Hatchery</b> sells eggs that hatch right away into nano dragon pets (<b>P</b>). The <b>Bubbling Cauldron</b> sells permanent potions. Your lair's <b>Bot Dock</b> sells garden robots.", button = "Cool!" },
-	{ title = "You're ready!", text = "Cross the bridge south to fight vikings, open camp chests and beat camp champions (💀). Finish the tour for <b>150 gold and a dragon egg</b>!", button = "Finish tour" },
+	{ title = "You're ready!", text = "Cross the bridge south to fight vikings, open camp chests and beat camp champions (💀). Finish the tour for <b>150 gold and a dragon egg</b>!", button = "I'm ready!", last = true },
 }
 
--- Keep notification toasts below the tour panel while it's showing.
+-- Keep notification toasts below the tour panel while it's docked at the side.
 local function updateToastInset()
-	if panel.Visible then
+	if panel.Visible and docked then
 		local scale = App.Windows.scale or 1
 		App.Notifications.setTopInset(132 + panel.AbsoluteSize.Y / scale)
 	else
@@ -122,21 +169,71 @@ local function clearGuide()
 	beam.Enabled = false
 end
 
-local function showStep()
+local function showStep(onARoll: boolean?)
 	local step = STEPS[current]
 	stepState = {}
 	skipArmed = false
 	skipButton.Text = "Skip tour"
+	skipButton.Visible = not step.last -- nothing left to skip
 	panel.Visible = true
 	stepLabel.Text = string.format("TOUR  %d / %d", current, #STEPS)
 	titleLabel.Text = step.title
 	bodyLabel.Text = step.text
 	nextButton.Visible = step.button ~= nil
 	nextButton.Text = step.button or ""
-	panel.Position = UDim2.new(0, -360, 0, 132)
-	TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Position = UDim2.new(0, 12, 0, 132) }):Play()
+	if step.unlock then
+		App.HUD.unlockMenu(step.unlock) -- the menu button this step talks about
+	end
+	shownAt = os.clock()
+	local r = root()
+	shownFrom = r and r.Position
 	clearGuide()
 	task.defer(updateToastInset)
+	if onARoll and not step.button then
+		-- stay at the side: slide the new step in from the left and give it a little bounce
+		docked = true
+		panel.AnchorPoint = DOCK_ANCHOR
+		panel.Position = DOCK_POS - UDim2.fromOffset(380, 0)
+		zoom.Scale = 1
+		TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Position = DOCK_POS }):Play()
+		return
+	end
+	-- pop up in the middle of the screen
+	docked = false
+	panel.AnchorPoint = CENTER_ANCHOR
+	panel.Position = CENTER_POS
+	zoom.Scale = 0.5
+	TweenService:Create(zoom, TweenInfo.new(0.4, Enum.EasingStyle.Back), { Scale = App.Windows.mobile and 1 or 1.3 }):Play()
+end
+
+-- Glide over to the left edge, out of the way.
+local function dock()
+	if docked then
+		return
+	end
+	docked = true
+	local info = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+	TweenService:Create(panel, info, { AnchorPoint = DOCK_ANCHOR, Position = DOCK_POS }):Play()
+	TweenService:Create(zoom, info, { Scale = 1 }):Play()
+	task.delay(0.65, updateToastInset)
+end
+
+-- Getting going: moved or flew a few studs, or the step has been up a while.
+local function shouldDock(step): boolean
+	if step.button then
+		return false -- waits for its button
+	end
+	local age = os.clock() - shownAt
+	if age > DOCK_AFTER then
+		return true
+	elseif age < MIN_CENTER then
+		return false
+	end
+	local r = root()
+	if r and not shownFrom then
+		shownFrom = r.Position
+	end
+	return r ~= nil and (r.Position - shownFrom).Magnitude > DOCK_MOVE
 end
 
 local function finish(skipped: boolean)
@@ -154,9 +251,11 @@ local function advance()
 		finish(false)
 		return
 	end
+	local finished = STEPS[current]
+	local onARoll = not finished.button and os.clock() - shownAt < ON_A_ROLL
 	current += 1
 	Remotes.event("TutorialStep"):FireServer(current)
-	showStep()
+	showStep(onARoll)
 end
 
 -- Start (or resume) the tour if the profile says it isn't finished.
@@ -182,7 +281,8 @@ function Tutorial.init(app)
 	App = app
 	panel = Theme.make("Frame", {
 		Name = "Tutorial",
-		Position = UDim2.new(0, 12, 0, 132),
+		AnchorPoint = DOCK_ANCHOR,
+		Position = DOCK_POS,
 		Size = UDim2.fromOffset(340, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = C.panel,
@@ -191,8 +291,9 @@ function Tutorial.init(app)
 		Parent = App.Windows.guis.HUD,
 	})
 	Theme.corner(panel, 12)
-	Theme.stroke(panel, C.accent, 2)
+	Theme.stroke(panel, C.accent, 2.5)
 	Theme.pad(panel, 10)
+	zoom = Theme.make("UIScale", { Name = "Zoom", Parent = panel })
 	Theme.list(panel, 4)
 	stepLabel = Theme.label({ Size = UDim2.new(1, 0, 0, 14), TextSize = 11, TextColor3 = C.subtext, LayoutOrder = 1, Parent = panel })
 	titleLabel = Theme.label({ Size = UDim2.new(1, 0, 0, 24), Font = Theme.Fonts.title, TextSize = 21, TextColor3 = C.accent, LayoutOrder = 2, Parent = panel })
@@ -263,6 +364,9 @@ function Tutorial.init(app)
 			return
 		end
 		local step = STEPS[current]
+		if not docked and shouldDock(step) then
+			dock()
+		end
 		-- guide
 		local target = step.target and step.target()
 		local r = root()

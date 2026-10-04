@@ -196,9 +196,14 @@ local function findFocus(): BasePart?
 	end
 	local scale = character:GetAttribute("DragonScale") or 1
 	local probe = root.Position + root.CFrame.LookVector * 3 * scale
-	local best, bestDist = nil, 9 + 2 * scale
+	local best, bestDist = nil, 11 + 2 * scale -- plots are 18 apart, so this never reaches two
 	for _, plot in ipairs(plots:GetChildren()) do
 		if plot:IsA("BasePart") then
+			-- standing on a plot always picks it, whichever way you face
+			local under = root.Position - plot.Position
+			if math.abs(under.X) < plot.Size.X / 2 + 1 and math.abs(under.Z) < plot.Size.Z / 2 + 1 and math.abs(under.Y) < 20 then
+				return plot
+			end
 			local d = Vector3.new(plot.Position.X - probe.X, 0, plot.Position.Z - probe.Z).Magnitude
 			if d < bestDist and math.abs(plot.Position.Y - root.Position.Y) < 20 then
 				best, bestDist = plot, d
@@ -206,6 +211,21 @@ local function findFocus(): BasePart?
 		end
 	end
 	return best
+end
+
+-- Plots can be clicked / tapped too (FarmService); only your own show the hand cursor.
+local function filterPlotClicks()
+	local bases = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Bases")
+	local mine = myBase()
+	for _, base in ipairs(bases and bases:GetChildren() or {}) do
+		local plots = base:FindFirstChild("Plots")
+		for _, plot in ipairs(plots and plots:GetChildren() or {}) do
+			local click = plot:FindFirstChildOfClass("ClickDetector")
+			if click then
+				click.MaxActivationDistance = base == mine and 60 or 0
+			end
+		end
+	end
 end
 
 local function updateFocus()
@@ -389,6 +409,12 @@ function WorldView.init(app)
 			if not ok then
 				warn("[WorldView]", err)
 			end
+		end
+	end)
+	task.spawn(function()
+		while true do
+			pcall(filterPlotClicks)
+			task.wait(2)
 		end
 	end)
 

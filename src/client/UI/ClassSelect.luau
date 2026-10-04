@@ -192,7 +192,7 @@ function ClassSelect.show(newMode: string?)
 		local cost = transformCost()
 		title.Text = "Transform Your Dragon"
 		subtitle.Text = cost > 0 and string.format("Changing type costs %d gold. Your level and gear stay; skill points are refunded.", cost)
-			or "Free until level " .. Game.TRANSFORM_FREE_UNTIL_LEVEL .. "! Your level and gear stay; skill points are refunded."
+			or "Free up to level " .. Game.TRANSFORM_FREE_UNTIL_LEVEL .. "! Your level and gear stay; skill points are refunded."
 		cancelButton.Visible = true
 	else
 		title.Text = "Choose Your Dragon"

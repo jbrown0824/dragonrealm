@@ -51,6 +51,7 @@ task.spawn(function()
 	Remotes.func("ChooseClass"):InvokeServer("Stormwing")
 	mod("UI/ClassSelect").hide()
 	task.wait(1)
+	shot("tour") -- the tour's first step, big in the middle
 	Remotes.event("TutorialStep"):FireServer(-1) -- (finished: pays the tutorial egg)
 	task.wait(1)
 	click(gui, "Skip tour") -- and close the tour panel, so the HUD shots show what's under it
@@ -73,6 +74,9 @@ task.spawn(function()
 	end
 	profile.vikingKills = 80
 	profile.fishCaught = 12
+	for _, id in ipairs(Game.MENUS) do
+		profile.menus[id] = 2 -- a veteran has found every menu button
+	end
 	S.PlayerService.markDirty(me)
 	task.wait(4)
 	shot("hud")
@@ -108,7 +112,9 @@ task.spawn(function()
 		shot("collection_" .. tab)
 	end
 	Windows.open("SkillTree")
-	shot("skilltree")
+	shot("skilltree") -- with the "Choose your path" card (no points spent yet)
+	click(Windows.registry.SkillTree.frame, "Let me choose!")
+	shot("skilltree_path")
 	-- a skill picked: its Learn / Max bubble sits between the row's two skills
 	for _, d in ipairs(Windows.registry.SkillTree.frame:GetDescendants()) do
 		if d.ClassName == "TextButton" and d.Size.X.Offset == 50 and d.Size.Y.Offset == 50 then

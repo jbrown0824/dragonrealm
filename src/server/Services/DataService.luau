@@ -78,6 +78,9 @@ local function defaultProfile()
 		-- added in the dungeons update
 		dungeons = { seen = 0, clears = {}, pity = {} }, -- seen: the highest dungeon level the 🏰 badge was cleared for; clears / pity by dungeon id
 		dungeonClears = 0, -- every dungeon boss beaten (the Dungeon Delver achievement)
+		-- added in the friendlier-intro update
+		menus = {}, -- [menu id from Game.MENUS] = 1 shown / 2 clicked (HUD)
+		bagDot = false, -- gear was auto-equipped since the Bag was last opened
 	}
 end
 
@@ -139,9 +142,16 @@ function DataService.load(player: Player)
 	else
 		-- Dragons from before the tutorial existed don't need the new-player tour.
 		local veteran = data.tutorial == nil and data.class ~= nil
+		-- ...and dragons from before the menu unlocks keep every menu button.
+		local hadMenus = data.menus ~= nil or data.class == nil
 		data = reconcile(data, defaultProfile())
 		if veteran then
 			data.tutorial = -1
+		end
+		if not hadMenus then
+			for _, id in ipairs(Game.MENUS) do
+				data.menus[id] = 2
+			end
 		end
 	end
 	if not player.Parent then

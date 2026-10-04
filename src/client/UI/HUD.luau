@@ -16,6 +16,7 @@ local TalentUtil = require(Shared.TalentUtil)
 local StoreInfo = require(Shared.Config.Store)
 local DungeonInfo = require(Shared.Config.Dungeons)
 local Util = require(Shared.Util)
+local Zones = require(Shared.Config.Zones)
 local Remotes = require(Shared.Remotes)
 
 local Theme = require(script.Parent.Theme)
@@ -32,7 +33,15 @@ local bars = {}
 local slots = {}
 local tooltip
 local tracker
-local skillBadge, petBadge, dungeonBadge
+local skillBadge, petBadge, bagBadge, dungeonBadge
+local menuLabels = {}
+local menuActions = {} -- [menu id] = what clicking its button (or its speech bubble) does
+-- New abilities (your signature move at level 3, skills learned in the tree) glow on the
+-- ability bar with a small bubble until you first use them. Only for this session: abilities
+-- you already had when you joined are known.
+local knownAbilities = nil -- [abilityId] = true, filled from the first profile with abilities
+local freshAbilities = {} -- [abilityId] = true while it glows
+local menuStage = {} -- [menu id] = 0 hidden, 1 new (highlighted), 2 clicked; see the menu unlocks below
 local mobile = {}
 local starterAd, rushAd
 
@@ -370,6 +379,7 @@ local function buildMenu()
 		Position = UDim2.new(1, -12, 0, 10),
 		Size = UDim2.fromOffset(64, 600),
 		BackgroundTransparency = 1,
+		ZIndex = 4, -- a new button's speech bubble goes over the minimap and the Robux offer
 		Parent = root,
 	})
 	Theme.list(holder, 6)
@@ -384,7 +394,12 @@ local function buildMenu()
 		{ id = "admin", icon = "🛠️", label = "Admin", action = function() App.Windows.toggle("Admin") end },
 	}
 	for i, e in ipairs(entries) do
-		local b = Theme.button(e.icon, C.panel2, e.action, {
+		local id = e.id
+		menuActions[id] = function()
+			HUD.menuSeen(id)
+			e.action()
+		end
+		local b = Theme.button(e.icon, C.panel2, menuActions[id], {
 			Size = UDim2.fromOffset(58, 58),
 			TextSize = 28,
 			LayoutOrder = i,
@@ -395,7 +410,7 @@ local function buildMenu()
 			b.Visible = false -- (dungeons: from Dungeons.UNLOCK_LEVEL, see refresh)
 		end
 		Theme.stroke(b, C.accentDark, 2, 0.2)
-		Theme.label({
+		menuLabels[e.id] = Theme.label({
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(0, -6, 0.5, 0),
 			Size = UDim2.fromOffset(90, 18),
@@ -409,10 +424,225 @@ local function buildMenu()
 			skillBadge = Theme.badge(b) -- unspent skill points
 		elseif e.id == "pets" then
 			petBadge = Theme.badge(b) -- eggs waiting to hatch
+		elseif e.id == "bag" then
+			bagBadge = Theme.badge(b) -- new gear (a plain dot when it went straight on)
 		elseif e.id == "dungeons" then
 			dungeonBadge = Theme.badge(b) -- a dungeon you've unlocked but not looked at yet
 		end
 	end
+end
+
+---------------------------------------------------------------- menu unlocks
+-- A new dragon starts with no menu buttons: each one appears when it's first useful, glowing
+-- with a speech bubble that says what it's for, until it's clicked (or its window is opened
+-- with the hotkey). Stages are saved in profile.menus (Game.MENUS) so they only happen once;
+-- dragons from before this update have them all.
+
+local MENU_INFO = {
+	skills = { window = "SkillTree", key = "K", hint = "You have a skill point! Spend it in your skill tree" },
+	bag = { window = "Inventory", key = "B", hint = "Your Bag: gear, seeds and food" },
+	pets = { window = "Pets", key = "P", hint = "You have a dragon egg! Click here to hatch it" },
+	quests = { window = "QuestLog", key = "J", hint = "Your quests: click one to put a marker on it" },
+	collection = { window = "Collection", key = "L", hint = "Your pet book, achievements and skins" },
+	home = { key = "H", hint = "Click here to fly home to your lair" },
+}
+local callouts = {} -- [menu id] = speech bubble
+local calloutBase = {} -- [menu id] = the bubble's resting position
+local leftTown = false
+local localPlayer = Players.LocalPlayer
+
+local function ownLairPosition(p): Vector3?
+	local map = workspace:FindFirstChild("Map")
+	local bases = map and map:FindFirstChild("Bases")
+	local base = p.baseIndex and bases and bases:FindFirstChild("Base" .. p.baseIndex)
+	local home = base and base:FindFirstChild("HomeSpawn")
+	return home and home.Position
+end
+
+-- When each button has earned its place.
+local function menuReady(id: string, p): boolean
+	if id == "skills" then
+		return p.level >= 2 or (p.talentPoints or 0) > 0
+	elseif id == "bag" then
+		-- gear or food in it, or a trip to your garden (you start with seeds to plant)
+		if #(p.inventory or {}) > 0 or next(p.food or {}) ~= nil then
+			return true
+		end
+		local character = localPlayer.Character
+		local r = character and character:FindFirstChild("HumanoidRootPart")
+		local lair = ownLairPosition(p)
+		return r ~= nil and lair ~= nil and (r.Position - lair).Magnitude < 70
+	elseif id == "pets" then
+		return HUD.eggsWaiting(p) > 0 or #(p.pets or {}) > 0
+	elseif id == "quests" then
+		return next(p.quests.active) ~= nil or next(p.quests.done) ~= nil
+	elseif id == "collection" then
+		return #(p.pets or {}) > 0
+	elseif id == "home" then
+		return leftTown
+	end
+	return false
+end
+
+-- Take the saved stages (they only go up).
+local function syncSavedMenus(p)
+	for id in pairs(MENU_INFO) do
+		local saved = p.menus and p.menus[id] or 0
+		if saved > (menuStage[id] or 0) then
+			menuStage[id] = saved
+		end
+	end
+end
+
+local function setStage(id: string, stage: number)
+	if (menuStage[id] or 0) >= stage then
+		return
+	end
+	local fresh = (menuStage[id] or 0) == 0
+	menuStage[id] = stage
+	Remotes.event("MenuUnlock"):FireServer(id, stage)
+	if fresh and stage == 1 then
+		App.Sfx.play("Quest")
+	end
+	HUD.refreshMenus()
+end
+
+-- Show a button now (the tour calls this when a step needs it).
+function HUD.unlockMenu(id: string)
+	if MENU_INFO[id] then
+		setStage(id, 1)
+	end
+end
+
+-- The player found the button: stop the glow.
+function HUD.menuSeen(id: string)
+	if MENU_INFO[id] then
+		setStage(id, 2)
+	end
+end
+
+local function callout(id: string): TextButton
+	if callouts[id] then
+		return callouts[id]
+	end
+	local info = MENU_INFO[id]
+	local mobileLayout = App.Windows.mobile
+	local text = "<b>New!</b> " .. info.hint .. (mobileLayout and "" or string.format(" <b>[%s]</b>", info.key))
+	-- a button too: clicking the bubble does what the menu button does
+	local bubble = Theme.make("TextButton", {
+		Name = "Callout",
+		AutoButtonColor = false,
+		Font = Theme.Fonts.bold,
+		TextWrapped = true,
+		RichText = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AnchorPoint = mobileLayout and Vector2.new(0, 0.5) or Vector2.new(1, 0.5),
+		Size = UDim2.fromOffset(mobileLayout and 190 or 230, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Color3.fromRGB(255, 205, 70),
+		TextColor3 = Color3.fromRGB(45, 25, 10),
+		TextSize = 15,
+		Text = mobileLayout and ("👈 " .. text) or (text .. " 👉"),
+		ZIndex = 6,
+		Visible = false,
+		Parent = menuButtons[id],
+	})
+	Theme.corner(bubble, 10)
+	Theme.pad(bubble, 8)
+	Theme.stroke(bubble, Color3.fromRGB(255, 255, 255), 2, 0)
+	bubble.Activated:Connect(menuActions[id])
+	callouts[id] = bubble
+	return bubble
+end
+
+-- Which buttons show, and which glow.
+function HUD.refreshMenus()
+	local p = App.State.profile
+	if not p then
+		return
+	end
+	syncSavedMenus(p)
+	-- position each bubble by its button's place in the menu (phones: a 2-column grid)
+	local column = 0
+	for _, id in ipairs({ "skills", "bag", "pets", "quests", "dungeons", "collection", "home", "admin" }) do
+		local b = menuButtons[id]
+		if MENU_INFO[id] then
+			b.Visible = (menuStage[id] or 0) >= 1
+		end
+		if b.Visible then
+			column += 1
+		end
+		local glowing = (menuStage[id] or 0) == 1
+		if MENU_INFO[id] and (glowing or callouts[id]) then
+			local bubble = callout(id)
+			bubble.Visible = glowing
+			if App.Windows.mobile then
+				calloutBase[id] = UDim2.new(1, column % 2 == 1 and 64 or 8, 0.5, 0)
+			else
+				calloutBase[id] = UDim2.new(0, -10, 0.5, 0)
+				menuLabels[id].Visible = not glowing
+			end
+			bubble.Position = calloutBase[id]
+			if not glowing then
+				local stroke = b:FindFirstChildOfClass("UIStroke")
+				stroke.Color, stroke.Thickness, stroke.Transparency = C.accentDark, 2, 0.2
+				b.BackgroundColor3 = C.panel2
+			end
+		end
+	end
+end
+
+-- Unlock checks that depend on where you are, and the glow itself.
+local function startMenuLoop()
+	task.spawn(function()
+		local t = 0
+		while true do
+			task.wait(0.05)
+			t += 0.05
+			local p = App.State.profile
+			if p and p.class then
+				syncSavedMenus(p)
+				if not leftTown and math.floor(t * 20) % 10 == 0 then
+					local character = localPlayer.Character
+					local r = character and character:FindFirstChild("HumanoidRootPart")
+					if r and Zones.inWorld(r.Position) and not Zones.isIn("Town", r.Position) then
+						leftTown = true
+					end
+				end
+				for id, info in pairs(MENU_INFO) do
+					local stage = menuStage[id] or 0
+					if stage == 0 and menuReady(id, p) then
+						setStage(id, 1)
+					elseif stage < 2 and info.window and App.Windows.isOpen(info.window) then
+						setStage(id, 2) -- opened with the hotkey
+					end
+				end
+			end
+			-- glowing buttons pulse gold, and their bubbles nudge toward them
+			local wave = math.sin(t * 6)
+			for i, slot in ipairs(slots) do
+				local id = abilityForSlot(i)
+				if slot.bubble and slot.bubble.Visible and id then
+					slot.stroke.Color = Color3.fromRGB(255, 215, 70)
+					slot.stroke.Thickness = 3.5 + wave * 1.5
+					slot.bubble.Position = UDim2.new(0.5, 0, 0, -10 - math.abs(wave) * 5)
+				end
+			end
+			for id, bubble in pairs(callouts) do
+				if bubble.Visible then
+					local b = menuButtons[id]
+					local stroke = b:FindFirstChildOfClass("UIStroke")
+					stroke.Color = Color3.fromRGB(255, 215, 70)
+					stroke.Thickness = 3.5 + wave * 1.5
+					stroke.Transparency = 0
+					b.BackgroundColor3 = C.panel2:Lerp(Color3.fromRGB(230, 150, 40), 0.35 + wave * 0.25)
+					local toward = App.Windows.mobile and -1 or 1 -- the bubble's side points at the button
+					bubble.Position = calloutBase[id] + UDim2.fromOffset(toward * math.abs(wave) * 6, 0)
+				end
+			end
+		end
+	end)
 end
 
 -- Round buttons at the top right, in the same row as Roblox's own top bar buttons: the Robux
@@ -675,6 +905,7 @@ function HUD.setTrackerTop(y: number)
 end
 
 function HUD.goHome()
+	HUD.menuSeen("home") -- pressing H counts as finding the button
 	task.spawn(function()
 		local ok, err = Remotes.func("TeleportHome"):InvokeServer()
 		if not ok and err then
@@ -785,9 +1016,24 @@ local function refresh()
 
 	Theme.setBadge(skillBadge, p.talentPoints)
 	Theme.setBadge(petBadge, HUD.eggsWaiting(p))
+	-- the Bag: how many new pieces of gear wait in it, or just a dot when it went straight on
+	local newGear = 0
+	for _, item in ipairs(p.inventory or {}) do
+		if item.new then
+			newGear += 1
+		end
+	end
+	Theme.setBadge(bagBadge, newGear)
+	local dot = newGear == 0 and p.bagDot == true
+	bagBadge.Size = dot and UDim2.fromOffset(16, 16) or UDim2.fromOffset(24, 24)
+	if dot then
+		bagBadge.Visible = true
+		bagBadge.Text = ""
+	end
 	menuButtons.dungeons.Visible = class ~= nil and p.level >= DungeonInfo.UNLOCK_LEVEL
 	Theme.setBadge(dungeonBadge, HUD.newDungeons(p))
 	HUD.setAdmin(p.isAdmin == true)
+	HUD.refreshMenus()
 
 	-- Remind gardeners about thirsty plants.
 	local thirsty = 0
@@ -799,9 +1045,49 @@ local function refresh()
 	gardenLabel.Visible = thirsty > 0 and not (p.robots and p.robots.water)
 	gardenLabel.Text = string.format("💧 %d plant%s thirsty at your lair!", thirsty, thirsty == 1 and " is" or "s are")
 
+	local abilityList = p.stats and p.stats.abilities
+	if abilityList then
+		local first = knownAbilities == nil
+		knownAbilities = knownAbilities or {}
+		for _, abilityId in ipairs(abilityList) do
+			if not knownAbilities[abilityId] then
+				knownAbilities[abilityId] = true
+				if not first then
+					freshAbilities[abilityId] = true
+					App.Sfx.play("Quest")
+				end
+			end
+		end
+	end
 	for i, slot in ipairs(slots) do
 		local id = abilityForSlot(i)
 		local a = id and Abilities.get(id)
+		local fresh = id ~= nil and freshAbilities[id] == true
+		if fresh and not slot.bubble then
+			slot.bubble = Theme.label({
+				Name = "NewAbility",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 0, -10),
+				Size = UDim2.fromOffset(150, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 0,
+				BackgroundColor3 = Color3.fromRGB(255, 205, 70),
+				TextColor3 = Color3.fromRGB(45, 25, 10),
+				TextSize = 14,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				ZIndex = 6,
+				Parent = slot.button,
+			})
+			Theme.corner(slot.bubble, 10)
+			Theme.pad(slot.bubble, 6)
+			Theme.stroke(slot.bubble, Color3.fromRGB(255, 255, 255), 2, 0)
+		end
+		if slot.bubble then
+			slot.bubble.Visible = fresh
+			if fresh then
+				slot.bubble.Text = string.format("<b>New!</b> %s\n%s 👇", a and a.name or id, App.Windows.mobile and "Tap it to use it" or ("Press " .. SLOT_KEYS[i]))
+			end
+		end
 		slot.icon.Text = a and a.icon or ""
 		slot.icon.TextTransparency = 0
 		slot.note.Text = ""
@@ -865,6 +1151,7 @@ function HUD.init(app)
 	end
 	buildMobile()
 	root.Enabled = false
+	startMenuLoop()
 	App.State.changed:Connect(refresh)
 	App.Waypoint.changed:Connect(function()
 		local p = App.State.profile
@@ -913,6 +1200,12 @@ function HUD.init(app)
 				slot.cdText.Text = ""
 			elseif id then
 				local remaining, total = App.Combat.getCooldown(id)
+				if remaining > 0 and freshAbilities[id] then
+					-- used it: stop the glow
+					freshAbilities[id] = nil
+					slot.stroke.Thickness = 2
+					refresh()
+				end
 				if remaining > 0.05 and total > 0 then
 					slot.cd.Size = UDim2.fromScale(1, math.clamp(remaining / total, 0, 1))
 					slot.cdText.Text = remaining >= 1 and tostring(math.ceil(remaining)) or ""

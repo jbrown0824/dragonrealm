@@ -303,11 +303,31 @@ task.spawn(function()
 	local Tutorial = mod("UI/Tutorial")
 	local panel = Windows.guis.HUD:FindFirstChild("Tutorial")
 	check(panel and panel.Visible, "tutorial shows")
+	check(panel.AnchorPoint == Vector2.new(0.5, 0.5) and panel.Position == UDim2.fromScale(0.5, 0.4), "each tour step pops up in the middle of the screen")
+	-- a new dragon has no menu buttons yet; they appear when they're useful
+	local function menuButton(icon: string)
+		return findButton(Windows.guis.HUD:FindFirstChild("Menu"), icon)
+	end
+	local function glowing(icon: string): boolean
+		local callout = menuButton(icon):FindFirstChild("Callout")
+		return callout ~= nil and callout.Visible
+	end
+	for _, icon in ipairs({ "🌟", "🎒", "🐲", "📜", "📖", "🏠" }) do
+		check(not menuButton(icon).Visible, "no " .. icon .. " menu button for a new dragon")
+	end
 	click(panel, "Let's go!")
 	task.wait(0.5)
 	local root = me.Character:FindFirstChild("HumanoidRootPart")
+	-- "Stretch your legs": stays in the middle while you stand and read, glides aside once you move
+	check(panel.AnchorPoint == Vector2.new(0.5, 0.5), "the next step pops up in the middle again")
+	task.wait(3)
+	check(panel.AnchorPoint == Vector2.new(0.5, 0.5), "... and waits there while you stand still")
+	root.CFrame = root.CFrame + Vector3.new(0, 0, 8)
+	task.wait(1)
+	check(panel.AnchorPoint == Vector2.new(0, 0) and panel.Position == UDim2.new(0, 12, 0, 132), "moving sends the tour panel to the left edge")
 	root.CFrame = root.CFrame + Vector3.new(30, 0, 0) -- walk
 	task.wait(0.5)
+	check(findButton(panel, "Skip tour") ~= nil and panel.AnchorPoint == Vector2.new(0, 0) and panel.Position == UDim2.new(0, 12, 0, 132), "a step done quickly: the next one stays at the side")
 	local Movement = mod("Controllers/Movement")
 	Movement.toggleFlight()
 	task.wait(2)
@@ -324,15 +344,45 @@ task.spawn(function()
 	-- quest from the Elder
 	tp(me, Zones.QuestGivers.Elder.position + Vector3.new(0, 5, -10))
 	task.wait(0.3)
-	local okAccept, errAccept = Remotes.func("AcceptQuest"):InvokeServer("E1")
-	check(okAccept, "accept quest: " .. tostring(errAccept))
+	Windows.open("QuestDialog", "Elder")
+	click(Windows.registry.QuestDialog.frame, "Accept")
+	task.wait(1)
+	check(State.profile.quests.active.E1 ~= nil, "accept quest from the dialog")
+	check(not Windows.isOpen("QuestDialog"), "accepting a quest closes the giver's dialog")
+	check(menuButton("📜").Visible and glowing("📜"), "the Quests button appears, glowing, with its first quest")
 	task.wait(0.5)
+	check(menuButton("🏠").Visible and glowing("🏠"), "the tour's lair step shows the Home button, glowing")
+	check(not menuButton("🎒").Visible, "no Bag yet in town")
+	mod("UI/HUD").goHome() -- what the H key does
+	task.wait(0.3)
+	check(not glowing("🏠"), "pressing H stops the Home button's glow")
 	tp(me, S.FarmService.getHomeCFrame(me).Position)
 	task.wait(0.5)
+	check(menuButton("🎒").Visible and glowing("🎒"), "walking into your lair (garden) shows the Bag")
+	-- planting: the marker points at a free spot, which glows green; clicking it opens the seed picker
+	local myPlots = workspace.Map.Bases:FindFirstChild("Base" .. State.profile.baseIndex).Plots
+	local tutMarker = me.PlayerGui:FindFirstChild("TutorialMarker")
+	local nearPlot = false
+	for _, plot in ipairs(myPlots:GetChildren()) do
+		if tutMarker and tutMarker.Enabled and (tutMarker.Adornee.WorldPosition - plot.Position).Magnitude < 10 then
+			nearPlot = true
+		end
+	end
+	check(nearPlot, "the planting step's marker sits over a planting spot")
+	local outline = myPlots.Plot1:FindFirstChild("Outline"):GetChildren()[1]
+	check(outline.Material == Enum.Material.Neon, "an empty spot glows while you have seeds")
+	myPlots.Plot1:FindFirstChildOfClass("ClickDetector").MouseClick:Fire(me)
+	task.wait(0.5)
+	check(Windows.isOpen("SeedPicker"), "clicking a planting spot opens the seed picker")
+	Windows.close()
 	check(Remotes.func("PlantSeed"):InvokeServer(1, "Emberbloom") == true, "plant from client")
 	task.wait(1)
+	-- the planting step's marker points at a free spot, and the last step has nothing to skip
 	for _ = 1, 3 do
-		local nextButton = findButton(panel, "Got it") or findButton(panel, "Cool!") or findButton(panel, "Finish tour")
+		if findButton(panel, "I'm ready!") then
+			check(not findButton(panel, "Skip tour").Visible, "the last tour step has no Skip button")
+		end
+		local nextButton = findButton(panel, "Got it") or findButton(panel, "Cool!") or findButton(panel, "I'm ready!")
 		if nextButton then
 			nextButton.Activated:Fire()
 			task.wait(0.4)
@@ -341,6 +391,66 @@ task.spawn(function()
 	task.wait(1)
 	check(State.profile.tutorial == -1, "tutorial finished (" .. tostring(State.profile.tutorial) .. ")")
 	check(not panel.Visible, "tutorial panel hidden")
+	task.wait(0.5)
+	check(menuButton("🐲").Visible and glowing("🐲"), "the tour's egg shows the Pets button, glowing")
+	menuButton("🐲"):FindFirstChild("Callout").Activated:Fire()
+	task.wait(0.3)
+	check(Windows.isOpen("Pets") and not glowing("🐲"), "clicking the speech bubble opens Pets too")
+	Windows.close()
+	check(not menuButton("🌟").Visible or State.profile.level >= 2, "no Skills button before level 2")
+	menuButton("📜").Activated:Fire()
+	task.wait(0.3)
+	check(Windows.isOpen("QuestLog") and not glowing("📜"), "clicking a glowing button opens it and stops the glow")
+	Windows.close()
+	Windows.open("Inventory") -- the hotkey way
+	task.wait(0.3)
+	check(not glowing("🎒"), "opening a window with its hotkey stops its button's glow")
+	Windows.close()
+	task.wait(0.3)
+	check(State.profile.menus.quests == 2 and State.profile.menus.bag == 2, "clicked menus are saved")
+	S.PlayerService.setLevel(me, math.max(State.profile.level, 2))
+	task.wait(0.5)
+	check(menuButton("🌟").Visible, "the Skills button appears at level 2")
+
+	-- new gear: an empty slot wears it (a dot on the Bag), a filled one waits in the Bag (a count)
+	local Items = require(__proxy("Shared/Config/Items"))
+	local sp = S.PlayerService.getProfile(me)
+	local freeSlot
+	for _, slot in ipairs(Items.Slots) do
+		if not sp.equipped[slot] then
+			freeSlot = slot
+			break
+		end
+	end
+	local function gearFor(slot)
+		for _ = 1, 300 do
+			local g = S.LootService.rollGear(sp.level, 0, nil, "Rare")
+			if g.slot == slot then
+				return g
+			end
+		end
+		return nil
+	end
+	local bagBadge = menuButton("🎒"):FindFirstChild("Badge")
+	S.PlayerService.addItem(me, gearFor(freeSlot))
+	task.wait(0.5)
+	check(State.profile.equipped[freeSlot] ~= nil, "gear for an empty slot is worn right away")
+	check(bagBadge.Visible and bagBadge.Text == "", "... and the Bag shows a dot")
+	S.PlayerService.addItem(me, gearFor(freeSlot))
+	S.PlayerService.addItem(me, gearFor(freeSlot))
+	task.wait(0.5)
+	check(bagBadge.Visible and bagBadge.Text == "2", "two new pieces of gear: a red 2 on the Bag (" .. tostring(bagBadge.Text) .. ")")
+	Windows.open("Inventory")
+	task.wait(0.5)
+	local newTags = 0
+	for _, d in ipairs(Windows.registry.Inventory.frame:GetDescendants()) do
+		if d.ClassName == "TextLabel" and d.Text == "NEW" then
+			newTags += 1
+		end
+	end
+	check(newTags == 2, "the new gear is tagged NEW in the Bag (" .. newTags .. ")")
+	check(not bagBadge.Visible, "opening the Bag clears its badge")
+	Windows.close()
 
 	-- every window
 	for _, name in ipairs({ "SkillTree", "Inventory", "QuestLog", "Help", "Potions", "Pets", "Robots", "Codes", "Store", "Collection" }) do
@@ -700,6 +810,12 @@ task.spawn(function()
 	check(State.profile.level == 30, "admin level 30 from the panel")
 	-- signature ability unlocked (level 30 now) and castable from key 1
 	check(State.profile.stats.abilities[3] == "FrostShards", "signature ability on key 1")
+	local sigSlot = Windows.guis.HUD:FindFirstChild("Slot3", true)
+	local sigBubble = sigSlot and sigSlot:FindFirstChild("NewAbility")
+	check(sigBubble ~= nil and sigBubble.Visible, "a new ability glows on the bar with a bubble")
+	mod("Controllers/Combat").cast("FrostShards")
+	task.wait(0.5)
+	check(sigBubble and not sigBubble.Visible, "using the new ability stops its glow")
 	-- skill tree: click a skill twice to learn it, Max the rest, then auto-fill a branch
 	Windows.open("SkillTree")
 	task.wait(0.2)
@@ -712,6 +828,14 @@ task.spawn(function()
 		end
 	end
 	check(tile ~= nil, "found a skill tile")
+	-- before the first point: the "Choose your path" card, and learnable skills glimmer
+	local intro = tree:FindFirstChild("ChoosePath", true)
+	check(intro ~= nil and intro.Visible, "the skill tree starts with \"Choose your path\"")
+	local glimmer = tile:FindFirstChildOfClass("UIStroke"):FindFirstChildOfClass("UIGradient")
+	check(glimmer ~= nil and glimmer.Enabled, "a learnable skill glimmers")
+	click(tree, "Let me choose!")
+	task.wait(0.2)
+	check(not intro.Visible, "the path card goes away when asked")
 	local function spent()
 		local n = 0
 		for _, r in pairs(State.profile.talents) do
@@ -753,6 +877,8 @@ task.spawn(function()
 	tile.Activated:Fire()
 	task.wait(0.5)
 	check(spent() == before + 1, "second click learns a rank")
+	local column = tile.Parent:FindFirstChildOfClass("UIStroke"):FindFirstChildOfClass("UIGradient")
+	check(column ~= nil and column.Enabled, "your chosen path's column glimmers")
 	click(tree, "Max (+2)")
 	task.wait(0.5)
 	check(spent() == before + 3, "Max learns the remaining ranks")

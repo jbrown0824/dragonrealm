@@ -19,16 +19,24 @@ local primaryButton, secondaryButton, transformButton
 local currentGiver = nil
 local logWindow, logList
 
-local function invoke(remote: string, questId: string, successText: string?)
+-- closeAfter: accepting a quest says goodbye (the quest's in the tracker); claiming a reward
+-- stays open to show what the giver has next.
+local function invoke(remote: string, questId: string, successText: string?, closeAfter: boolean?)
 	task.spawn(function()
 		local ok, err = Remotes.func(remote):InvokeServer(questId)
 		if not ok then
 			App.Windows.notify(err or "Couldn't do that.", C.bad, "📜")
 		else
+			if closeAfter then
+				App.Windows.close("QuestDialog") -- first, so the message shows as a toast
+			end
 			if successText then
 				App.Windows.notify(successText, C.accent, "📜")
 			end
 			App.Sfx.play("Quest")
+			if closeAfter then
+				return
+			end
 			-- show what this giver has next
 			task.wait(0.3)
 			if currentGiver and dialog.Visible then
@@ -84,7 +92,7 @@ function QuestUI.showDialog(giverId: string)
 		questDesc.Text = offer.desc
 		questRewards.Text = "🏆 Rewards: " .. QuestUtil.rewardText(offer)
 		setButton(primaryButton, "Accept", function()
-			invoke("AcceptQuest", offer.id, "Quest accepted: " .. offer.name)
+			invoke("AcceptQuest", offer.id, "Quest accepted: " .. offer.name, true)
 		end)
 		setButton(secondaryButton, "Not now", function()
 			App.Windows.close("QuestDialog")

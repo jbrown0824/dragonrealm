@@ -6,8 +6,12 @@
 --   * each branch has an "Auto" button that spends your points down that path
 --   * the "Keys 2-5" strip picks which learned abilities go on your action bar (Paragon points
 --     let you learn more abilities than there are keys)
+--   * before your first point a "Choose your path" card explains the three branches; skills you
+--     can learn right now have a soft glimmer running round their border, and so does the
+--     branch you've put the most points into (your path)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Classes = require(Shared.Config.Classes)
@@ -33,6 +37,9 @@ local bar = { slots = {} } -- the keys 2-5 strip and its picker
 local builtFor = nil
 local autoArmed = nil
 local busy = false
+local intro -- the "Choose your path" card
+local introDismissed = false
+local shimmers = {} -- UIGradients on borders that glimmer while enabled (rotated every frame)
 
 local STAT_ICONS = {
 	attackPct = "⚔️", healthPct = "❤️", defensePct = "🛡️", critChance = "🎯", critDamage = "💥",
@@ -49,6 +56,29 @@ local POPUP_W = 60
 local ROW_Y0, ROW_H = 58, 60
 local TILE = 50
 local GOLD = Color3.fromRGB(255, 205, 70)
+
+-- A glimmer: a gradient on a border (UIStroke) with one bright streak that runs round it. The
+-- stroke turns white while it's on, so the gradient alone sets the colors.
+local function shimmer(stroke: UIStroke): UIGradient
+	local gradient = Theme.make("UIGradient", { Enabled = false, Parent = stroke })
+	table.insert(shimmers, gradient)
+	return gradient
+end
+
+local function setShimmer(gradient: UIGradient, stroke: UIStroke, color: Color3?)
+	gradient.Enabled = color ~= nil
+	if color then
+		local bright = color:Lerp(Color3.new(1, 1, 1), 0.75)
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, color),
+			ColorSequenceKeypoint.new(0.42, color),
+			ColorSequenceKeypoint.new(0.5, bright),
+			ColorSequenceKeypoint.new(0.58, color),
+			ColorSequenceKeypoint.new(1, color),
+		})
+		stroke.Color = Color3.new(1, 1, 1)
+	end
+end
 
 local function talentIcon(talent): string
 	if talent.ability then
@@ -259,9 +289,28 @@ local function refresh()
 	resetButton.Text = string.format("Reset (%d gold)", TalentUtil.respecCost(p.level))
 	Theme.setButtonEnabled(resetButton, spent > 0)
 
+	-- your path: the branch with the most points (none before your first point)
+	local path, pathPoints = nil, 0
+	for branchIndex in ipairs(branches) do
+		local n = TalentUtil.spentInBranch(p.talents, p.class, branchIndex)
+		if n > pathPoints then
+			path, pathPoints = branchIndex, n
+		end
+	end
+	local choosing = spent == 0 and p.talentPoints > 0
+	intro.Visible = choosing and not introDismissed
 	for branchIndex, branch in ipairs(branches) do
 		local col = columns[branchIndex]
 		local inBranch = TalentUtil.spentInBranch(p.talents, p.class, branchIndex)
+		-- the chosen path glimmers gold; while choosing, every branch softly does
+		if branchIndex == path then
+			setShimmer(col.shimmer, col.stroke, GOLD)
+		elseif choosing then
+			setShimmer(col.shimmer, col.stroke, Color3.fromRGB(150, 130, 200))
+		else
+			setShimmer(col.shimmer, col.stroke, nil)
+			col.stroke.Color = C.panel3
+		end
 		col.header.Text = string.format("%s %s  <font color=\"#FFD24A\">(%d)</font>", branch.icon, branch.name, inBranch)
 		local anyLearnable = false
 		for tier = 1, 5 do
@@ -297,6 +346,7 @@ local function refresh()
 				b.icon.TextTransparency = 0.6
 			end
 			b.stroke.Thickness = selectedId == talent.id and 4 or 2
+			setShimmer(b.shimmer, b.stroke, (canLearn and rank < talent.maxRank) and C.good or nil)
 		end
 		col.auto.Visible = p.talentPoints > 0 and anyLearnable
 		col.auto.Text = autoArmed == branchIndex and "Sure?" or "⚡ Auto"
@@ -312,6 +362,7 @@ function SkillTree.build(classId: string)
 		col.frame:Destroy()
 	end
 	columns = {}
+	shimmers = { shimmers[1] } -- the intro card's glimmer (made first, in init) stays
 	local branches = Talents[classId]
 	local class = Classes.get(classId)
 	window.TitleBar_.Title.Text = "🌟 Skill Tree: " .. class.name
@@ -324,6 +375,7 @@ function SkillTree.build(classId: string)
 			Parent = content,
 		})
 		Theme.corner(frame, 10)
+		local colStroke = Theme.stroke(frame, C.panel3, 2)
 		local header = Theme.label({
 			Position = UDim2.fromOffset(10, 6),
 			Size = UDim2.new(1, -96, 0, 24),
@@ -360,7 +412,7 @@ function SkillTree.build(classId: string)
 			Text = branch.desc,
 			Parent = frame,
 		})
-		local col = { frame = frame, header = header, auto = auto, buttons = {}, tierLabels = {} }
+		local col = { frame = frame, header = header, auto = auto, buttons = {}, tierLabels = {}, stroke = colStroke, shimmer = shimmer(colStroke) }
 		for tier = 1, 5 do
 			col.tierLabels[tier] = Theme.label({
 				Position = UDim2.fromOffset(8, ROW_Y0 + (tier - 1) * ROW_H + 16),
@@ -441,7 +493,7 @@ function SkillTree.build(classId: string)
 				selectedId = talent.id
 				refresh()
 			end)
-			col.buttons[talent.id] = { button = button, stroke = stroke, icon = icon, rank = rank, pips = pips }
+			col.buttons[talent.id] = { button = button, stroke = stroke, icon = icon, rank = rank, pips = pips, shimmer = shimmer(stroke) }
 		end
 		columns[branchIndex] = col
 	end
@@ -564,6 +616,55 @@ function SkillTree.init(app)
 			learn(talent.id, talent.maxRank - (p.talents[talent.id] or 0))
 		end
 	end, { Position = UDim2.fromOffset(2, 24), Size = UDim2.new(1, -4, 0, 20), TextSize = 12, ZIndex = 21, Parent = popup.frame })
+
+	-- "Choose your path": shown over the branches until your first point (or until dismissed)
+	intro = Theme.make("Frame", {
+		Name = "ChoosePath",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(417, 200),
+		Size = UDim2.fromOffset(520, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = C.panel,
+		Visible = false,
+		ZIndex = 25,
+		Parent = content,
+	})
+	Theme.corner(intro, 12)
+	local introStroke = Theme.stroke(intro, GOLD, 3)
+	setShimmer(shimmer(introStroke), introStroke, GOLD)
+	Theme.pad(intro, 14)
+	Theme.list(intro, 8, false, Enum.HorizontalAlignment.Center)
+	Theme.label({ Size = UDim2.new(1, 0, 0, 30), Font = Theme.Fonts.title, TextSize = 26, TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 26, LayoutOrder = 1, Text = "🌟 Choose your path!", Parent = intro })
+	Theme.label({
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextSize = 15,
+		Font = Theme.Fonts.body,
+		ZIndex = 26,
+		LayoutOrder = 2,
+		Text = "Your dragon can grow down <b>three paths</b>, one per column. Every level gives you a <b>skill point</b> to learn a skill.\n\n"
+			.. "Skills that <font color=\"#6EE66E\">shimmer</font> can be learned now: click one to read it, click it again to learn it. "
+			.. "Points in one path unlock its lower rows and its big abilities, so pick the one you like and stick with it!",
+		Parent = intro,
+	})
+	Theme.button("Let me choose!", Color3.fromRGB(60, 140, 70), function()
+		introDismissed = true
+		refresh()
+	end, { Size = UDim2.fromOffset(200, 38), TextSize = 17, ZIndex = 26, LayoutOrder = 3, Parent = intro })
+
+	-- the glimmer: one bright streak running round each lit border
+	local spin = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if not window.Visible then
+			return
+		end
+		spin = (spin + dt * 120) % 360
+		for _, gradient in ipairs(shimmers) do
+			if gradient.Enabled then
+				gradient.Rotation = spin
+			end
+		end
+	end)
 
 	App.Windows.register("SkillTree", window, refresh)
 	App.State.changed:Connect(function()

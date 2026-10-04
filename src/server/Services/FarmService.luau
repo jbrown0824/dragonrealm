@@ -26,6 +26,8 @@ local BLOOM_COLOR = Color3.fromRGB(255, 150, 220)
 local OUTLINE_IDLE = Color3.fromRGB(205, 170, 105)
 local OUTLINE_LOCKED = Color3.fromRGB(110, 110, 120)
 local CARE_RANGE = 40
+local PLANTABLE = Color3.fromRGB(120, 235, 110) -- an empty plot's glow while you have seeds
+local CLICK_RANGE = 60 -- plots can also be clicked / tapped (a ClickDetector), not just E
 local WORKSHOP_RANGE = 70
 
 ---------------------------------------------------------------- plant state
@@ -454,10 +456,18 @@ local function refreshPlot(baseIndex: number, plotIndex: number)
 	local plant = profile.plots[plotIndex]
 	if not plant then
 		clearVisual(plot)
-		setOutline(plot, OUTLINE_IDLE, false)
-		gui.Title.Text = "Empty Plot " .. plotIndex
-		gui.Title.TextColor3 = Color3.fromRGB(220, 200, 160)
-		gui.Stage.Text = "Plant a seed here"
+		-- glows green while you have something to plant, so the spots are easy to find
+		local hasSeeds = false
+		for _, n in pairs(profile.seeds) do
+			if n > 0 then
+				hasSeeds = true
+				break
+			end
+		end
+		setOutline(plot, hasSeeds and PLANTABLE or OUTLINE_IDLE, hasSeeds)
+		gui.Title.Text = hasSeeds and "🌱 Plant here!" or ("Empty Plot " .. plotIndex)
+		gui.Title.TextColor3 = hasSeeds and PLANTABLE or Color3.fromRGB(220, 200, 160)
+		gui.Stage.Text = hasSeeds and "Press E here, or click the spot" or "Plant a seed here"
 		gui.Need.Text = ""
 		gui.Health.Text = ""
 		gui.Bar.Visible = false
@@ -675,6 +685,32 @@ local function onMain(player: Player, baseIndex: number, plotIndex: number)
 		else
 			S.PlayerService.notify(player, "You have no seeds! Vikings sometimes drop them, and fully grown flowers give seeds back.", Color3.fromRGB(255, 200, 120), "🌰")
 		end
+	end
+end
+
+-- Clicking (or tapping) a plot does its obvious, safe thing: plant, water, harvest a grown
+-- flower. Unlocking and harvesting early stay on the E prompt (they cost something).
+local function onClick(player: Player, baseIndex: number, plotIndex: number)
+	local base = bases[baseIndex]
+	if not base or base.owner ~= player then
+		return
+	end
+	local profile = ownerCheck(player, baseIndex, plotIndex, true)
+	if not profile then
+		S.PlayerService.notify(player, "Get a little closer to that planting spot!", Color3.fromRGB(255, 220, 140), "🌱")
+		return
+	end
+	local plant = profile.plots[plotIndex]
+	if plotIndex > profile.plotsUnlocked then
+		S.PlayerService.notify(player, "That plot is locked. Walk up to it and press E to unlock it.", Color3.fromRGB(200, 200, 210), "🔒")
+	elseif not plant then
+		onMain(player, baseIndex, plotIndex)
+	elseif plant.need == "water" and plant.stage < 4 then
+		waterPlant(player, baseIndex, plotIndex)
+	elseif plant.stage >= 4 then
+		harvest(player, baseIndex, plotIndex)
+	else
+		S.PlayerService.notify(player, Seeds.get(plant.seed).name .. " is growing happily. Come back when it blooms!", Color3.fromRGB(140, 230, 120), "🌱")
 	end
 end
 
@@ -931,6 +967,12 @@ function FarmService.init(services)
 			plot.main.Triggered:Connect(function(player)
 				onMain(player, index, i)
 			end)
+			plot.click = Instance.new("ClickDetector")
+			plot.click.MaxActivationDistance = CLICK_RANGE
+			plot.click.Parent = part
+			plot.click.MouseClick:Connect(function(player)
+				onClick(player, index, i)
+			end)
 			plot.water.Triggered:Connect(function(player)
 				waterPlant(player, index, i)
 			end)
@@ -969,8 +1011,8 @@ function FarmService.start()
 					local p = profile.plots[i]
 					if p then
 						changed = growPlant(p, 1) or changed
-						refreshPlot(index, i)
 					end
+					refreshPlot(index, i) -- empty ones too: their glow follows your seeds
 				end
 				if changed then
 					S.PlayerService.markDirty(owner)

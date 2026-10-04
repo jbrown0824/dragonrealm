@@ -31,6 +31,8 @@ local EVENTS = {
 	"FishingAction",
 	"TutorialStep",
 	"SetSetting",
+	"MenuUnlock", -- a HUD menu button appeared (1) or was clicked (2)
+	"BagSeen", -- opened the Bag: clear the "new gear" badge
 }
 
 local FUNCTIONS = {

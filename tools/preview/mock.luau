@@ -402,6 +402,7 @@ local EVENT_NAMES = {
 	CharacterAdded = true, CharacterRemoving = true, AncestryChanged = true, MouseEnter = true, MouseLeave = true, Activated = true,
 	MouseButton1Click = true, MouseButton1Down = true, FocusLost = true, Focused = true, InputBegan = true,
 	InputEnded = true, InputChanged = true, PromptGamePassPurchaseFinished = true, PromptProductPurchaseFinished = true,
+	MouseClick = true,
 }
 SIM_LOCAL_PLAYER = nil -- set by the client sim: remotes then loop back between server and client
 REMOTE_LOG = {}
@@ -432,6 +433,8 @@ function Instance.new(className)
 	elseif className == "ProximityPrompt" then
 		o._props.Enabled = true
 		o._props.HoldDuration = 0
+	elseif className == "ClickDetector" then
+		o._props.MaxActivationDistance = 32
 	elseif className == "TextButton" or className == "ImageButton" or className == "TextBox" then
 		o._props.Active = true
 		o._props.Visible = true
