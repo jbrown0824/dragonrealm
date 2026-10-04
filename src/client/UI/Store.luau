@@ -7,6 +7,11 @@
 -- The game never pops the Store open by itself. The only nudges are the Starter Pack button on
 -- the HUD (new dragons) and, when you click to buy something you can't afford, a "Get gold"
 -- button in that window's message (Store.needGold), which opens the Store at the gold packs.
+--
+-- Where paid random items are restricted (the server's `PaidRandomItems` player attribute isn't
+-- true), every `paidRandom` item (Config/Store: the eggs and every way to buy gold or egg stock)
+-- is hidden, here and wherever another window offers it (Store.available), and those players get
+-- their own Starter Pack (one pet) instead (Store.starterKey).
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -39,10 +44,26 @@ local function statText(stats): string
 	return table.concat(parts, ", ")
 end
 
+-- Can this player buy that item here? (Paid random items stay hidden until the server says yes.)
+function Store.available(kind: string, key: string): boolean
+	return StoreInfo.offered(kind, key, Players.LocalPlayer:GetAttribute("PaidRandomItems"))
+end
+
+-- Which Starter Pack this player is offered (the usual one, or the one-pet pack where paid
+-- random items are restricted), or nil when neither is for sale to them (yet).
+function Store.starterKey(): string?
+	for _, key in ipairs({ "StarterPack", "StarterPet" }) do
+		if Store.available("product", key) then
+			return key
+		end
+	end
+	return nil
+end
+
 -- Start a purchase: Roblox's prompt when the item has an id, the Studio test grant otherwise.
 function Store.buy(kind: string, key: string)
 	local info = kind == "pass" and StoreInfo.Passes[key] or StoreInfo.Products[key]
-	if not info then
+	if not info or not Store.available(kind, key) then
 		return
 	end
 	local id = kind == "pass" and info.assetId or info.productId
@@ -107,16 +128,22 @@ function Store.refresh()
 	local gold = p.goldPackAmounts or {}
 
 	local function starterSection()
-		if p.starterPack or p.level >= StoreInfo.STARTER_MAX_LEVEL then
+		local starterKey = Store.starterKey()
+		if p.starterPack or p.level >= StoreInfo.STARTER_MAX_LEVEL or not starterKey then
 			return
 		end
 		section(nextOrder(), "🎁 Just for new dragons")
-		local starter = products.StarterPack
-		local frame = card(nextOrder(), starter.icon, starter.name, starter.desc,
-			string.format("<font color=\"#FFD24A\">Right now: %s gold + everything above.</font> Only until level %d!", Util.formatNumber(gold.StarterPack or 0), StoreInfo.STARTER_MAX_LEVEL),
-			starter.robux, false, function()
-				Store.buy("product", "StarterPack")
-			end, 100)
+		local starter = products[starterKey]
+		local extra
+		if starter.pet then
+			local species = PetInfo.get(starter.pet.species)
+			extra = string.format("<font color=\"%s\">%s %s: %s.</font> Only until level %d!", Theme.colorHex(PetInfo.RarityColors[species.rarity]), species.rarity, species.name, statText(species.stats), StoreInfo.STARTER_MAX_LEVEL)
+		else
+			extra = string.format("<font color=\"#FFD24A\">Right now: %s gold + everything above.</font> Only until level %d!", Util.formatNumber(gold.StarterPack or 0), StoreInfo.STARTER_MAX_LEVEL)
+		end
+		local frame = card(nextOrder(), starter.icon, starter.name, starter.desc, extra, starter.robux, false, function()
+			Store.buy("product", starterKey)
+		end, 100)
 		frame.UIStroke.Color = Color3.fromRGB(255, 200, 80)
 		frame.UIStroke.Thickness = 3
 	end
@@ -125,7 +152,7 @@ function Store.refresh()
 	local function passCards(handy: boolean)
 		for _, key in ipairs(StoreInfo.PassOrder) do
 			local pass = StoreInfo.Passes[key]
-			if (pass.handy == true) == handy then
+			if (pass.handy == true) == handy and Store.available("pass", key) then
 				card(nextOrder(), pass.icon, pass.name .. (handy and "" or " (forever)"), pass.desc, nil, pass.robux, p.passes and p.passes[key] == true, function()
 					Store.buy("pass", key)
 				end)
@@ -135,6 +162,10 @@ function Store.refresh()
 
 	local function boostSection()
 		section(nextOrder(), "⚡ Boosts")
+		passCards(false)
+		if not Store.available("product", "GoldRush") then
+			return
+		end
 		local rush = products.GoldRush
 		local left = goldRushLeft(p)
 		local rushCard = card(nextOrder(), rush.icon, rush.name, rush.desc,
@@ -146,7 +177,6 @@ function Store.refresh()
 			rushCard.UIStroke.Color = C.gold
 			rushCard.UIStroke.Thickness = 2.5
 		end
-		passCards(false)
 	end
 
 	local function handySection()
@@ -155,6 +185,9 @@ function Store.refresh()
 	end
 
 	local function goldSection()
+		if not Store.available("product", "GoldSmall") then
+			return
+		end
 		section(nextOrder(), "💰 Gold")
 		for _, key in ipairs({ "GoldSmall", "GoldMedium", "GoldLarge" }) do
 			local product = products[key]
@@ -169,6 +202,9 @@ function Store.refresh()
 	end
 
 	local function eggSection()
+		if not Store.available("product", "MythicEgg") then
+			return
+		end
 		section(nextOrder(), "🥚 Eggs")
 		local mythic = products.MythicEgg
 		local odds = {}
@@ -196,9 +232,11 @@ function Store.refresh()
 		section(nextOrder(), "✨ Extras")
 		for _, key in ipairs({ "TreatBag", "Restock" }) do
 			local product = products[key]
-			card(nextOrder(), product.icon, product.name, product.desc, nil, product.robux, false, function()
-				Store.buy("product", key)
-			end)
+			if Store.available("product", key) then
+				card(nextOrder(), product.icon, product.name, product.desc, nil, product.robux, false, function()
+					Store.buy("product", key)
+				end)
+			end
 		end
 	end
 
@@ -227,6 +265,10 @@ function Store.needGold(cost: number)
 	if short <= 0 then
 		return
 	end
+	if not Store.available("product", "GoldSmall") then
+		App.Windows.notify(string.format("You need %s more gold.", Util.formatNumber(short)), C.gold, "💰")
+		return
+	end
 	App.Windows.notify(string.format("You need %s more gold.", Util.formatNumber(short)), C.gold, "💰", {
 		text = "💎 Get gold",
 		color = ROBUX_GREEN,
@@ -251,6 +293,12 @@ function Store.init(app)
 	App.State.changed:Connect(function()
 		if window.Visible then
 			Store.refresh()
+		end
+	end)
+	-- the server's answer about paid random items can come after the window was built
+	Players.LocalPlayer:GetAttributeChangedSignal("PaidRandomItems"):Connect(function()
+		if App.State.profile then
+			App.State.changed:Fire(App.State.profile)
 		end
 	end)
 	-- a finished purchase refreshes the window once the server has granted it

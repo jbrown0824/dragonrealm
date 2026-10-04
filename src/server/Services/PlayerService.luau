@@ -69,8 +69,9 @@ function PlayerService.markDirty(player: Player)
 	end
 end
 
-function PlayerService.notify(player: Player, text: string, color: Color3?, icon: string?)
-	Remotes.event("Notify"):FireClient(player, { text = text, color = color, icon = icon })
+-- `open`: a window the toast offers to open (e.g. "Dungeons").
+function PlayerService.notify(player: Player, text: string, color: Color3?, icon: string?, open: string?)
+	Remotes.event("Notify"):FireClient(player, { text = text, color = color, icon = icon, open = open })
 end
 
 function PlayerService.findItem(profile, itemId: string)
@@ -273,6 +274,8 @@ function PlayerService.snapshot(player: Player)
 		chestsOpened = profile.chestsOpened,
 		raidsRepelled = profile.raidsRepelled,
 		rangeLevel = profile.rangeLevel,
+		dungeons = profile.dungeons,
+		dungeonClears = profile.dungeonClears,
 		petBook = profile.petBook,
 		achievements = profile.achievements,
 		milestones = profile.milestones,
@@ -321,6 +324,10 @@ function PlayerService.getSpawnCFrame(player: Player): CFrame
 	local arenaCF = S.BossService and S.BossService.getArenaSpawn(player)
 	if arenaCF then
 		return arenaCF
+	end
+	local dungeonCF = S.DungeonService and S.DungeonService.spawnCFrame(player)
+	if dungeonCF then
+		return dungeonCF
 	end
 	local offset = Vector3.new(math.random(-14, 14), 0, math.random(-6, 10))
 	local pos = Zones.SPAWN + offset
@@ -399,8 +406,13 @@ function PlayerService.spawn(player: Player, atCFrame: CFrame?)
 		end)
 		S.BossService.onPlayerDied(player)
 		S.SurvivalService.onDied(player)
-		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
 		Remotes.event("VFX"):FireAllClients({ kind = "enemyDeath", pos = root.Position })
+		if S.DungeonService.onPlayerDied(player) then
+			-- in a dungeon you stay down until your group is out of combat (DungeonService)
+			Remotes.event("Died"):FireClient(player, -1)
+			return
+		end
+		Remotes.event("Died"):FireClient(player, Game.RESPAWN_TIME)
 		task.delay(Game.RESPAWN_TIME, function()
 			if player.Parent and player.Character == model then
 				PlayerService.spawn(player)
@@ -411,7 +423,7 @@ end
 
 ---------------------------------------------------------------- progression
 
--- Past the level cap, XP fills Paragon levels instead (small bonus each, a skill point every
+-- Past the level cap, XP fills Paragon levels instead (a bonus each, a skill point every
 -- Game.PARAGON_POINT_EVERY).
 local function gainParagon(player: Player, profile)
 	local gained = 0
@@ -424,11 +436,17 @@ local function gainParagon(player: Player, profile)
 		return
 	end
 	local points = math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) - math.floor((profile.paragon - gained) / Game.PARAGON_POINT_EVERY)
+	local st = state[player]
+	local before = st and st.stats
 	PlayerService.recompute(player)
+	local gains = ""
+	if before and st.stats then
+		gains = string.format("\n+%d health  •  +%d attack", math.floor(st.stats.maxHealth - before.maxHealth + 0.5), math.floor(st.stats.attack - before.attack + 0.5))
+	end
 	Remotes.event("Announce"):FireClient(player, {
 		title = "💫 PARAGON " .. profile.paragon .. "!",
-		text = points > 0 and string.format("+%d skill point%s! Spend %s in your skill tree (K).", points, points > 1 and "s" or "", points > 1 and "them" or "it")
-			or string.format("A little stronger. Next skill point at Paragon %d.", (math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) + 1) * Game.PARAGON_POINT_EVERY),
+		text = (points > 0 and string.format("+%d skill point%s! Spend %s in your skill tree (K).", points, points > 1 and "s" or "", points > 1 and "them" or "it")
+			or string.format("Stronger! Next skill point at Paragon %d.", (math.floor(profile.paragon / Game.PARAGON_POINT_EVERY) + 1) * Game.PARAGON_POINT_EVERY)) .. gains,
 		color = Color3.fromRGB(190, 150, 255),
 		duration = 4,
 	})
@@ -463,16 +481,22 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?): num
 	end
 
 	if profile.level > startLevel then
+		local before = st.stats
 		PlayerService.recompute(player)
 		local _, humanoid = PlayerService.getCharacter(player)
 		if humanoid then
 			humanoid.Health = humanoid.MaxHealth
 		end
 		local levels = profile.level - startLevel
+		-- what the level gave you, so it feels like one
+		local gains = ""
+		if before and st.stats then
+			gains = string.format("\n+%d health  •  +%d attack", math.floor(st.stats.maxHealth - before.maxHealth + 0.5), math.floor(st.stats.attack - before.attack + 0.5))
+		end
 		Remotes.event("Announce"):FireClient(player, {
 			title = "LEVEL UP!",
-			text = string.format("You are now level %d  •  +%d skill point%s%s", profile.level, levels, levels > 1 and "s" or "",
-				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or ""),
+			text = string.format("You are now level %d  •  +%d skill point%s%s%s", profile.level, levels, levels > 1 and "s" or "",
+				profile.level >= Game.LEVEL_CAP and "  •  Paragon levels unlocked!" or "", gains),
 			color = Color3.fromRGB(255, 215, 80),
 			duration = 4,
 		})
@@ -480,6 +504,7 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?): num
 			Remotes.event("VFX"):FireAllClients({ kind = "levelUp", character = player.Character })
 		end
 		S.QuestService.progress(player, "level", nil, profile.level, true)
+		S.DungeonService.onLevel(player, startLevel, profile.level)
 		updateLeaderstats(player)
 		local class = Classes.get(profile.class)
 		if class and class.signature and startLevel < Game.SIGNATURE_LEVEL and profile.level >= Game.SIGNATURE_LEVEL then
@@ -605,8 +630,10 @@ function PlayerService.setLevel(player: Player, level: number)
 	if not profile then
 		return
 	end
+	local old = profile.level
 	profile.level = math.clamp(math.floor(level), 1, Game.LEVEL_CAP)
 	profile.xp = 0
+	S.DungeonService.onLevel(player, old, profile.level)
 	if TalentUtil.available(profile.level, profile.talents, profile.paragon) < 0 then
 		profile.talents = {}
 	end
@@ -808,6 +835,9 @@ local function onTeleportHome(player: Player)
 	if S.BossService.isInFight(player) then
 		return false, "You can't leave a boss fight!"
 	end
+	if S.DungeonService.inRun(player) then
+		return false, "You're in a dungeon: use Leave dungeon to go back."
+	end
 	if now() < st.homeReadyAt then
 		return false, string.format("Wait %d more seconds.", math.ceil(st.homeReadyAt - now()))
 	end
@@ -835,6 +865,9 @@ local function onTeleportTo(player: Player, placeId)
 	end
 	if S.BossService.isInFight(player) then
 		return false, "You can't leave a boss fight!"
+	end
+	if S.DungeonService.inRun(player) then
+		return false, "You're in a dungeon: use Leave dungeon to go back."
 	end
 	if now() < (st.wayfinderReadyAt or 0) then
 		return false, string.format("Wait %d more seconds.", math.ceil(st.wayfinderReadyAt - now()))
@@ -925,7 +958,7 @@ function PlayerService.start()
 	-- small per-player UI preferences (only known keys, only booleans)
 	Remotes.event("SetSetting").OnServerEvent:Connect(function(player, key, value)
 		local profile = PlayerService.getProfile(player)
-		if profile and key == "minimap" and type(value) == "boolean" then
+		if profile and (key == "minimap" or key == "questGuide") and type(value) == "boolean" then
 			profile.settings[key] = value
 			PlayerService.markDirty(player)
 		end
@@ -1003,7 +1036,8 @@ function PlayerService.start()
 				local _, humanoid = PlayerService.getCharacter(player)
 				if humanoid and st.stats and humanoid.Health < humanoid.MaxHealth then
 					local perSecond = humanoid.MaxHealth * st.stats.regen / 100
-					if t - st.lastDamaged >= Game.OUT_OF_COMBAT_TIME then
+					-- (none while your dungeon group is still fighting: no hiding in a corner to heal)
+					if t - st.lastDamaged >= Game.OUT_OF_COMBAT_TIME and not S.DungeonService.inCombat(player) then
 						perSecond += humanoid.MaxHealth * Game.OUT_OF_COMBAT_REGEN
 					end
 					if perSecond > 0 then

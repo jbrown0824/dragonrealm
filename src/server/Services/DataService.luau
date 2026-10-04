@@ -74,7 +74,10 @@ local function defaultProfile()
 		-- added in the day/night update
 		raidsRepelled = 0, -- night raids on Dragon Town beaten (RaidService)
 		rangeLevel = 0, -- highest target practice level cleared (RangeService)
-		settings = { minimap = true },
+		settings = { minimap = true, questGuide = true },
+		-- added in the dungeons update
+		dungeons = { seen = 0, clears = {}, pity = {} }, -- seen: the highest dungeon level the 🏰 badge was cleared for; clears / pity by dungeon id
+		dungeonClears = 0, -- every dungeon boss beaten (the Dungeon Delver achievement)
 		-- added in the friendlier-intro update
 		menus = {}, -- [menu id from Game.MENUS] = 1 shown / 2 clicked (HUD)
 		bagDot = false, -- gear was auto-equipped since the Bag was last opened

@@ -266,7 +266,7 @@ function ShopService.start()
 				S.PlayerService.notify(player, closed, Color3.fromRGB(255, 140, 100), "🔒")
 				return
 			end
-			Remotes.event("OpenPanel"):FireClient(player, panel)
+			Remotes.event("OpenPanel"):FireClient(player, panel, prompt:GetAttribute("DungeonId"))
 		end)
 	end
 end

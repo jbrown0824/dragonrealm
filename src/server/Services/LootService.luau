@@ -10,6 +10,7 @@ local Items = require(Shared.Config.Items)
 local Seeds = require(Shared.Config.Seeds)
 local Enemies = require(Shared.Config.Enemies)
 local Pets = require(Shared.Config.Pets)
+local Dungeons = require(Shared.Config.Dungeons)
 local ItemUtil = require(Shared.ItemUtil)
 local Util = require(Shared.Util)
 
@@ -215,7 +216,8 @@ function LootService.dropForEnemy(player: Player, e, position: Vector3)
 end
 
 -- Direct rewards (quests, bosses, chests).
--- rewards: { xp, gold, gear = { rarity }, seeds = { id = n }, items = { item... }, eggs = { id = n } }
+-- rewards: { xp, gold, gear = { rarity }, seeds = { id = n }, items = { item... }, eggs = { id = n },
+--            unique = uniqueId (a relic at its dungeon's item level, or yours) }
 function LootService.grant(player: Player, rewards)
 	local profile = S.PlayerService.getProfile(player)
 	if not profile then
@@ -234,6 +236,11 @@ function LootService.grant(player: Player, rewards)
 		for _, item in ipairs(rewards.items) do
 			S.PlayerService.addItem(player, item)
 		end
+	end
+	if rewards.unique and Items.Uniques[rewards.unique] then
+		local dungeon = Items.Uniques[rewards.unique].dungeon
+		local ilvl = dungeon and Dungeons.get(dungeon).ilvl or profile.level
+		S.PlayerService.addItem(player, LootService.rollUnique(rewards.unique, ilvl))
 	end
 	if rewards.seeds then
 		for seedId, n in pairs(rewards.seeds) do

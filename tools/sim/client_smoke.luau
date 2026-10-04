@@ -22,6 +22,244 @@ local function click(root: Instance, text: string)
 	return b
 end
 
+-- Dungeons on the client: the 🏰 button at level 15 (and its badge), the unlock toast, the window,
+-- the pill (queue, run, ready check), the cave's light, the dungeon minimap and map, Haldor on his
+-- throne, the hoard opening, the low hover, the death screen's Leave, invites as a toast.
+-- (Its own function: the main scenario is out of local variables.)
+local function dungeonClientScenario(me)
+	local Lighting = game:GetService("Lighting")
+	local keys = game:GetService("UserInputService")
+	local menu = Windows.guis.HUD:FindFirstChild("Menu", true)
+	local function castleButton()
+		for _, b in ipairs(menu:GetChildren()) do
+			if b:IsA("TextButton") and b.Text == "🏰" then
+				return b
+			end
+		end
+		return nil
+	end
+	local function hasText(root: Instance, text: string): boolean
+		for _, d in ipairs(root:GetDescendants()) do
+			if (d.ClassName == "TextLabel" or d.ClassName == "TextButton") and tostring(d.Text):find(text, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	-- the quest markers of a giver (every copy of it: a dungeon keeper stands outside and inside)
+	local function markersOf(giverId: string, within: Instance?)
+		local list = {}
+		for _, child in ipairs(me.PlayerGui:GetChildren()) do
+			local model = child.Name == "QuestMarker" and child.Adornee and child.Adornee.Parent
+			if model and model:GetAttribute("GiverId") == giverId and (not within or model:IsDescendantOf(within)) then
+				table.insert(list, child:FindFirstChildOfClass("TextLabel"))
+			end
+		end
+		return list
+	end
+	Remotes.func("AdminAction"):InvokeServer("setLevel", { level = 14 })
+	task.wait(1.5)
+	check(castleButton() ~= nil and not castleButton().Visible, "no 🏰 button before level 15")
+	-- Ylva's quest wants level 15: a grey ! over her until then
+	local ylvaMark = markersOf("Ylva")[1]
+	local grey = ylvaMark and ylvaMark.TextColor3
+	check(ylvaMark and ylvaMark.Text == "!" and math.abs(grey.R - grey.B) < 0.1 and grey.R < 0.7, "a grey ! over a quest you're not high enough level for (" .. tostring(ylvaMark and ylvaMark.Text) .. ")")
+	Remotes.func("AdminAction"):InvokeServer("setLevel", { level = 15 })
+	task.wait(6) -- (the unlock news comes after the level-up banner)
+	check(castleButton() and castleButton().Visible, "the 🏰 button appears at level 15")
+	local badge = castleButton() and castleButton():FindFirstChild("Badge")
+	check(badge and badge.Visible, "...with a badge")
+	local toasts = Windows.guis.HUD:FindFirstChild("Toasts")
+	check(findButton(toasts, "Open") ~= nil, "the unlock toast has an Open button")
+	click(toasts, "Open")
+	task.wait(1.5)
+	check(Windows.isOpen("Dungeons"), "...which opens the Dungeons window")
+	check(badge and not badge.Visible, "opening the window clears the badge")
+	local win = Windows.registry.Dungeons.frame
+	local barrow, forge = win:FindFirstChild("Barrow", true), win:FindFirstChild("Forge", true)
+	check(barrow ~= nil and forge ~= nil, "both dungeons are listed")
+	check(forge and hasText(forge, "Unlocks at level 30"), "the Forge shows it's locked until 30")
+	check(barrow and hasText(barrow, "Barrow Egg"), "the Barrow card says what it drops")
+	check(hasText(win, "Your group"), "the group panel")
+
+	-- queue, then leave the queue from the pill
+	click(barrow, "Find group")
+	task.wait(1.5)
+	local pill = Windows.guis.HUD:FindFirstChild("DungeonPill")
+	check(pill and pill.Visible and tostring(pill.Title.Text):find("Draugr Barrow") ~= nil, "the pill shows the queue")
+	Windows.close("Dungeons")
+	click(pill, "X")
+	task.wait(1.5)
+	check(not pill.Visible, "leaving the queue hides the pill")
+
+	-- alone into the Barrow: the pill tracks the run, the cave is dark, the minimap says where you are
+	Windows.open("Dungeons")
+	task.wait(0.5)
+	click(win:FindFirstChild("Barrow", true), "Enter alone")
+	task.wait(2)
+	check(me:GetAttribute("InDungeon") == "Barrow", "into the Barrow from the window")
+	check(pill.Visible and tostring(pill.Title.Text):find("Packs") ~= nil, "the pill tracks the run")
+	local DungeonInfo = require(__proxy("Shared/Config/Dungeons"))
+	local DungeonBuilder = require(__proxy("Server/World/DungeonBuilder"))
+	check(Lighting.ClockTime == 0 and Lighting.Ambient == DungeonInfo.List.Barrow.theme.ambient, "the cave's own light inside (no sun)")
+	check(hasText(Windows.guis.HUD, "The Draugr Barrow"), "the minimap shows the dungeon's name")
+	-- Ylva stands inside too, with her own marker
+	local runIn = S.DungeonService.runOf(me)
+	task.wait(0.5)
+	local inner = markersOf("Ylva", runIn.built.model)[1]
+	check(inner and inner.Text ~= "", "the keeper inside the dungeon has her quest marker too (" .. tostring(inner and inner.Text) .. ")")
+	-- no waypoint to anything outside the dungeon while you're in it
+	local Waypoint = mod("Controllers/Waypoint")
+	local clientProfile = mod("Controllers/State").profile
+	clientProfile.quests.active.C1 = 0
+	check(Waypoint.questTarget("C1") == nil, "in a dungeon the quest guide never points outside it")
+	clientProfile.quests.active.C1 = nil
+	-- the minimap draws the dungeon itself, and a click on it opens the dungeon's map
+	task.wait(0.5)
+	local minimap = Windows.guis.HUD:FindFirstChild("Minimap", true)
+	local caveMap = minimap and minimap:FindFirstChild("DungeonCanvas")
+	check(caveMap and caveMap.Visible and not minimap.Canvas.Visible, "in a dungeon the minimap shows the dungeon's own map")
+	for _, b in ipairs(minimap:GetChildren()) do
+		if b.ClassName == "TextButton" and b.Text == "" then
+			b.Activated:Fire()
+		end
+	end
+	task.wait(0.5)
+	local mapWin = Windows.registry.Map.frame
+	local bigCave = mapWin:FindFirstChild("DungeonMap", true)
+	check(Windows.isOpen("Map") and bigCave and bigCave.Visible and bigCave:FindFirstChild("DungeonCanvas") ~= nil, "clicking it opens the dungeon's map, not the world's")
+	check(hasText(mapWin, "The way out") and hasText(mapWin, "Haldor"), "...with what the marks mean")
+	Windows.close()
+	-- Haldor sits on his throne (the Animator bends his legs; it only poses what's near the camera)
+	local seated = nil
+	for _, m in ipairs(CollectionService:GetTagged("Viking")) do
+		if m:GetAttribute("Pose") == "sit" then
+			seated = m
+		end
+	end
+	local cam = workspace.CurrentCamera
+	local camBefore = cam.CFrame
+	if seated then
+		local at = seated:GetPivot().Position
+		cam.CFrame = CFrame.lookAt(at + Vector3.new(0, 20, -120), at)
+	end
+	task.wait(0.3)
+	local leg = seated and seated:FindFirstChild("LegL", true)
+	cam.CFrame = camBefore
+	local knee = seated and seated:FindFirstChild("KneeL", true)
+	check(leg and math.abs(leg.Transform.LookVector.Y) > 0.5, "Haldor sits on his throne, legs bent")
+	check(knee and math.abs(knee.Transform.LookVector.Y) > 0.5, "...at the knee, shins down")
+	-- on one knee (a second life's collapse): the right shin flat behind, the left foot forward
+	if seated then
+		local at = seated:GetPivot().Position
+		cam.CFrame = CFrame.lookAt(at + Vector3.new(0, 20, -120), at)
+		seated:SetAttribute("Pose", "kneel")
+		task.wait(0.3)
+		local kneeR, legL = seated:FindFirstChild("KneeR", true), seated:FindFirstChild("LegL", true)
+		check(kneeR and legL and math.abs(kneeR.Transform.LookVector.Y) > 0.9 and legL.Transform.LookVector.Y > 0.9, "kneeling: one knee down, the other foot forward")
+		seated:SetAttribute("Pose", "sit")
+		task.wait(0.2)
+		cam.CFrame = camBefore
+	end
+	-- the hidden hoard: a chest that shows open (and no prompt) once you've had your share
+	local run = S.DungeonService.runOf(me)
+	local hoardPrompt = run.built.chest:FindFirstChildWhichIsA("ProximityPrompt", true)
+	check(hasText(me.PlayerGui, "Hidden hoard") and hoardPrompt.Enabled, "the hidden hoard, shut")
+	hoardPrompt.Triggered:Fire(me)
+	task.wait(1)
+	check(hasText(me.PlayerGui, "Looted") and not hoardPrompt.Enabled, "...and open once you've looted it")
+	-- wings only lift you a little in here: above that, flight eases you back down
+	local Movement = mod("Controllers/Movement")
+	local r = me.Character.HumanoidRootPart
+	local hover = me.Character:FindFirstChildOfClass("Humanoid")
+	Movement.toggleFlight()
+	Movement.setVertical(1)
+	local floorY = DungeonBuilder.floorAt(r.Position, 0.5).Y
+	r.CFrame = CFrame.new(r.Position.X, floorY + hover.HipHeight + r.Size.Y / 2 + DungeonInfo.HOVER_HEIGHT + 8, r.Position.Z)
+	task.wait(0.3)
+	local lv = r:FindFirstChildOfClass("LinearVelocity")
+	check(lv and lv.VectorVelocity.Y < -1, "flying too high in a dungeon pulls you back down")
+	-- once its boss is down, the cave is yours to fly
+	me:SetAttribute("DungeonCleared", true)
+	task.wait(0.3)
+	check(lv and lv.VectorVelocity.Y > 1, "...but full flight comes back once the dungeon is cleared")
+	me:SetAttribute("DungeonCleared", nil)
+	Movement.setVertical(0)
+	Movement.toggleFlight()
+	-- hooked by a harpoon: dragged along to the boss
+	Movement.reel(r.Position + Vector3.new(30, 0, 0), 0.5)
+	task.wait(0.1)
+	local lv2 = r:FindFirstChildOfClass("LinearVelocity")
+	check(lv2 and lv2.Enabled and lv2.VectorVelocity.X > 20, "reeled in by a harpoon: dragged toward the boss")
+	task.wait(0.6)
+	check(not lv2.Enabled, "...and let go at the end")
+	-- knocked out alone: the death screen offers a way out
+	local _, hum = S.PlayerService.getCharacter(me)
+	hum.Health = 0
+	task.wait(0.6)
+	local death = Windows.guis.Overlay:FindFirstChild("Death")
+	check(death and death.Visible and death.Leave.Visible, "knocked out in a dungeon: the death screen has Leave dungeon")
+	click(death, "Leave dungeon")
+	task.wait(1.5)
+	check(me:GetAttribute("InDungeon") == nil and me.Character ~= nil, "Leave dungeon takes you back out")
+	check(not death.Visible, "...and clears the death screen")
+
+	-- the quest guide: pick the quest it's following to turn it off (remembered), and back on
+	local sp = S.PlayerService.getProfile(me)
+	sp.quests.active.C1 = 0
+	clientProfile = mod("Controllers/State").profile
+	clientProfile.quests.active.C1 = 0
+	Waypoint.trackQuest("C1")
+	task.wait(0.3)
+	check(Waypoint.get() ~= nil and Waypoint.get().questId == "C1", "the guide follows a quest you pick")
+	Waypoint.trackQuest("C1")
+	task.wait(0.5)
+	check(not Waypoint.guiding() and Waypoint.get() == nil and sp.settings.questGuide == false, "picking it again turns the quest guide off (and it's remembered)")
+	Windows.open("Map")
+	task.wait(0.3)
+	check(hasText(Windows.registry.Map.frame, "Guide me to my quests"), "the map offers to turn it back on")
+	click(Windows.registry.Map.frame, "Guide me to my quests")
+	task.wait(0.5)
+	check(Waypoint.guiding() and sp.settings.questGuide == true, "...and it's back on")
+	Windows.close()
+	sp.quests.active.C1 = nil
+	mod("Controllers/State").profile.quests.active.C1 = nil
+
+	-- a friend invites you: a toast with Join; their ready check shows Enter on the pill
+	local buddy = addPlayer(301, "Pal")
+	task.wait(1)
+	invoke("ChooseClass", buddy, "Behemoth")
+	S.PlayerService.setLevel(buddy, 20)
+	task.wait(1)
+	check(invoke("DungeonAction", buddy, "invite", { userId = me.UserId }), "a friend invites you")
+	task.wait(0.5)
+	check(findButton(toasts, "Join") ~= nil, "the invite shows as a toast with Join")
+	click(toasts, "Join")
+	task.wait(1)
+	check(S.DungeonService.groupOf(me) ~= nil and S.DungeonService.groupOf(me) == S.DungeonService.groupOf(buddy), "Join puts you in their group")
+	check(invoke("DungeonAction", buddy, "enter", { dungeonId = "Barrow" }), "the leader takes the group in")
+	task.wait(1.2)
+	local enter = findButton(pill, "Enter")
+	check(pill.Visible and enter ~= nil and enter.Visible, "a ready check: Enter on the pill")
+	click(pill, "Enter")
+	task.wait(1.5)
+	check(me:GetAttribute("InDungeon") == "Barrow" and buddy:GetAttribute("InDungeon") == "Barrow", "Enter takes you both in")
+	click(pill, "Leave")
+	task.wait(1)
+	check(me:GetAttribute("InDungeon") == nil, "Leave on the pill")
+	invoke("DungeonAction", buddy, "leaveRun")
+	invoke("DungeonAction", me, "leaveGroup")
+	buddy.Parent = nil
+	Players.PlayerRemoving:Fire(buddy)
+	-- I opens the window
+	Windows.close()
+	keys.InputBegan:Fire({ KeyCode = Enum.KeyCode.I, UserInputType = Enum.UserInputType.Keyboard }, false)
+	task.wait(0.3)
+	check(Windows.isOpen("Dungeons"), "I opens the Dungeons window")
+	Windows.close()
+	task.wait(0.5)
+end
+
 local UIS
 task.spawn(function()
 	task.wait(2)
@@ -230,7 +468,66 @@ task.spawn(function()
 	Windows.open("Store")
 	mod("UI/Store").buy("product", "TreatBag")
 	task.wait(1)
-	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Studio test)")
+	check((State.profile.treats or 0) >= treatsBefore + 40, "store purchase from the client (Roblox's prompt, then ProcessReceipt)")
+	check(table.find(S.PlayerService.getProfile(me).receipts, "mock-receipt-1") ~= nil, "... and the receipt is remembered")
+	-- where paid random items are restricted: no eggs, gold or restocks for Robux anywhere
+	local function shows(root: Instance, text: string): boolean
+		for _, d in ipairs(root:GetDescendants()) do
+			if (d.ClassName == "TextLabel" or d.ClassName == "TextButton") and tostring(d.Text):find(text, 1, true) then
+				local shown, node = true, d
+				while node and node ~= root do
+					shown = shown and node.Visible ~= false
+					node = node.Parent
+				end
+				if shown then
+					return true
+				end
+			end
+		end
+		return false
+	end
+	local storeFrame = Windows.registry.Store.frame
+	check(me:GetAttribute("PaidRandomItems") == true and shows(storeFrame, "Mythic Egg") and shows(storeFrame, "Pouch of Gold"), "the Store sells eggs and gold where that's allowed")
+	me:SetAttribute("MockPaidRandomRestricted", true)
+	S.StoreService.checkPolicy(me)
+	task.wait(0.3)
+	check(not shows(storeFrame, "Mythic Egg") and not shows(storeFrame, "Secret Egg") and not shows(storeFrame, "Pouch of Gold") and not shows(storeFrame, "Gold Rush")
+		and not shows(storeFrame, "Restock") and not shows(storeFrame, "2x Gold") and not shows(storeFrame, "Storm Eggs"), "restricted: no eggs, gold, boosts to gold or restocks in the Store")
+	check(shows(storeFrame, "Bag of Treats") and shows(storeFrame, "2x XP"), "restricted: the rest of the Store is still there")
+	check(not shows(Windows.guis.HUD, "Gold Rush"), "restricted: no Gold Rush offer on the HUD")
+	check(mod("UI/Store").starterKey() == "StarterPet", "restricted: the one-pet Starter Pack is the one offered")
+	local meProfile = S.PlayerService.getProfile(me)
+	local starterKeep, levelKeep = meProfile.starterPack, meProfile.level
+	meProfile.starterPack, meProfile.level = false, 3
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	Windows.open("Store")
+	check(shows(storeFrame, "Thunderhatch") and not shows(storeFrame, "Storm Eggs"), "restricted: the Store's Starter Pack is the pet one")
+	check(shows(Windows.guis.HUD, "Starter Pack"), "restricted: the HUD offers that Starter Pack")
+	meProfile.starterPack, meProfile.level = starterKeep, levelKeep
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Pets").open("Eggs")
+	task.wait(0.2)
+	local petsFrame = Windows.registry.Pets.frame
+	check(not shows(petsFrame, "Restock now"), "restricted: no Restock button in the Eggs tab")
+	check(not shows(petsFrame, "Buy one"), "restricted: no Robux egg buttons in the Eggs tab")
+	check(shows(petsFrame, "Find one free on champions"), "restricted: the Mythic Egg says where to find one free")
+	local goldKeep = S.PlayerService.getProfile(me).gold
+	S.PlayerService.getProfile(me).gold = 0
+	S.PlayerService.markDirty(me)
+	task.wait(0.5)
+	mod("UI/Store").needGold(1000)
+	local restrictedBanner = petsFrame:FindFirstChild("StatusBanner")
+	check(restrictedBanner and restrictedBanner.Visible and not restrictedBanner.Action.Visible, "restricted: needing gold doesn't offer gold for Robux")
+	S.PlayerService.getProfile(me).gold = goldKeep
+	S.PlayerService.markDirty(me)
+	me:SetAttribute("MockPaidRandomRestricted", nil)
+	S.StoreService.checkPolicy(me)
+	task.wait(0.3)
+	Windows.open("Store")
+	check(shows(storeFrame, "Mythic Egg"), "the eggs come back when the policy allows them")
+	check(mod("UI/Store").starterKey() == "StarterPack", "... and the usual Starter Pack with them")
 	Windows.open("SkillTree")
 	local keySlot = Windows.registry.SkillTree.frame:FindFirstChild("KeySlot1", true)
 	check(keySlot ~= nil, "skill tree has the keys 2-5 strip")
@@ -378,6 +675,36 @@ task.spawn(function()
 		check(sparkly, "the golden pet sparkles")
 		mod("UI/Pets").refresh()
 		Windows.close("Pets")
+		-- in a boss fight the pets' nametags hide
+		me:SetAttribute("InBossFight", true)
+		task.wait(0.3)
+		local shown = 0
+		for _, m in ipairs(petFolder:GetChildren()) do
+			local tag = m.PrimaryPart and m.PrimaryPart:FindFirstChild("PetTag")
+			if tag and tag.Enabled then
+				shown += 1
+			end
+		end
+		check(shown == 0, "in a boss fight the pets' nametags hide")
+		me:SetAttribute("InBossFight", false)
+		-- knocked out: your pets settle on the ground beside you instead of flapping over you
+		local character = me.Character
+		local root = character.HumanoidRootPart
+		character:SetAttribute("KnockedOut", true)
+		task.wait(1)
+		local mine, low = 0, 0
+		for _, m in ipairs(petFolder:GetChildren()) do
+			local p = m.PrimaryPart and m.PrimaryPart.Position
+			if p and (Vector3.new(p.X, 0, p.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude < 25 then
+				mine += 1
+				if p.Y < root.Position.Y then
+					low += 1
+				end
+			end
+		end
+		check(mine >= 1 and low == mine, string.format("a knocked-out dragon's pets settle beside it (%d/%d)", low, mine))
+		character:SetAttribute("KnockedOut", nil)
+		task.wait(0.5)
 	end
 
 	-- camp chests are per dragon: the lid, treasure and prompt follow MY timer
@@ -471,7 +798,7 @@ task.spawn(function()
 	local codes = Windows.registry.Codes.frame
 	for _, d in ipairs(codes:GetDescendants()) do
 		if d.ClassName == "TextBox" then
-			d.Text = "DRAGONLORD"
+			d.Text = ADMIN_CODE
 		end
 	end
 	click(codes, "Redeem")
@@ -709,6 +1036,7 @@ task.spawn(function()
 
 	-- a night raid: the bar, the longships, then a lost raid closes the shops
 	local Raids = require(__proxy("Shared/Config/Raids"))
+	tp(me, S.FarmService.getHomeCFrame(me).Position) -- (away from the water: during a raid it'd scoop some up)
 	Remotes.func("AdminAction"):InvokeServer("raidNow")
 	task.wait(1)
 	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
@@ -726,6 +1054,37 @@ task.spawn(function()
 	end
 	task.wait(0.4)
 	check(raidBar.Visible and not raidPill.Visible, "the pill opens the raid bar again")
+	-- the vikings on deck cheer with their axes up (the Animator)
+	local deckViking = S.RaidService.aboard()[1]
+	local armR = deckViking and deckViking.model:FindFirstChild("ArmR", true)
+	if deckViking then
+		tp(me, deckViking.root.Position + Vector3.new(0, 30, -60)) -- (the Animator only poses what's near the camera)
+	end
+	task.wait(0.3)
+	if armR and armR:IsA("Motor6D") then
+		local up = armR.Transform.UpVector
+		local x = math.atan2(up.Z, up.Y) -- the arm's swing about its shoulder
+		check(x > 1.5, "the vikings on deck cheer (arm " .. string.format("%.2f", x) .. ")")
+	else
+		check(false, "a viking on deck with an arm to wave")
+	end
+	tp(me, S.FarmService.getHomeCFrame(me).Position)
+	-- a house on fire: the water chip says where to get water, then how much you carry
+	Remotes.func("AdminAction"):InvokeServer("burnHouse")
+	task.wait(0.6)
+	local chip = Windows.guis.HUD:FindFirstChild("WaterChip")
+	check(chip and chip.Visible and chip.Text:find("on fire") ~= nil, "a burning house shows the water hint (" .. tostring(chip and chip.Text) .. ")")
+	local well = workspace.Map.Town:FindFirstChild("Well1")
+	check(well and well:FindFirstChild("WellTag", true).Enabled, "the wells light up \"Water\" while a house burns")
+	tp(me, Zones.Wells[1] + Vector3.new(4, 4, 0))
+	task.wait(0.6)
+	check(chip.Visible and chip.Text:find("Hover over") ~= nil and chip.Gauge.Visible and chip.Gauge.Fill.Size.X.Scale == 1, "scooped water shows on the chip, gauge full (" .. chip.Text .. ")")
+	tp(me, Zones.Houses[1].pos + Vector3.new(0, 30, 0))
+	task.wait(0.6)
+	check(chip.Text:find("Pouring") ~= nil and workspace.Map.Town.House1:GetAttribute("Fire") == "burning", "hovering over the fire pours (" .. chip.Text .. ")")
+	task.wait(Raids.DOUSE_TIME)
+	local gaugeLeft = chip.Gauge.Fill.Size.X.Scale
+	check(workspace.Map.Town.House1:GetAttribute("Fire") == nil and gaugeLeft < 1 and gaugeLeft > 0, "the fire's out and the gauge went down (" .. string.format("%.2f", gaugeLeft) .. ")")
 	task.wait(Raids.WARNING + 3)
 	check(workspace:GetAttribute("RaidPhase") == "fighting", "the raiders landed")
 	-- a knocked-out villager sprawls on the ground (the Animator poses it)
@@ -736,10 +1095,14 @@ task.spawn(function()
 	task.wait(0.5)
 	check(villager.model:GetAttribute("KnockedOut") == true, "a villager is knocked out")
 	-- the quest givers show crossed swords while they fight, and their quests again afterwards
+	local QuestsInfo = require(__proxy("Shared/Config/Quests"))
 	local function markerTexts(): { [string]: number }
+		-- (the village's givers: the dungeon keepers don't fight raids, so they keep their ❗)
 		local texts = {}
 		for _, child in ipairs(me.PlayerGui:GetChildren()) do
-			if child.Name == "QuestMarker" then
+			local model = child.Name == "QuestMarker" and child.Adornee and child.Adornee.Parent
+			local giver = model and QuestsInfo.Givers[model:GetAttribute("GiverId") or ""]
+			if child.Name == "QuestMarker" and not (giver and giver.dungeon) then
 				local label = child:FindFirstChildOfClass("TextLabel")
 				texts[label.Text] = (texts[label.Text] or 0) + 1
 			end
@@ -751,6 +1114,7 @@ task.spawn(function()
 	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
 	task.wait(0.5)
 	check(markerTexts()["⚔️"] == nil, "the swords go away after the raid")
+	check(not chip.Visible, "the water chip goes away with the raid")
 	check(raidBar.Visible and workspace:GetAttribute("ShopsClosedUntil") ~= nil, "the shops-closed countdown shows")
 	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
 	Remotes.func("AdminAction"):InvokeServer("rebuildHouses")
@@ -816,6 +1180,8 @@ task.spawn(function()
 	task.wait(0.3)
 	Remotes.func("RangeAction"):InvokeServer("stop")
 	task.wait(0.3)
+
+	dungeonClientScenario(me)
 
 	-- eat with G, go home with H, pets with P
 	UIS = game:GetService("UserInputService")

@@ -1,5 +1,6 @@
 -- Tracks which area each dragon is in: shows zone names, flags the Battle Zone for PvP,
--- keeps flyers inside the map, and keeps non-participants out of the Boss Arena.
+-- keeps flyers inside the map, and keeps non-participants out of the Boss Arena. Dragons in a
+-- dungeon run are off the map on purpose (DungeonService keeps them inside their cave).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,6 +26,17 @@ local function check(player: Player)
 	end
 	local pos = root.Position
 	local fighting = S.BossService.isInFight(player)
+	local dungeon = player:GetAttribute("InDungeon")
+	if dungeon then
+		local id = "Dungeon:" .. dungeon
+		if st.zoneId ~= id then
+			st.zoneId = id
+			player:SetAttribute("InBattleZone", false)
+			character:SetAttribute("InBattleZone", false)
+			Remotes.event("ZoneChanged"):FireClient(player, id)
+		end
+		return
+	end
 
 	if fighting then
 		if not inArena(pos) then

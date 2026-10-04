@@ -5,9 +5,10 @@
 --            products (test grants), potions, hunger, god mode, teleports...
 --            for yourself or any player you pick at the top
 --   World:   start a boss, respawn camps, refill chests, restock or close the shops, set the
---            time of day, start or end a night raid, burn and rebuild houses
---   Balance: live multipliers for ability damage/cooldowns, skill values and global rates,
---            plus "Print changes" to copy the new numbers into the Config files
+--            time of day, start or end a night raid, burn and rebuild houses, jump into a dungeon
+--   Balance: live multipliers for ability damage/cooldowns, skill values, global rates, the
+--            lifesteal / regen caps, the level gap and each dungeon, plus "Print changes" to copy the new
+--            numbers into the Config files
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,8 +23,10 @@ local Pets = require(Shared.Config.Pets)
 local Skins = require(Shared.Config.Skins)
 local Collections = require(Shared.Config.Collections)
 local StoreInfo = require(Shared.Config.Store)
+local Dungeons = require(Shared.Config.Dungeons)
 local Zones = require(Shared.Config.Zones)
 local Tuning = require(Shared.Tuning)
+local StatCalc = require(Shared.StatCalc)
 local TalentUtil = require(Shared.TalentUtil)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
@@ -371,6 +374,16 @@ local function buildWorldPage(page: Instance)
 	button(raidRow, "Rebuild houses", nil, function()
 		act("rebuildHouses")
 	end)
+	local dungeonRow = section(scroll, 6, "🏰 Dungeons (for the dragon picked at the top: alone, any level)")
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		button(dungeonRow, "Enter " .. def.name:gsub("^The ", ""), def.color:Lerp(Color3.new(0, 0, 0), 0.55), function()
+			act("enterDungeon", { dungeonId = id })
+		end)
+	end
+	button(dungeonRow, "Reset clears & pity", Color3.fromRGB(120, 50, 60), function()
+		act("dungeonReset")
+	end)
 end
 
 ---------------------------------------------------------------- Balance page
@@ -412,6 +425,51 @@ function Admin.refreshBalance()
 		stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS[key], Tuning.global(key), "", function(v)
 			act("tuneGlobal", { key = key, value = v }, true)
 		end)
+	end
+
+	header(balanceList, nextOrder(), "❤️ Lifesteal & regen caps")
+	local capBase = { lifestealCap = Game.LIFESTEAL_CAP, regenCap = Game.REGEN_CAP, extraLifestealCap = Game.EXTRA_LIFESTEAL_CAP, extraRegenCap = Game.EXTRA_REGEN_CAP }
+	for _, key in ipairs(Tuning.CAP_KEYS) do
+		local v = Tuning.global(key)
+		stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS[key], v, string.format("%s%% → %s%%%s", Util.fmt(capBase[key]), Util.fmt(Util.round(capBase[key] * v, 2)), key:find("egen") and " of max health /s" or ""), function(x)
+			act("tuneGlobal", { key = key, value = x }, true)
+		end)
+	end
+
+	header(balanceList, nextOrder(), "📶 Level gap (damage vs lower / higher levels)")
+	local gapField = { levelGapLinear = "linear", levelGapCurve = "curve", levelGapCap = "cap" }
+	for _, key in ipairs(Tuning.LEVEL_GAP_KEYS) do
+		local examples = {}
+		for _, d in ipairs({ 2, 5, 10, 15 }) do
+			table.insert(examples, string.format("+%d: x%s", d, Util.fmt(Util.round(StatCalc.levelGap(d), 2))))
+		end
+		stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS[key], Tuning.global(key), string.format("%s = %s  (%s)", gapField[key], Util.fmt(Util.round(Game.LEVEL_GAP[gapField[key]] * Tuning.global(key), 4)), table.concat(examples, ", ")), function(x)
+			act("tuneGlobal", { key = key, value = x }, true)
+		end)
+	end
+
+	header(balanceList, nextOrder(), "🏰 Dungeons (new runs use these)")
+	local scaling = Tuning.global("groupScaling")
+	local parts = {}
+	for n = 1, 3 do
+		table.insert(parts, string.format("%d: x%s", n, Util.fmt(Util.round(math.max(0.1, 1 - (1 - Dungeons.GROUP_HEALTH[n]) * scaling), 2))))
+	end
+	stepper(balanceList, nextOrder(), Tuning.GLOBAL_LABELS.groupScaling, scaling, "health for groups of " .. table.concat(parts, ", "), function(x)
+		act("tuneGlobal", { key = "groupScaling", value = x }, true)
+	end)
+	for _, id in ipairs(Dungeons.Order) do
+		local def = Dungeons.List[id]
+		for _, key in ipairs(Tuning.DUNGEON_KEYS) do
+			local detail = ""
+			if key == "bossHp" then
+				detail = string.format("%s %s HP (for 4)", def.icon, Util.formatNumber(Dungeons.Bosses[def.boss.id].health * Tuning.dungeon(id, key)))
+			elseif key == "loot" then
+				detail = string.format("relic %s%%, egg %s%%", Util.fmt(Dungeons.UNIQUE_CHANCE * 100 * Tuning.dungeon(id, key)), Util.fmt(Dungeons.EGG_CHANCE * 100 * Tuning.dungeon(id, key)))
+			end
+			stepper(balanceList, nextOrder(), def.icon .. " " .. def.name:gsub("^The ", "") .. ": " .. Tuning.DUNGEON_LABELS[key], Tuning.dungeon(id, key), detail, function(x)
+				act("tuneDungeon", { dungeonId = id, key = key, value = x }, true)
+			end)
+		end
 	end
 
 	local p = App.State.profile

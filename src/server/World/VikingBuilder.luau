@@ -11,10 +11,12 @@ local LEATHER = Color3.fromRGB(95, 60, 35)
 local WOOD = Color3.fromRGB(120, 80, 45)
 local GOLD = Color3.fromRGB(255, 200, 60)
 
--- look: { shirt, pants, beard, hair?, weapon, shield, bigShield?, cape?, crown?, warpaint?, quiver?, glow? }
+-- look: { shirt, pants, beard, hair?, weapon, shield, bigShield?, cape?, crown?, warpaint?, quiver?, glow?,
+--         skin? (face and hands: pale for the draugr), eyes? (glowing eyes instead of dark ones) }
 -- Returns model, hipHeight
 function VikingBuilder.build(look, scale: number, name: string)
 	local s = scale
+	local skin = look.skin or SKIN
 	local model = Instance.new("Model")
 	model.Name = name
 
@@ -124,12 +126,16 @@ function VikingBuilder.build(look, scale: number, name: string)
 		-- fur collar
 		ellipsoid(V(2.3, 0.6, 1.3), V(0, 0.95, 0), Color3.fromRGB(110, 90, 70))
 
-		local head = mesh(part("Part", V(1.25, 1.25, 1.25), CFrame.new(V(0, 1.65, 0)), SKIN), Enum.MeshType.Head)
+		local head = mesh(part("Part", V(1.25, 1.25, 1.25), CFrame.new(V(0, 1.65, 0)), skin), Enum.MeshType.Head)
 		head.Name = "Head"
 		for _, x in ipairs({ -0.22, 0.22 }) do
-			part("Part", V(0.14, 0.18, 0.05), CFrame.new(V(x, 1.78, -0.6)), Color3.fromRGB(25, 25, 25))
+			if look.eyes then
+				part("Part", V(0.18, 0.14, 0.06), CFrame.new(V(x, 1.78, -0.61)), look.eyes, Enum.Material.Neon)
+			else
+				part("Part", V(0.14, 0.18, 0.05), CFrame.new(V(x, 1.78, -0.6)), Color3.fromRGB(25, 25, 25))
+			end
 		end
-		part("Part", V(0.2, 0.25, 0.2), CFrame.new(V(0, 1.6, -0.66)), Color3.fromRGB(220, 160, 130))
+		part("Part", V(0.2, 0.25, 0.2), CFrame.new(V(0, 1.6, -0.66)), look.skin and skin:Lerp(Color3.new(0, 0, 0), 0.15) or Color3.fromRGB(220, 160, 130))
 
 		if look.beard then
 			ellipsoid(V(1.15, 1.05, 0.55), V(0, 1.2, -0.52), look.beard)
@@ -184,25 +190,48 @@ function VikingBuilder.build(look, scale: number, name: string)
 		arm.Name = side > 0 and "RightArm" or "LeftArm"
 		arms[side] = arm
 		weldAll(arm, collect(function()
-			ellipsoid(V(0.75, 0.75, 0.75), V(1.42 * side, -1.05, 0), SKIN)
+			ellipsoid(V(0.75, 0.75, 0.8), V(1.42 * side, -1.08, -0.32), skin)
 			part("Part", V(0.85, 0.35, 0.9), CFrame.new(V(1.42 * side, -0.6, 0)), LEATHER)
 		end))
 		motor(side > 0 and "ArmR" or "ArmL", torso, arm, CFrame.new(V(1.42 * side, 0.8, 0)))
 	end
 
-	-- Weapons in the right hand (and left for twin axes)
-	local function axe(side: number, big: boolean)
-		local hand = V(1.42 * side, -1.1, 0)
-		local len = big and 4.4 or 2.6
-		local top = hand + V(0, len * 0.55, -0.9)
-		local bottom = hand + V(0, -len * 0.35, 0.5)
-		cylinder(bottom, top, 0.26 * s, WOOD)
-		local bladeCF = CFrame.lookAt(top, top + (top - bottom).Unit)
-		local bladeSize = big and V(0.18, 1.8, 1.6) or V(0.14, 1.05, 0.9)
-		part("Part", bladeSize, bladeCF * CFrame.new(0, -0.5 * s, 0.35 * s), METAL, Enum.Material.Metal)
-		if big then
-			part("Part", bladeSize, bladeCF * CFrame.new(0, 0.5 * s, 0.35 * s), METAL, Enum.Material.Metal)
+	-- Weapons in the right hand (and left for twin axes). The haft goes through the fist, in front
+	-- of the arm (never through it), leaning forward a little.
+	local EDGE = Color3.fromRGB(215, 222, 232)
+	local function haft(side: number, dir: Vector3, below: number, above: number, thick: number)
+		local grip = V(1.42 * side, -1.1, -0.62)
+		local u = dir.Unit
+		local top = grip + u * (above * s)
+		cylinder(grip - u * (below * s), top, thick * s, WOOD)
+		cylinder(grip - u * (0.28 * s), grip + u * (0.28 * s), (thick + 0.1) * s, LEATHER) -- (the grip wrap)
+		local fwd = Vector3.new(0, 0, -1)
+		local f = (fwd - u * u:Dot(fwd)).Unit -- toward the enemy, square to the haft
+		return top, u, f
+	end
+	-- A bearded axe head: a blade flaring forward and hanging low at the edge, a bright cutting
+	-- edge, the socket round the haft (and a back spike on a great axe).
+	local function axeHead(top: Vector3, u: Vector3, f: Vector3, big: boolean)
+		local w = u:Cross(f)
+		local reach = big and 1.8 or 1.0
+		local tall = big and 2.4 or 1.35
+		local thick = big and 0.16 or 0.12
+		local slices = 4
+		for k = 1, slices do
+			local a = (k - 0.5) / slices
+			local h = 0.55 + (tall - 0.55) * a ^ 1.4
+			local center = top + f * (reach * a * s) - u * (tall * 0.26 * a * s)
+			part("Part", V(thick, h, reach / slices + 0.04), CFrame.fromMatrix(center, w, u), METAL, Enum.Material.Metal)
 		end
+		part("Part", V(thick + 0.03, tall * 0.96, 0.14), CFrame.fromMatrix(top + f * (reach * s) - u * (tall * 0.26 * s), w, u), EDGE, Enum.Material.Metal)
+		part("Part", V(0.36, 0.62, 0.42), CFrame.fromMatrix(top, w, u), DARK_METAL, Enum.Material.Metal)
+		if big then
+			part("Part", V(0.22, 0.32, 0.75), CFrame.fromMatrix(top - f * (0.5 * s), w, u), DARK_METAL, Enum.Material.Metal)
+		end
+	end
+	local function axe(side: number, big: boolean)
+		local top, u, f = haft(side, Vector3.new(0, 1, big and -0.3 or -0.36), big and 1.5 or 0.8, big and 3.4 or 1.9, big and 0.3 or 0.26)
+		axeHead(top, u, f, big)
 	end
 
 	for _, side in ipairs({ -1, 1 }) do
@@ -214,24 +243,25 @@ function VikingBuilder.build(look, scale: number, name: string)
 				elseif weapon == "greatAxe" then
 					axe(1, true)
 				elseif weapon == "hammer" then
-					local hand = V(1.42, -1.1, 0)
-					local top = hand + V(0, 1.6, -0.7)
-					cylinder(hand + V(0, -0.8, 0.3), top, 0.28 * s, WOOD)
-					part("Part", V(1.1, 0.75, 0.75), CFrame.lookAt(top, top + Vector3.new(0, 1, -0.4)), DARK_METAL, Enum.Material.Metal)
+					-- a war hammer: a long iron head across the haft, with bands
+					local top, u, f = haft(1, Vector3.new(0, 1, -0.3), 0.8, 1.9, 0.3)
+					local w = u:Cross(f)
+					part("Part", V(0.85, 0.85, 1.55), CFrame.fromMatrix(top, w, u), DARK_METAL, Enum.Material.Metal)
+					for _, k in ipairs({ -0.55, 0.55 }) do
+						part("Part", V(0.92, 0.92, 0.16), CFrame.fromMatrix(top + f * (k * s), w, u), METAL, Enum.Material.Metal)
+					end
 				elseif weapon == "horn" then
 					-- a great curved war horn, raised to the lips when sounding the alarm
-					local hand = V(1.42, -1.1, 0)
+					local hand = V(1.42, -1.1, -0.3)
 					local a, b, c = hand + V(-0.2, 0.2, -0.4), hand + V(0.1, 0.9, -1.1), hand + V(0.5, 1.8, -1.4)
 					limb(a, b, 0.32 * s, IVORY)
 					limb(b, c, 0.5 * s, IVORY)
 					ellipsoid(V(0.9, 0.9, 0.3), c + V(0.1, 0.3, -0.1), GOLD, Enum.Material.Metal)
 				elseif weapon == "torch" then
 					-- a burning torch held high (raid Torchbearers set houses alight with it)
-					local hand = V(1.42, -1.1, 0)
-					local top = hand + V(0, 2.3, -0.6)
-					cylinder(hand + V(0, -0.5, 0.2), top, 0.26 * s, WOOD)
-					cylinder(top - V(0, 0.35, 0), top + V(0, 0.15, 0), 0.42 * s, LEATHER)
-					local flame = ellipsoid(V(0.7, 1.1, 0.7), top + V(0, 0.55, 0), Color3.fromRGB(255, 150, 50), Enum.Material.Neon)
+					local top, u = haft(1, Vector3.new(0, 1, -0.22), 0.5, 2.3, 0.26)
+					cylinder(top - u * (0.35 * s), top + u * (0.15 * s), 0.42 * s, LEATHER)
+					local flame = ellipsoid(V(0.7, 1.1, 0.7), top + u * (0.55 * s), Color3.fromRGB(255, 150, 50), Enum.Material.Neon)
 					local fire = Instance.new("Fire")
 					fire.Size = 2.5 * s
 					fire.Heat = 7
@@ -244,10 +274,16 @@ function VikingBuilder.build(look, scale: number, name: string)
 					light.Brightness = 1.6
 					light.Parent = flame
 				elseif weapon == "staff" then
-					local hand = V(1.42, -1.1, 0)
-					local top = hand + V(0, 3.4, -0.4)
-					cylinder(hand + V(0, -1.6, 0.2), top, 0.28 * s, WOOD)
-					ellipsoid(V(0.9, 0.9, 0.9), top + V(0, 0.4, 0), look.glow or GOLD, Enum.Material.Neon)
+					-- a rune staff: gold bands and a glowing orb held in two prongs
+					local top, u, f = haft(1, Vector3.new(0, 1, -0.07), 1.8, 3.5, 0.28)
+					local w = u:Cross(f)
+					for _, k in ipairs({ -0.5, -0.1 }) do
+						cylinder(top + u * ((k - 0.06) * s), top + u * ((k + 0.06) * s), 0.4 * s, GOLD, Enum.Material.Metal)
+					end
+					ellipsoid(V(0.95, 0.95, 0.95), top + u * (0.55 * s), look.glow or GOLD, Enum.Material.Neon)
+					for _, k in ipairs({ -1, 1 }) do
+						limb(top, top + u * (0.95 * s) + w * (k * 0.5 * s), 0.14 * s, GOLD, Enum.Material.Metal)
+					end
 				end
 			else
 				if weapon == "twinAxe" then
@@ -265,14 +301,19 @@ function VikingBuilder.build(look, scale: number, name: string)
 	end
 
 	---------------------------------------------------------------- legs
+	-- thigh (hip joint LegL/LegR) and shin with the boot (knee joint KneeL/KneeR), so a boss can
+	-- sit on a throne or go down on one knee properly; walking keeps the knees straight
 	for _, side in ipairs({ -1, 1 }) do
-		local leg = part("Part", V(0.92, 2, 0.95), CFrame.new(V(0.5 * side, -2, 0)), look.pants)
+		local leg = part("Part", V(0.92, 1.06, 0.95), CFrame.new(V(0.5 * side, -1.5, 0)), look.pants)
 		leg.Name = side > 0 and "RightLeg" or "LeftLeg"
-		weldAll(leg, collect(function()
-			part("Part", V(1.0, 0.65, 1.12), CFrame.new(V(0.5 * side, -2.72, -0.06)), Color3.fromRGB(70, 50, 35))
-			ellipsoid(V(1.1, 0.45, 1.1), V(0.5 * side, -2.35, 0), Color3.fromRGB(130, 110, 90))
-		end))
 		motor(side > 0 and "LegR" or "LegL", torso, leg, CFrame.new(V(0.5 * side, -1, 0)))
+		local shin = part("Part", V(0.9, 1.06, 0.93), CFrame.new(V(0.5 * side, -2.5, 0)), look.pants)
+		shin.Name = side > 0 and "RightShin" or "LeftShin"
+		weldAll(shin, collect(function()
+			part("Part", V(1.0, 0.65, 1.12), CFrame.new(V(0.5 * side, -2.72, -0.06)), Color3.fromRGB(70, 50, 35))
+			ellipsoid(V(1.0, 0.45, 1.05), V(0.5 * side, -2.02, -0.05), Color3.fromRGB(130, 110, 90))
+		end))
+		motor(side > 0 and "KneeR" or "KneeL", leg, shin, CFrame.new(V(0.5 * side, -2, 0)))
 	end
 
 	local hipHeight = (3.05 - 1) * s

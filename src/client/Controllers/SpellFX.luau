@@ -2,7 +2,8 @@
 --   * every ultimate gets a flourish (a pillar of light and a spinning rune circle)
 --   * healing spells float green "+" signs up from the dragon
 --   * lasting spells follow their dragon for the whole duration: the Blizzard storm, the Ice
---     Fortress shell, the Cyclone funnel and the Rampage flames
+--     Fortress shell, the Cyclone funnel (a firestorm round a whirling dungeon boss, with little
+--     cyclones spiralling off it) and the Rampage flames
 --   * Eclipse darkens the sky for everyone nearby and slides a black disc over the sun
 --   * one-shot showpieces: Epidemic, Umbral Devour, Absolute Zero, Lightning Storm, Toxic Deluge,
 --     Death Mark, and Venom Spit's glob and splat
@@ -15,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Abilities = require(ReplicatedStorage:WaitForChild("Shared").Config.Abilities)
+local Dungeons = require(ReplicatedStorage:WaitForChild("Shared").Config.Dungeons)
 
 local SpellFX = {}
 local App
@@ -377,17 +379,28 @@ function SpellFX.iceFortress(character: Model, duration: number)
 	end)
 end
 
--- A tornado funnel around the dragon: rings of dust spinning faster and wider as they rise, with
--- bits of debris caught in the wind.
-function SpellFX.cyclone(character: Model, duration: number, radius: number)
+-- A tornado funnel around the dragon (or a boss: `color` makes it a firestorm): rings of dust
+-- spinning faster and wider as they rise, with bits of debris caught in the wind.
+function SpellFX.cyclone(character: Model, duration: number, radius: number, color: Color3?)
 	follow(character, duration, function(f, root)
 		f.puffs = {}
 		local layers = 8
+		local low = color or Color3.fromRGB(235, 242, 248)
+		local high = color and color:Lerp(Color3.fromRGB(60, 20, 10), 0.55) or Color3.fromRGB(175, 185, 200)
+		local mat = color and Enum.Material.Neon or Enum.Material.SmoothPlastic
+		if color then
+			local light = Instance.new("PointLight")
+			light.Color = color
+			light.Range = radius * 2
+			light.Brightness = 2
+			light.Parent = root
+			table.insert(f.parts, light)
+		end
 		for layer = 1, layers do
-			local h = (layer - 1) * 2.8
+			local h = (layer - 1) * 2.8 * (color and 1.4 or 1)
 			local r = radius * (0.2 + 0.8 * (layer - 1) / (layers - 1))
 			for k = 1, 6 do
-				local puff = U.part(Vector3.new(2.4 + layer * 0.5, 2.4 + layer * 0.5, 2.4 + layer * 0.5), root.CFrame, Color3.fromRGB(235, 242, 248):Lerp(Color3.fromRGB(175, 185, 200), layer / layers), Enum.Material.SmoothPlastic, 0.62, Enum.PartType.Ball)
+				local puff = U.part(Vector3.new(2.4 + layer * 0.5, 2.4 + layer * 0.5, 2.4 + layer * 0.5), root.CFrame, low:Lerp(high, layer / layers), mat, color and 0.55 or 0.62, Enum.PartType.Ball)
 				table.insert(f.puffs, { part = puff, h = h, r = r, phase = k / 6 * math.pi * 2 + layer * 0.5, speed = 5 + layer * 0.4 })
 				table.insert(f.parts, puff)
 			end
@@ -415,6 +428,46 @@ function SpellFX.cyclone(character: Model, duration: number, radius: number)
 			local a = p.phase + t * p.speed
 			local at = Vector3.new(pos.X + math.cos(a) * p.r, ground + p.h, pos.Z + math.sin(a) * p.r)
 			p.part.CFrame = p.spin and (CFrame.new(at) * CFrame.Angles(t * 5, t * 7, 0)) or CFrame.new(at)
+		end
+	end)
+end
+
+-- A boss whirlwind's little cyclones spiralling out across the room (Dungeons.cyclonePos, from
+-- the server's start time, so every client sees them where they hurt).
+function SpellFX.cyclones(data)
+	local count, maxR = data.count or 4, data.maxR or 60
+	local color = data.color or Color3.fromRGB(255, 150, 60)
+	local funnels = {}
+	for i = 1, count do
+		local puffs = {}
+		for layer = 1, 4 do
+			for k = 1, 4 do
+				local size = 1.4 + layer * 0.7
+				local puff = U.part(Vector3.new(size, size, size), CFrame.new(data.center), color:Lerp(Color3.fromRGB(80, 30, 10), layer / 6), Enum.Material.Neon, 0.5, Enum.PartType.Ball)
+				table.insert(puffs, { part = puff, h = (layer - 1) * 2.4, r = (data.radius or 7) * (0.25 + 0.25 * layer), phase = k / 4 * math.pi * 2 + layer })
+			end
+		end
+		funnels[i] = puffs
+	end
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local t = workspace:GetServerTimeNow() - data.start
+		if t > data.duration then
+			conn:Disconnect()
+			for _, puffs in ipairs(funnels) do
+				for _, p in ipairs(puffs) do
+					U.tween(p.part, 0.4, { Transparency = 1 })
+					Debris:AddItem(p.part, 0.45)
+				end
+			end
+			return
+		end
+		for i, puffs in ipairs(funnels) do
+			local c = Dungeons.cyclonePos(data.center, i, count, math.max(0, t), maxR)
+			for _, p in ipairs(puffs) do
+				local a = p.phase + t * 9
+				p.part.CFrame = CFrame.new(c.X + math.cos(a) * p.r, c.Y + 1 + p.h, c.Z + math.sin(a) * p.r)
+			end
 		end
 	end)
 end

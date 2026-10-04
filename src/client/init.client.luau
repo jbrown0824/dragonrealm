@@ -49,6 +49,8 @@ App.Store = require(UI.Store)
 App.Collection = require(UI.Collection)
 App.RaidUI = require(UI.RaidUI)
 App.Range = require(UI.Range)
+App.Dungeons = require(UI.Dungeons)
+App.DungeonHUD = require(UI.DungeonHUD)
 
 App.Windows.init()
 App.Sfx.init()
@@ -83,12 +85,16 @@ App.Store.init(App)
 App.Collection.init(App)
 App.RaidUI.init(App)
 App.Range.init(App)
+App.Dungeons.init(App)
+App.DungeonHUD.init(App)
 task.spawn(App.WorldView.init, App)
 
--- Stalls and the Bot Dock ask to open a window.
-Remotes.event("OpenPanel").OnClientEvent:Connect(function(name)
+-- Stalls, the Bot Dock and the dungeon cave mouths ask to open a window.
+Remotes.event("OpenPanel").OnClientEvent:Connect(function(name, detail)
 	if name == "Hatchery" then
 		App.Pets.open("Eggs")
+	elseif name == "Dungeons" then
+		App.Dungeons.open(detail)
 	elseif name == "Potions" or name == "Robots" or name == "Range" then
 		App.Windows.open(name)
 	end

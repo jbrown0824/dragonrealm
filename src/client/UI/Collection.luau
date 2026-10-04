@@ -80,11 +80,13 @@ end
 
 ---------------------------------------------------------------- pet book
 
-local function eggsFor(rarity: string): string
+-- The eggs a species can hatch from (eggs with species of their own, like the dungeon eggs, only
+-- hatch those).
+local function eggsFor(speciesId: string, rarity: string): string
 	local names = {}
 	for _, eggId in ipairs(PetInfo.EggOrder) do
 		local egg = PetInfo.Eggs[eggId]
-		if egg.weights[rarity] then
+		if egg.weights[rarity] and table.find(PetInfo.speciesFor(eggId, rarity), speciesId) then
 			table.insert(names, egg.name)
 		end
 	end
@@ -127,7 +129,7 @@ local function refreshPets(p)
 			TextColor3 = state > 0 and color or C.subtext, Text = (state >= 2 and "✨ " or "") .. (state > 0 and s.name or "???"), Parent = cell })
 		Theme.label({ Position = UDim2.fromOffset(8, 24), Size = UDim2.new(1, -16, 0, 16), TextSize = 11, TextColor3 = color, Text = s.rarity, Parent = cell })
 		Theme.label({ Position = UDim2.fromOffset(8, 40), Size = UDim2.new(1, -16, 0, 30), TextSize = 10, Font = Theme.Fonts.body, TextYAlignment = Enum.TextYAlignment.Top,
-			TextColor3 = state > 0 and C.good or C.subtext, Text = state > 0 and statText(s.stats) or ("From: " .. eggsFor(s.rarity)), Parent = cell })
+			TextColor3 = state > 0 and C.good or C.subtext, Text = state > 0 and statText(s.stats) or ("From: " .. eggsFor(entry.id, s.rarity)), Parent = cell })
 	end
 	for i, m in ipairs(Collections.PetMilestones) do
 		local done = p.milestones and p.milestones["m" .. i]

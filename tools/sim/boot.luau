@@ -8,6 +8,12 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 
 Remotes.init()
+-- The sims' fake players aren't the game's owner: open admin mode to them, with whatever the
+-- admin code is set to (AdminConfig is the real, server-only file).
+local AdminConfig = require(__proxy("Server/Config/AdminConfig"))
+local OWNER_IDS = AdminConfig.ALLOWED_USER_IDS
+AdminConfig.ALLOWED_USER_IDS = {}
+local ADMIN_CODE = AdminConfig.CODE
 local WorldBuilder = require(__proxy("Server/World/WorldBuilder"))
 WorldBuilder.build()
 

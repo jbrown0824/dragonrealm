@@ -2,6 +2,9 @@
 -- is built from (Config/Zones), so they always match the terrain: town streets, lairs, the
 -- winding river, lakes, camps, hunting grounds, shops and fishing spots.
 -- The full map lets you pick a place (or click anywhere) to set a waypoint, or track a quest.
+-- Inside a dungeon both show the dungeon instead, drawn from its layout (Config/Dungeons, placed
+-- with the run's origin): rooms, tunnels, water, lava, bridges and ramps, the way out, the keeper,
+-- the hoard, the bosses, and your group.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,6 +12,8 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Zones = require(Shared.Config.Zones)
+local DungeonInfo = require(Shared.Config.Dungeons)
+local DungeonNav = require(Shared.DungeonNav)
 local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
 local DayNight = require(Shared.DayNight)
@@ -29,22 +34,13 @@ local MINI_SCALE = 0.55 -- pixels per stud on the minimap
 local BIG_SCALE = 0.365
 
 local mini = {} -- { frame, entry, arrow, zoneLabel, hint, edgePin, arenaLabel, hide, show, visible }
-local big = {} -- { window, entry, arrow, list }
+local big = {} -- { window, entry, arrow, list, holder, dungeonHolder, title }
+local dungeonEntries = {} -- ["mini:<id>" / "big:<id>"] = dungeon canvas entry
 
 ---------------------------------------------------------------- canvas drawing
 
--- A map canvas at `scale` pixels per stud. Returns the canvas and a table of drawing helpers.
-local function newCanvas(parent: Instance, scale: number, labels: boolean)
-	local canvas = Theme.make("Frame", {
-		Name = "Canvas",
-		Size = UDim2.fromOffset((MAX_X - MIN_X) * scale, (MAX_Z - MIN_Z) * scale),
-		BackgroundColor3 = Color3.fromRGB(86, 138, 64),
-		BorderSizePixel = 0,
-		Parent = parent,
-	})
-	local function px(x: number, z: number): (number, number)
-		return (x - MIN_X) * scale, (z - MIN_Z) * scale
-	end
+-- Drawing helpers on a canvas: `px(x, z)` turns map coordinates into pixels.
+local function drawer(canvas: Frame, px, scale: number)
 	local draw = {}
 	function draw.rect(x0: number, z0: number, x1: number, z1: number, color: Color3, transparency: number?, z: number?)
 		local ax, az = px(math.min(x0, x1), math.min(z0, z1))
@@ -106,6 +102,22 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 		})
 	end
 	draw.px = px
+	return draw
+end
+
+-- A map canvas at `scale` pixels per stud. Returns the canvas and a table of drawing helpers.
+local function newCanvas(parent: Instance, scale: number, labels: boolean)
+	local canvas = Theme.make("Frame", {
+		Name = "Canvas",
+		Size = UDim2.fromOffset((MAX_X - MIN_X) * scale, (MAX_Z - MIN_Z) * scale),
+		BackgroundColor3 = Color3.fromRGB(86, 138, 64),
+		BorderSizePixel = 0,
+		Parent = parent,
+	})
+	local function px(x: number, z: number): (number, number)
+		return (x - MIN_X) * scale, (z - MIN_Z) * scale
+	end
+	local draw = drawer(canvas, px, scale)
 
 	-- terrain and areas
 	draw.rect(MIN_X, 248, MAX_X, MAX_Z, Color3.fromRGB(74, 112, 60))
@@ -173,6 +185,14 @@ local function newCanvas(parent: Instance, scale: number, labels: boolean)
 	draw.text((Zones.Range.matX + Zones.Range.far) / 2, Zones.Range.lanes[2], "🏹", 13, nil, 5)
 	for _, spot in ipairs(Zones.FishingSpots) do
 		draw.text(spot.pos.X, spot.pos.Z, "🎣", 11, nil, 5)
+	end
+	-- dungeon cave mouths
+	for _, id in ipairs(DungeonInfo.Order) do
+		local d = DungeonInfo.List[id]
+		draw.text(d.entrance.X, d.entrance.Z, "🏰", 16, nil, 5)
+		if labels then
+			draw.text(d.entrance.X, d.entrance.Z + 22, string.format("%s  Lv %d+", d.name, d.minLevel), 12, d.color)
+		end
 	end
 	if labels then
 		for _, id in ipairs({ "ElkMeadows", "Whisperwood", "BearclawHollow", "FrostfangRidge", "BattleZone" }) do
@@ -261,6 +281,171 @@ local function updateDynamic(entry)
 	end
 end
 
+---------------------------------------------------------------- dungeon maps
+
+local DUNGEON_FLOOR = { Barrow = Color3.fromRGB(98, 112, 106), Forge = Color3.fromRGB(96, 82, 76) }
+local LAVA = Color3.fromRGB(255, 120, 40)
+local WATER = Color3.fromRGB(70, 130, 210)
+local CAVE = Color3.fromRGB(26, 24, 26) -- the rock round a dungeon's rooms
+local MINI_GROUND = Color3.fromRGB(30, 50, 30)
+
+-- A dungeon's map in its own coordinates (Config/Dungeons): `entry.origin` (the run's) turns world
+-- positions into them. `fit` = a size to scale it into (the big map); otherwise `scale`.
+local function newDungeonCanvas(parent: Instance, def, scale: number, fit: Vector2?, labels: boolean)
+	local minX, minZ, maxX, maxZ = math.huge, math.huge, -math.huge, -math.huge
+	local function grow(x: number, z: number, r: number)
+		minX, maxX = math.min(minX, x - r), math.max(maxX, x + r)
+		minZ, maxZ = math.min(minZ, z - r), math.max(maxZ, z + r)
+	end
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind == "box" then
+			grow(sp.at.X, sp.at.Z, math.max(sp.size.X, sp.size.Y) / 2)
+		elseif sp.kind == "round" then
+			grow(sp.at.X, sp.at.Z, sp.radius)
+		else
+			for _, p in ipairs(sp.points) do
+				grow(p.X, p.Z, sp.width / 2)
+			end
+		end
+	end
+	minX, minZ, maxX, maxZ = minX - 16, minZ - 16, maxX + 16, maxZ + 16
+	-- (the big map keeps room at the bottom for the last mark's name and the hint under the map)
+	local below = fit and 44 or 0
+	if fit then
+		scale = math.min(fit.X / (maxX - minX), (fit.Y - below) / (maxZ - minZ))
+	end
+	local canvas = Theme.make("Frame", {
+		Name = "DungeonCanvas",
+		Size = UDim2.fromOffset((maxX - minX) * scale, (maxZ - minZ) * scale + below),
+		BackgroundColor3 = CAVE,
+		BorderSizePixel = 0,
+		Visible = false,
+		Parent = parent,
+	})
+	if fit then
+		canvas.AnchorPoint = Vector2.new(0.5, 0.5)
+		canvas.Position = UDim2.fromScale(0.5, 0.5)
+	end
+	local function px(x: number, z: number): (number, number)
+		return (x - minX) * scale, (z - minZ) * scale
+	end
+	local draw = drawer(canvas, px, scale)
+	local floor = DUNGEON_FLOOR[def.id] or Color3.fromRGB(100, 100, 100)
+	local raised = floor:Lerp(Color3.new(1, 1, 1), 0.18)
+	for _, sp in ipairs(def.spaces) do
+		if sp.kind == "box" then
+			draw.rect(sp.at.X - sp.size.X / 2, sp.at.Z - sp.size.Y / 2, sp.at.X + sp.size.X / 2, sp.at.Z + sp.size.Y / 2, floor, 0, 2)
+		elseif sp.kind == "round" then
+			draw.circle(sp.at.X, sp.at.Z, sp.radius, floor, 0, 2)
+		else
+			for i = 1, #sp.points - 1 do
+				draw.line(sp.points[i], sp.points[i + 1], sp.width, floor, 2)
+			end
+			for i = 2, #sp.points - 1 do
+				draw.circle(sp.points[i].X, sp.points[i].Z, sp.width / 2, floor, 0, 2)
+			end
+		end
+	end
+	for _, h in ipairs(def.hazards or {}) do
+		if h.min then
+			draw.rect(h.min.X, h.min.Z, h.max.X, h.max.Z, LAVA, 0, 3)
+		else
+			draw.circle(h.center.X, h.center.Z, h.radius, LAVA, 0, 3)
+		end
+	end
+	for _, f in ipairs(def.features or {}) do
+		if f.kind == "pool" then
+			draw.rect(f.min.X, f.min.Z, f.max.X, f.max.Z, WATER, 0, 3)
+		elseif f.kind == "walkway" or f.kind == "bridge" or f.kind == "ramp" then
+			draw.line(f.from, f.to, f.width, raised, 4)
+		elseif f.kind == "ledge" then
+			draw.rect(f.min.X, f.min.Z, f.max.X, f.max.Z, raised, 0, 4)
+		elseif f.kind == "spiral" then
+			for _, p in ipairs(DungeonNav.spiralPoints(f, 0.04)) do
+				draw.circle(p.X, p.Z, (f.outer - f.inner) / 2, raised, 0, 4)
+			end
+		end
+	end
+	local markers = {}
+	local function mark(key: string, at: Vector3, icon: string, name: string?, color: Color3?)
+		markers[key] = draw.text(at.X, at.Z, icon, labels and 18 or 13, nil, 6)
+		if labels and name then
+			draw.text(at.X, at.Z + 22 / scale, name, 11, color or Color3.new(1, 1, 1), 6)
+		end
+	end
+	mark("exit", def.exit, "🚪", "Way out")
+	if def.keeper then
+		mark("keeper", def.keeper.at, "🐉", "Keeper", Color3.fromRGB(255, 225, 120))
+		mark("food", def.keeper.food, "🍖", nil)
+	end
+	if def.chest then
+		mark("chest", def.chest, "💰", "Hidden hoard", Color3.fromRGB(255, 215, 90))
+	end
+	mark("mini", def.miniBoss.at, "💀", DungeonInfo.Bosses[def.miniBoss.id].name, Color3.fromRGB(255, 170, 120))
+	mark("boss", def.boss.at, "👑", DungeonInfo.Bosses[def.boss.id].name, Color3.fromRGB(255, 120, 110))
+	local dynamic = Theme.make("Frame", { Name = "Dynamic", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 10, Parent = canvas })
+	return { canvas = canvas, draw = draw, scale = scale, dynamic = dynamic, dots = {}, markers = markers, origin = Vector3.zero, def = def }
+end
+
+local function dungeonEntry(which: string, def)
+	local key = which .. ":" .. def.id
+	local entry = dungeonEntries[key]
+	if not entry then
+		if which == "mini" then
+			entry = newDungeonCanvas(mini.frame, def, MINI_SCALE, nil, false)
+		else
+			entry = newDungeonCanvas(big.dungeonHolder, def, 1, big.dungeonHolder.AbsoluteSize.X > 0 and big.dungeonHolder.AbsoluteSize or big.holderSize, true)
+			entry.arrow = makeArrow(entry.dynamic, 16)
+		end
+		dungeonEntries[key] = entry
+	end
+	return entry
+end
+
+-- Your group's dots on a dungeon map, and the bosses already beaten greyed out.
+local function updateDungeonDynamic(entry)
+	local run = App.State.dungeon and App.State.dungeon.run
+	local myRun = player:GetAttribute("DungeonRun")
+	local seen = {}
+	for _, other in ipairs(Players:GetPlayers()) do
+		local character = other.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root and other ~= player and myRun and other:GetAttribute("DungeonRun") == myRun then
+			local dot = entry.dots[other]
+			if not dot then
+				dot = Theme.make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(9, 9), BackgroundColor3 = Color3.fromRGB(90, 180, 255), ZIndex = 15, Parent = entry.dynamic })
+				Theme.make("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
+				Theme.stroke(dot, Color3.new(1, 1, 1), 1)
+				entry.dots[other] = dot
+			end
+			local p = root.Position - entry.origin
+			local x, z = entry.draw.px(p.X, p.Z)
+			dot.Position = UDim2.fromOffset(x, z)
+			seen[other] = true
+		end
+	end
+	for other, dot in pairs(entry.dots) do
+		if not seen[other] then
+			dot:Destroy()
+			entry.dots[other] = nil
+		end
+	end
+	if entry.markers.mini then
+		entry.markers.mini.TextTransparency = (run and run.miniDown) and 0.7 or 0
+	end
+	if entry.markers.boss then
+		entry.markers.boss.TextTransparency = (run and run.done) and 0.7 or 0
+	end
+end
+
+local function hideDungeonCanvases(which: string)
+	for key, entry in pairs(dungeonEntries) do
+		if key:sub(1, #which + 1) == which .. ":" then
+			entry.canvas.Visible = false
+		end
+	end
+end
+
 ---------------------------------------------------------------- minimap
 
 local function buildMini(root: Instance)
@@ -269,7 +454,7 @@ local function buildMini(root: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -MINI_RIGHT, 0, 10),
 		Size = UDim2.fromOffset(MINI_SIZE, MINI_SIZE),
-		BackgroundColor3 = Color3.fromRGB(30, 50, 30),
+		BackgroundColor3 = MINI_GROUND,
 		ClipsDescendants = true,
 		Parent = root,
 	})
@@ -396,13 +581,32 @@ local function updateMini()
 	end
 	local pos = root.Position
 	local inWorld = Zones.inWorld(pos)
-	mini.arenaLabel.Visible = not inWorld
+	local dungeon = DungeonInfo.get(player:GetAttribute("InDungeon") or "")
+	local run = App.State.dungeon and App.State.dungeon.run
 	local entry = mini.entry
-	local x, z = entry.draw.px(pos.X, pos.Z)
-	entry.canvas.Position = UDim2.fromOffset(MINI_SIZE / 2 - x, MINI_SIZE / 2 - z)
+	if dungeon and run and run.origin then
+		-- inside a dungeon: its own map, centred on you
+		local d = dungeonEntry("mini", dungeon)
+		hideDungeonCanvases("mini")
+		d.canvas.Visible = true
+		d.origin = run.origin
+		entry.canvas.Visible = false
+		mini.arenaLabel.Visible = false
+		mini.frame.BackgroundColor3 = CAVE
+		local x, z = d.draw.px(pos.X - run.origin.X, pos.Z - run.origin.Z)
+		d.canvas.Position = UDim2.fromOffset(MINI_SIZE / 2 - x, MINI_SIZE / 2 - z)
+	else
+		hideDungeonCanvases("mini")
+		entry.canvas.Visible = true
+		mini.frame.BackgroundColor3 = MINI_GROUND
+		mini.arenaLabel.Visible = not inWorld
+		mini.arenaLabel.Text = dungeon and (dungeon.icon .. " " .. dungeon.name) or "⚔️ Boss Arena"
+		local x, z = entry.draw.px(pos.X, pos.Z)
+		entry.canvas.Position = UDim2.fromOffset(MINI_SIZE / 2 - x, MINI_SIZE / 2 - z)
+	end
 	mini.arrow.Rotation = heading(root)
 	local area = Zones.areaAt(pos)
-	mini.zoneLabel.Text = area and area.name or "The Wilds"
+	mini.zoneLabel.Text = dungeon and dungeon.name or (area and area.name or "The Wilds")
 	local t, clock = DayNight.now()
 	mini.clock.Text = (DayNight.isNight(t) and "🌙 " or "☀️ ") .. DayNight.format(clock)
 	-- edge pin when the waypoint is off the minimap
@@ -423,6 +627,30 @@ end
 
 ---------------------------------------------------------------- full map
 
+-- In a dungeon, the big map's side list: what the marks are, and how far along you are.
+local function dungeonLegend(def, nextOrder)
+	local run = App.State.dungeon and App.State.dungeon.run
+	Theme.label({ Size = UDim2.new(1, -8, 0, 24), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 17, TextColor3 = def.color, Text = def.icon .. " " .. def.name, Parent = big.list })
+	if run then
+		Theme.label({ Size = UDim2.new(1, -8, 0, 20), LayoutOrder = nextOrder(), TextSize = 13, TextColor3 = C.subtext,
+			Text = run.done and "🏆 Cleared!" or string.format("Packs beaten: %d / %d", run.cleared or 0, run.packs or 0), Parent = big.list })
+	end
+	local lines = {
+		{ "🚪", "The way out" },
+		{ "🐉", "The keeper (quests)" },
+		{ "🍖", "Provisions (eat once)" },
+		{ "💰", "The hidden hoard" },
+		{ "💀", DungeonInfo.Bosses[def.miniBoss.id].name },
+		{ "👑", DungeonInfo.Bosses[def.boss.id].name },
+		{ "🔵", "Your group" },
+	}
+	for _, line in ipairs(lines) do
+		Theme.label({ Size = UDim2.new(1, -8, 0, 20), LayoutOrder = nextOrder(), TextSize = 13, Text = line[1] .. "  " .. line[2], Parent = big.list })
+	end
+	Theme.label({ Size = UDim2.new(1, -8, 0, 60), LayoutOrder = nextOrder(), TextSize = 12, TextColor3 = C.subtext,
+		Text = "Boss rooms have doors: opening them wakes the monsters nearby, and they seal while the boss fights.", Parent = big.list })
+end
+
 function Map.refreshList()
 	local p = App.State.profile
 	if not p or not big.list then
@@ -434,11 +662,27 @@ function Map.refreshList()
 		order += 1
 		return order
 	end
+	local dungeon = DungeonInfo.get(player:GetAttribute("InDungeon") or "")
+	if dungeon then
+		dungeonLegend(dungeon, nextOrder)
+		return
+	end
 	local wp = App.Waypoint.get()
 	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 17, TextColor3 = C.accent, Text = "📍 Waypoint: " .. (wp and wp.label or "none"), Parent = big.list })
-	if wp then
+	if wp and wp.source == "quest" then
+		Theme.button("Stop guiding me to quests", C.panel3, function()
+			App.Waypoint.stopGuiding()
+			Map.refreshList()
+		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
+	elseif wp then
 		Theme.button("Clear waypoint", C.panel3, function()
 			App.Waypoint.clear()
+			Map.refreshList()
+		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
+	end
+	if not wp and not App.Waypoint.guiding() then
+		Theme.button("Guide me to my quests", C.panel3, function()
+			App.Waypoint.trackQuest(nil)
 			Map.refreshList()
 		end, { Size = UDim2.new(1, -8, 0, 28), LayoutOrder = nextOrder(), TextSize = 13, Parent = big.list })
 	end
@@ -506,6 +750,7 @@ local function buildBig()
 		App.Windows.close("Map")
 	end)
 	big.window = window
+	big.title = window:FindFirstChild("Title", true)
 	local holder = Theme.make("Frame", {
 		Size = UDim2.fromOffset((MAX_X - MIN_X) * BIG_SCALE, (MAX_Z - MIN_Z) * BIG_SCALE),
 		BackgroundTransparency = 1,
@@ -513,6 +758,18 @@ local function buildBig()
 		Parent = content,
 	})
 	Theme.stroke(holder, C.accentDark, 2)
+	big.holder = holder
+	big.holderSize = Vector2.new((MAX_X - MIN_X) * BIG_SCALE, (MAX_Z - MIN_Z) * BIG_SCALE)
+	-- (inside a dungeon: its own map instead, fitted into the same box)
+	big.dungeonHolder = Theme.make("Frame", {
+		Name = "DungeonMap",
+		Size = holder.Size,
+		BackgroundColor3 = CAVE,
+		ClipsDescendants = true,
+		Visible = false,
+		Parent = content,
+	})
+	Theme.stroke(big.dungeonHolder, C.accentDark, 2)
 	big.entry = newCanvas(holder, BIG_SCALE, true)
 	big.arrow = makeArrow(big.entry.dynamic, 16)
 	-- click anywhere on the map to put a waypoint there
@@ -536,7 +793,7 @@ local function buildBig()
 		App.Waypoint.setPlace(pos, area and area.name or "Marked spot")
 		Map.refreshList()
 	end)
-	Theme.label({ Position = UDim2.new(0, 0, 1, -18), Size = UDim2.fromOffset(410, 18), TextSize = 12, TextColor3 = C.subtext, Text = "Click the map to set a waypoint. 🏠 = your lair, blue dots = other dragons.", Parent = content })
+	big.hint = Theme.label({ Position = UDim2.new(0, 0, 1, -18), Size = UDim2.fromOffset(410, 18), TextSize = 12, TextColor3 = C.subtext, Text = "Click the map to set a waypoint. 🏠 = your lair, blue dots = other dragons.", Parent = content })
 	big.list = Theme.scroll(content, { Position = UDim2.fromOffset((MAX_X - MIN_X) * BIG_SCALE + 12, 0), Size = UDim2.new(1, -((MAX_X - MIN_X) * BIG_SCALE + 12), 1, 0) })
 	Theme.list(big.list, 4)
 	App.Windows.register("Map", window, Map.refreshList)
@@ -545,6 +802,28 @@ end
 local function updateBig()
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local dungeon = DungeonInfo.get(player:GetAttribute("InDungeon") or "")
+	local run = App.State.dungeon and App.State.dungeon.run
+	local inDungeon = dungeon ~= nil and run ~= nil and run.origin ~= nil
+	big.holder.Visible = not inDungeon
+	big.dungeonHolder.Visible = inDungeon
+	if big.title then
+		big.title.Text = inDungeon and ("🗺️ " .. dungeon.name) or "🗺️ World Map"
+	end
+	big.hint.Text = inDungeon and "🔵 = your group. The map shows the whole dungeon." or "Click the map to set a waypoint. 🏠 = your lair, blue dots = other dragons."
+	if inDungeon then
+		local d = dungeonEntry("big", dungeon)
+		hideDungeonCanvases("big")
+		d.canvas.Visible = true
+		d.origin = run.origin
+		d.arrow.Visible = root ~= nil
+		if root then
+			local x, z = d.draw.px(root.Position.X - run.origin.X, root.Position.Z - run.origin.Z)
+			d.arrow.Position = UDim2.fromOffset(x, z)
+			d.arrow.Rotation = heading(root)
+		end
+		return
+	end
 	if not root then
 		big.arrow.Visible = false
 		return
@@ -569,6 +848,11 @@ function Map.init(app)
 			Map.refreshList()
 		end
 	end)
+	App.State.dungeonChanged:Connect(function()
+		if big.window.Visible and player:GetAttribute("InDungeon") then
+			Map.refreshList()
+		end
+	end)
 	local accum = 0
 	RunService.RenderStepped:Connect(function(dt)
 		updateMini()
@@ -581,6 +865,11 @@ function Map.init(app)
 			updateDynamic(mini.entry)
 			if big.window.Visible then
 				updateDynamic(big.entry)
+			end
+			for key, entry in pairs(dungeonEntries) do
+				if entry.canvas.Visible and (key:sub(1, 5) == "mini:" or big.window.Visible) then
+					updateDungeonDynamic(entry)
+				end
 			end
 		end
 	end)

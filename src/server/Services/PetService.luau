@@ -214,9 +214,7 @@ local function onRelease(player: Player, uid)
 	if eq then
 		table.remove(profile.petsEquipped, eq)
 	end
-	local info = Pets.get(pet.species)
-	local base = Pets.ReleaseGold[info and info.rarity or "Common"] or 50
-	local gold = S.PlayerService.addGold(player, math.floor(base * Pets.multiplier(pet.level, pet.golden)))
+	local gold = S.PlayerService.addGold(player, Pets.releaseGold(pet))
 	changed(player)
 	return true, gold
 end
@@ -276,6 +274,7 @@ local function onMerge(player: Player, uid)
 	for i = 1, Pets.MERGE_COUNT - 1 do
 		local other = others[i]
 		best = math.max(best, other.level or 1)
+		pet.bought = pet.bought or other.bought -- a bought pet merged in still releases for nothing
 		wasEquipped = wasEquipped or table.find(profile.petsEquipped, other.uid) ~= nil
 		local _, index = BonusUtil.findPet(profile, other.uid)
 		table.remove(profile.pets, index)

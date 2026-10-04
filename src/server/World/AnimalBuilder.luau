@@ -102,6 +102,10 @@ function AnimalBuilder.build(look, scale: number, name: string)
 	end
 	if look.neckLen > 0.6 then
 		onHead(limb(neckBase, neckTop, W * 0.5 * s, look.body))
+	else
+		-- a short, thick neck (bears, boars): without it there's a gap between the shoulders and
+		-- the head when you see them from the side
+		onHead(limb(neckBase + V(0, 0, L * 0.12), headCenter + V(0, -0.05, look.headL * 0.2), W * 0.62 * s, look.body))
 	end
 	local snoutZ = -look.headL * (look.snout and 0.75 or 0.55)
 	onHead(part(V(W * 0.38, H * 0.32, look.headL * 0.6), CFrame.new(headCenter + V(0, -0.12, snoutZ * 0.8)), look.belly))
