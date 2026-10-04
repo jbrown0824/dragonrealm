@@ -134,7 +134,7 @@ function TrainingService.start()
 					task.delay(0.15, function()
 						if target.Parent then
 							local hand = golem.model:GetPivot() * Vector3.new(4.2, 7.5, -1.5)
-							S.EnemyService.throwAt(golem, victim, target, hp * GOLEM_HIT, "axe", { ignoreSafe = true, nonLethal = true }, hand)
+							S.EnemyService.throwAt(golem, victim, target, hp * GOLEM_HIT, "axe", { ignoreSafe = true, nonLethal = true, noLevelGap = true }, hand)
 						end
 					end)
 				end

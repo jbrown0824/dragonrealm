@@ -18,6 +18,12 @@ Items.SlotInfo = {
 	Charm = { name = "Amulet", icon = "📿" },
 }
 
+-- An item's power (before rarity and upgrades) is POWER_BASE + item level * POWER_PER_ILVL. (Tuned
+-- together with each dragon's per-level growth in Config/Classes: levelling up counts for more,
+-- gear a little less, and a dragon with at-level gear ends up about as strong as before.)
+Items.POWER_BASE = 5.4
+Items.POWER_PER_ILVL = 1.01
+
 -- How much of each stat an item of a slot gets per point of item power.
 Items.SlotStats = {
 	Head = { health = 2.2, defense = 0.22 },
@@ -55,6 +61,10 @@ Items.RarityNames = {
 }
 
 -- Boss-only legendaries with a fixed name and a bonus stat on top of normal stats.
+-- Dungeon relics (`dungeon` = where they drop) also carry a `special`: a flat lifesteal (% of
+-- damage dealt) or regen (% of max health per second) that doesn't grow with item level or
+-- upgrades. Gear and pets together are capped at Game.EXTRA_LIFESTEAL_CAP / EXTRA_REGEN_CAP.
+-- `quest` ones only come from a quest.
 Items.Uniques = {
 	FrostbeardCrown = { name = "Frostbeard's Crown", slot = "Head", bonus = { defense = 0.3 } },
 	RagnarsIcebreaker = { name = "Ragnar's Icebreaker", slot = "Claws", bonus = { attack = 0.2 } },
@@ -62,6 +72,16 @@ Items.Uniques = {
 	GrimhildasVeil = { name = "Grimhilda's Veil", slot = "Body", bonus = { health = 2.0 } },
 	DragonslayerBane = { name = "Dragonslayer's Bane", slot = "Tail", bonus = { attack = 0.25 } },
 	HrothgarsHeart = { name = "Heart of Hrothgar", slot = "Body", bonus = { defense = 0.3, health = 1.0 } },
+	-- the Draugr Barrow
+	HollowKingsCrown = { name = "Hollow King's Crown", slot = "Head", dungeon = "Barrow", bonus = { health = 1.0 }, special = { lifesteal = 2 } },
+	GravewardensMantle = { name = "Gravewarden's Mantle", slot = "Body", dungeon = "Barrow", bonus = { defense = 0.2 }, special = { regen = 0.2 } },
+	DraugrFang = { name = "Draugr Fang", slot = "Claws", dungeon = "Barrow", bonus = { attack = 0.1 }, special = { lifesteal = 1.5 } },
+	BarrowlightLantern = { name = "Barrowlight Lantern", slot = "Charm", dungeon = "Barrow", quest = true, bonus = { health = 0.8 }, special = { regen = 0.15 } },
+	-- the Rune Forge
+	ChainbreakerTalons = { name = "Chainbreaker Talons", slot = "Claws", dungeon = "Forge", bonus = { attack = 0.15 }, special = { lifesteal = 3 } },
+	HeartOfTheForge = { name = "Heart of the Forge", slot = "Charm", dungeon = "Forge", bonus = { attack = 0.1, health = 0.5 }, special = { regen = 0.35 } },
+	RuneforgedTailguard = { name = "Runeforged Tailguard", slot = "Tail", dungeon = "Forge", bonus = { defense = 0.2 }, special = { regen = 0.25 } },
+	EmberchainCirclet = { name = "Emberchain Circlet", slot = "Head", dungeon = "Forge", quest = true, bonus = { defense = 0.2 }, special = { lifesteal = 2 } },
 }
 
 Items.StatLabels = {
@@ -70,6 +90,8 @@ Items.StatLabels = {
 	defense = "Defense",
 	crit = "% Crit Chance",
 	speed = "% Speed",
+	lifesteal = "% Lifesteal",
+	regen = "% Health Regen /s",
 }
 
 return Items

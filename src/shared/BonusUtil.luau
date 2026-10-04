@@ -54,7 +54,7 @@ function BonusUtil.petBoosts(pet)
 	if species then
 		local mult = Pets.multiplier(pet.level, pet.golden)
 		for stat, v in pairs(species.stats) do
-			out[stat] = v * mult
+			out[stat] = Pets.FIXED_STATS[stat] and v or v * mult
 		end
 	end
 	return out
@@ -96,12 +96,16 @@ function BonusUtil.petStats(profile)
 end
 
 -- Every non-gear, non-talent bonus as StatCalc buff entries.
--- The small permanent bonus from Paragon levels.
+-- The permanent bonus from Paragon levels (slower past PARAGON_BONUS_CAP, but it never stops).
 function BonusUtil.paragonStats(paragon: number?)
 	local levels = math.min(paragon or 0, Game.PARAGON_BONUS_CAP)
+	local late = math.max(0, (paragon or 0) - Game.PARAGON_BONUS_CAP)
 	local out = {}
 	for stat, v in pairs(Game.PARAGON_BONUS) do
 		out[stat] = v * levels
+	end
+	for stat, v in pairs(Game.PARAGON_BONUS_LATE) do
+		out[stat] = (out[stat] or 0) + v * late
 	end
 	return out
 end
@@ -109,7 +113,7 @@ end
 function BonusUtil.entries(profile)
 	local list = {}
 	table.insert(list, { stats = BonusUtil.potionStats(profile.potions) })
-	table.insert(list, { stats = BonusUtil.petStats(profile) })
+	table.insert(list, { stats = BonusUtil.petStats(profile), extra = true }) -- (lifesteal / regen share gear's cap)
 	table.insert(list, { stats = BonusUtil.paragonStats(profile.paragon) })
 	local hungry = Game.hungerLevel(profile.hunger or Game.HUNGER_MAX)
 	if hungry then

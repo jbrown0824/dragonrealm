@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = require(Shared.Config.Game)
 local PetInfo = require(Shared.Config.Pets)
 local StoreInfo = require(Shared.Config.Store)
+local DungeonInfo = require(Shared.Config.Dungeons)
 local StatCalc = require(Shared.StatCalc)
 local BonusUtil = require(Shared.BonusUtil)
 local DragonBuilder = require(Shared.DragonBuilder)
@@ -28,7 +29,7 @@ local tab = "Pets"
 local tabButtons = {}
 local petsPage, eggsPage
 local header, grid, details = nil, nil, {}
-local eggsList, eggsHeader
+local eggsList, eggsHeader, eggsRestock
 local eggsBadge -- red count on the Eggs tab: eggs waiting to hatch
 local expanded = {} -- [eggId] = true: that egg's card lists every pet it can hatch
 local revealed = false -- the hatched pet's card is showing (a click outside it closes it)
@@ -243,7 +244,7 @@ local function refreshPets(p)
 		end
 		details.equip.Text = isEquipped and "Unequip" or "Equip"
 		details.equip.BackgroundColor3 = isEquipped and Color3.fromRGB(120, 60, 60) or Color3.fromRGB(60, 140, 70)
-		local releaseGold = math.floor((PetInfo.ReleaseGold[species.rarity] or 0) * PetInfo.multiplier(pet.level, pet.golden))
+		local releaseGold = PetInfo.releaseGold(pet)
 		details.release.Text = releaseArmed == pet.uid and "Really release?" or string.format("Release (+%d 💰)", releaseGold)
 		local shownKey = pet.uid .. (pet.golden and "g" or "")
 		if details.shown ~= shownKey then
@@ -290,6 +291,7 @@ local function oddsLine(egg): string
 end
 
 local function refreshEggs(p)
+	eggsRestock.Visible = App.Store.available("product", "Restock")
 	Theme.clear(eggsList)
 	local stock = p.shopStock and p.shopStock.eggs or {}
 	local nestFull = #(p.pets or {}) >= Game.PET_LIMIT
@@ -340,7 +342,11 @@ local function refreshEggs(p)
 			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 48), Size = UDim2.fromOffset(230, 16), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = left > 0 and C.good or C.bad, Text = nestFull and "Your nest is full!" or (left > 0 and string.format("%d in stock", left) or "Out of stock"), Parent = card })
 		end
-		if egg.store and not egg.price then
+		if egg.store and not egg.price and not App.Store.available("product", egg.store) then
+			-- paid random items are restricted here: no Robux button, just where to find one
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 8), Size = UDim2.fromOffset(230, 38), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true,
+				TextColor3 = C.subtext, Text = egg.robux and "Not sold where you live" or "Find one free on champions, bosses and camp chests", Parent = card })
+		elseif egg.store and not egg.price then
 			-- sold for Robux (the Mythic Egg also drops in the wild, and says so)
 			local product = StoreInfo.Products[egg.store]
 			Theme.button(string.format("💎 Buy one  R$ %d", product.robux), ROBUX_GREEN, function()
@@ -358,7 +364,8 @@ local function refreshEggs(p)
 			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -160, 0, 70), Size = UDim2.fromOffset(152, 24), TextSize = 13, Parent = card })
 			Theme.setButtonEnabled(hatch, not nestFull)
 		elseif not sold then
-			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = "Not sold anywhere: found on champions, bosses and chests", Parent = card })
+			local where = egg.dungeon and string.format("Only from the boss of %s (🏰 Dungeons)", DungeonInfo.get(egg.dungeon).name) or "Not sold anywhere: found on champions, bosses and chests"
+			Theme.label({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(230, 40), TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Text = where, Parent = card })
 		end
 		if not open then
 			continue
@@ -496,9 +503,9 @@ function Pets.init(app)
 	end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 36), TextSize = 14, Parent = details.frame })
 
 	eggsHeader = Theme.label({ Size = UDim2.new(1, -170, 0, 22), TextSize = 14, Parent = eggsPage })
-	Theme.button("🔄 Restock now (R$)", ROBUX_GREEN, function()
+	eggsRestock = Theme.button("🔄 Restock now (R$)", ROBUX_GREEN, function()
 		App.Store.buy("product", "Restock")
-	end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, -3), Size = UDim2.fromOffset(160, 26), TextSize = 13, Parent = eggsPage })
+	end, { Name = "Restock", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, -3), Size = UDim2.fromOffset(160, 26), TextSize = 13, Parent = eggsPage })
 	eggsList = Theme.scroll(eggsPage, { Position = UDim2.fromOffset(0, 28), Size = UDim2.new(1, 0, 1, -28) })
 	Theme.list(eggsList, 8)
 	-- keep the restock countdown ticking

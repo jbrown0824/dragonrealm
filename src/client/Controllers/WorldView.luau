@@ -3,10 +3,13 @@
 --   * in your lair, only the planting spot you're facing shows its prompts, with a glowing
 --     outline, so you never water or harvest the plot next to the one you meant
 --   * hides other players' loot orbs
---   * shows ❗ / ❓ quest markers over village dragons (⚔️ while they fight a raid)
+--   * shows ❗ / ❓ quest markers over every quest giver (a dungeon keeper stands outside and
+--     inside its dungeon: each gets its own), a grey ! for a quest you're not high enough level
+--     for yet, and ⚔️ while the village's givers fight a raid
 --   * renders stealthed dragons as see-through (or almost invisible to others)
 --   * camp chests: each dragon has their own chest timer, so the lid, the treasure inside and
---     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute
+--     the "refills in" countdown are drawn per player from the ChestReady_<campId> attribute (a
+--     dungeon's hidden hoard, tag DungeonChest, the same way: open and "Looted" once you've had it)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -14,13 +17,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local QuestUtil = require(Shared.QuestUtil)
+local Quests = require(Shared.Config.Quests)
 local Util = require(Shared.Util)
 
 local WorldView = {}
 local App
 
 local player = Players.LocalPlayer
-local markers = {} -- [giverId] = TextLabel
+local markers = {} -- [giver Model] = { giverId, label, gui }
 local watched = {} -- [ProximityPrompt] = true
 local focusedPlot: BasePart? = nil
 local highlight: Highlight? = nil
@@ -121,7 +125,12 @@ local function updateChest(view)
 			view.prompt.Enabled = not open
 		end
 	end
-	view.label.Text = open and ("Empty for you  •  refills in " .. Util.formatTime(left)) or "💰 Treasure Chest"
+	if view.oneTime then
+		-- a dungeon's hidden hoard: once per run
+		view.label.Text = open and "Looted" or "💰 Hidden hoard"
+	else
+		view.label.Text = open and ("Empty for you  •  refills in " .. Util.formatTime(left)) or "💰 Treasure Chest"
+	end
 	view.label.TextColor3 = open and Color3.fromRGB(200, 200, 200) or Color3.fromRGB(255, 215, 90)
 end
 
@@ -158,6 +167,7 @@ local function addChest(model: Instance)
 		treasure = model:FindFirstChild("Treasure"),
 		label = label,
 		open = false,
+		oneTime = model:GetAttribute("OneTime") == true,
 	}
 	table.insert(chestViews, view)
 	updateChest(view)
@@ -278,7 +288,7 @@ end
 
 local function addMarker(model: Instance)
 	local giverId = model:GetAttribute("GiverId")
-	if not giverId or markers[giverId] then
+	if not giverId or markers[model] then
 		return
 	end
 	local head = model:FindFirstChild("Head") or model.PrimaryPart
@@ -291,6 +301,23 @@ local function addMarker(model: Instance)
 	gui.MaxDistance = 250
 	gui.LightInfluence = 0
 	gui.Adornee = head
+	if not head then
+		-- (a giver built while you play, like a keeper inside a dungeon, can reach this client
+		-- before its parts do: hang the marker on its head once that arrives)
+		task.spawn(function()
+			for _ = 1, 120 do
+				task.wait(0.25)
+				local h = model:FindFirstChild("Head") or model.PrimaryPart or model:FindFirstChild("Head", true)
+				if h then
+					gui.Adornee = h
+					return
+				end
+				if not model.Parent then
+					return
+				end
+			end
+		end)
+	end
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.fromScale(1, 1)
@@ -300,7 +327,7 @@ local function addMarker(model: Instance)
 	label.Text = ""
 	label.Parent = gui
 	gui.Parent = player:WaitForChild("PlayerGui")
-	markers[giverId] = label
+	markers[model] = { giverId = giverId, label = label, gui = gui }
 end
 
 local function refreshMarkers()
@@ -309,9 +336,17 @@ local function refreshMarkers()
 		return
 	end
 	local raiding = workspace:GetAttribute("RaidPhase") ~= nil
-	for giverId, label in pairs(markers) do
+	for model, marker in pairs(markers) do
+		if not model.Parent then
+			-- (a dungeon copy that was taken down)
+			marker.gui:Destroy()
+			markers[model] = nil
+			continue
+		end
+		local giverId, label = marker.giverId, marker.label
 		local state = QuestUtil.giverState(giverId, p.quests, p.level)
-		if raiding then
+		local giver = Quests.Givers[giverId]
+		if raiding and not (giver and giver.dungeon) then
 			-- busy fighting the raiders: no quests until it's over
 			label.Text = "⚔️"
 			label.TextColor3 = Color3.new(1, 1, 1)
@@ -326,6 +361,10 @@ local function refreshMarkers()
 		elseif state == "active" then
 			label.Text = "?"
 			label.TextColor3 = Color3.fromRGB(170, 170, 180)
+		elseif QuestUtil.lockedByLevel(giverId, p.quests, p.level) then
+			-- a quest waiting for you to level up (talking to them says which level)
+			label.Text = "!"
+			label.TextColor3 = Color3.fromRGB(150, 150, 160)
 		else
 			label.Text = ""
 		end
@@ -367,6 +406,10 @@ function WorldView.init(app)
 	end
 	CollectionService:GetInstanceAddedSignal("Dragon"):Connect(watchDragon)
 
+	for _, model in ipairs(CollectionService:GetTagged("DungeonChest")) do
+		addChest(model)
+	end
+	CollectionService:GetInstanceAddedSignal("DungeonChest"):Connect(addChest)
 	for _, model in ipairs(CollectionService:GetTagged("CampChest")) do
 		addChest(model)
 	end

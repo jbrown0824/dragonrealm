@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Remotes)
 local Zones = require(Shared.Config.Zones)
+local Dungeons = require(Shared.Config.Dungeons)
 local Util = require(Shared.Util)
 
 local Theme = require(script.Parent.Theme)
@@ -31,6 +32,7 @@ local NUMBER_STYLES = {
 	taken = { color = Color3.fromRGB(255, 80, 80), size = 28, prefix = "-" },
 	dodge = { color = Color3.fromRGB(120, 210, 255), size = 30, text = "DODGE!" },
 	miss = { color = Color3.fromRGB(170, 200, 230), size = 26, text = "MISS" },
+	immune = { color = Color3.fromRGB(200, 150, 255), size = 26, text = "IMMUNE" },
 	poison = { color = Color3.fromRGB(130, 230, 80), size = 22 },
 	burn = { color = Color3.fromRGB(255, 150, 50), size = 22 },
 	thorns = { color = Color3.fromRGB(200, 120, 255), size = 22 },
@@ -39,7 +41,8 @@ local NUMBER_STYLES = {
 	xp = { color = Color3.fromRGB(190, 140, 255), size = 28, prefix = "+", suffix = " XP" },
 }
 
-function Notifications.toast(text: string, color: Color3?, icon: string?)
+-- `actions`: buttons under the text ({ text, color?, onClick }); a click closes the toast.
+function Notifications.toast(text: string, color: Color3?, icon: string?, actions)
 	local frame = Theme.make("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
@@ -59,6 +62,17 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 		Text = (icon and (icon .. "  ") or "") .. text,
 		Parent = frame,
 	})
+	if actions and #actions > 0 then
+		Theme.list(frame, 6)
+		local row = Theme.make("Frame", { Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, LayoutOrder = 2, Parent = frame })
+		Theme.list(row, 6, true)
+		for i, a in ipairs(actions) do
+			Theme.button(a.text, a.color or Theme.Colors.good, function()
+				frame:Destroy()
+				a.onClick()
+			end, { Size = UDim2.fromOffset(110, 28), TextSize = 14, LayoutOrder = i, Parent = row })
+		end
+	end
 	-- keep at most 6 (3 on phones)
 	local items = {}
 	for _, child in ipairs(toastHolder:GetChildren()) do
@@ -80,6 +94,7 @@ function Notifications.toast(text: string, color: Color3?, icon: string?)
 			frame:Destroy()
 		end
 	end)
+	return frame
 end
 
 -- Push the toast column down so it never covers something above it (the tutorial panel).
@@ -184,11 +199,17 @@ end
 
 function Notifications.zoneTitle(zoneId: string)
 	local area = Zones.getArea(zoneId)
+	local dungeon = type(zoneId) == "string" and Dungeons.get(zoneId:match("^Dungeon:(.+)$") or "")
+	if dungeon then
+		area = { name = dungeon.icon .. " " .. dungeon.name, color = dungeon.color, subtitle = string.format("Dungeon  •  monsters level %d-%d", dungeon.level - 1, dungeon.level + 1) }
+	end
 	if not area then
 		return
 	end
 	zoneToken += 1
 	local token = zoneToken
+	-- (phones keep their bars and toasts at the top, so the title goes under the dragon there)
+	zoneFrame.Position = App.Windows.mobile and UDim2.new(0.5, 0, 0.6, 0) or UDim2.new(0.5, 0, 0, 70)
 	zoneFrame.Name_.Text = area.name
 	zoneFrame.Name_.TextColor3 = area.color or Theme.Colors.accent
 	zoneFrame.Sub.Text = area.subtitle or ""
@@ -206,17 +227,39 @@ function Notifications.zoneTitle(zoneId: string)
 	end)
 end
 
+-- `seconds` < 0: knocked out in a dungeon. You stay down until your group is out of combat (the
+-- dungeon HUD keeps the text up to date), with a button to leave instead.
+local deathToken = 0
 function Notifications.death(seconds: number)
+	deathToken += 1
+	local token = deathToken
 	deathFrame.Visible = true
 	deathFrame.BackgroundTransparency = 1
 	TweenService:Create(deathFrame, TweenInfo.new(0.6), { BackgroundTransparency = 0.45 }):Play()
+	deathFrame.Leave.Visible = seconds < 0
+	if seconds < 0 then
+		deathFrame.Info.Text = "You'll get back up when your group is out of combat."
+		return
+	end
 	task.spawn(function()
 		for s = math.ceil(seconds), 1, -1 do
+			if token ~= deathToken then
+				return
+			end
 			deathFrame.Info.Text = string.format("Respawning in %d...", s)
 			task.wait(1)
 		end
-		deathFrame.Visible = false
+		if token == deathToken then
+			deathFrame.Visible = false
+		end
 	end)
+end
+
+-- The line under "You were defeated!" (the dungeon HUD updates it while you wait).
+function Notifications.setDeathInfo(text: string)
+	if deathFrame.Visible and deathFrame.Leave.Visible then
+		deathFrame.Info.Text = text
+	end
 end
 
 function Notifications.init(app)
@@ -322,16 +365,36 @@ function Notifications.init(app)
 		Name = "Info",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
-		Size = UDim2.fromOffset(500, 36),
+		Size = UDim2.fromOffset(620, 36),
 		TextSize = 24,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 6,
 		Parent = deathFrame,
 	})
+	local leave = Theme.button("🚪 Leave dungeon", Color3.fromRGB(120, 60, 60), function()
+		task.spawn(function()
+			local ok, err = Remotes.func("DungeonAction"):InvokeServer("leaveRun")
+			if not ok and err then
+				Notifications.toast(err, Theme.Colors.bad, "🏰")
+			end
+		end)
+	end, { Name = "Leave", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.58, 0), Size = UDim2.fromOffset(200, 40), TextSize = 17, ZIndex = 6, Visible = false, Parent = deathFrame })
+	leave.Active = true
+	-- getting back up (a respawn, or a revive in a dungeon) clears the screen
+	Players.LocalPlayer.CharacterAdded:Connect(function()
+		deathToken += 1
+		deathFrame.Visible = false
+	end)
 
 
 	Remotes.event("Notify").OnClientEvent:Connect(function(data)
-		Notifications.toast(data.text, data.color, data.icon)
+		local actions = nil
+		if data.open then
+			actions = { { text = "Open", onClick = function()
+				App.Windows.open(data.open)
+			end } }
+		end
+		Notifications.toast(data.text, data.color, data.icon, actions)
 		if data.icon == "📜" or data.icon == "🏆" then
 			App.Sfx.play("Quest")
 		elseif data.icon == "✨" then

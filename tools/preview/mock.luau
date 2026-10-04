@@ -129,6 +129,16 @@ end
 function CFm.PointToObjectSpace(c, v)
 	return c:Inverse() * v
 end
+function CFm.PointToWorldSpace(c, v)
+	return c * v
+end
+function CFm.VectorToWorldSpace(c, v)
+	return mulRV(c.r, v)
+end
+function CFm.VectorToObjectSpace(c, v)
+	local r = c.r
+	return mulRV({ r[1], r[4], r[7], r[2], r[5], r[8], r[3], r[6], r[9] }, v)
+end
 function CFm.ToObjectSpace(c, o)
 	return c:Inverse() * o
 end
@@ -293,7 +303,10 @@ end
 Vector2 = { new = v2, zero = v2(0, 0), one = v2(1, 1) }
 NumberSequence = { new = passthrough }
 NumberSequenceKeypoint = { new = passthrough }
-NumberRange = { new = passthrough }
+-- (Min / Max like Roblox's; one number means both)
+NumberRange = { new = function(a, b)
+	return { a, b, Min = a, Max = b or a }
+end }
 ColorSequence = { new = passthrough }
 ColorSequenceKeypoint = { new = passthrough }
 -- Enum items are cached so `a == Enum.Material.Water` comparisons work like in Roblox.
@@ -639,8 +652,35 @@ function M.GetAttribute(o, k)
 	return o._attrs[k]
 end
 function M.Destroy(o)
+	-- like Roblox: children are destroyed too (their Parent becomes nil)
+	for _, c in ipairs(table.clone(o._children)) do
+		M.Destroy(c)
+	end
 	o.Parent = nil
 	o._destroyed = true
+end
+function M.IsDescendantOf(o, ancestor)
+	local x = o._parent
+	while x do
+		if x == ancestor then
+			return true
+		end
+		x = x._parent
+	end
+	return false
+end
+function M.IsAncestorOf(o, descendant)
+	return M.IsDescendantOf(descendant, o)
+end
+function M.FindFirstAncestor(o, name)
+	local x = o._parent
+	while x do
+		if x._props.Name == name then
+			return x
+		end
+		x = x._parent
+	end
+	return nil
 end
 function M.ClearAllChildren(o)
 	for _, c in ipairs(table.clone(o._children)) do
@@ -806,8 +846,10 @@ local function matName(m)
 	return type(m) == "table" and m.Name or tostring(m)
 end
 function M.FillBlock(_, cf, size, mat)
+	-- (tilted blocks make ramps: a column's interval is found by clipping the vertical line
+	-- against the block's three slabs, so the radius covers the whole block)
 	table.insert(TERRAIN_OPS, { kind = "block", inv = cf:Inverse(), cy = cf.p.Y, size = size, mat = matName(mat),
-		r = math.sqrt(size.X * size.X + size.Z * size.Z) / 2, cx = cf.p.X, cz = cf.p.Z })
+		r = math.sqrt(size.X * size.X + size.Y * size.Y + size.Z * size.Z) / 2, cx = cf.p.X, cz = cf.p.Z })
 end
 function M.FillBall(_, c, radius, mat)
 	table.insert(TERRAIN_OPS, { kind = "ball", cx = c.X, cy = c.Y, cz = c.Z, r = radius, mat = matName(mat) })
@@ -890,9 +932,27 @@ function TERRAIN_COLUMN(x, z)
 			elseif op.kind == "cyl" then
 				list = setInterval(list, op.cy - op.h / 2, op.cy + op.h / 2, op.mat)
 			elseif op.kind == "block" then
-				local l = op.inv * v3(x, op.cy, z)
-				if math.abs(l.X) <= op.size.X / 2 and math.abs(l.Z) <= op.size.Z / 2 then
-					list = setInterval(list, op.cy - op.size.Y / 2, op.cy + op.size.Y / 2, op.mat)
+				-- the vertical line (x, t, z) in the block's space: origin o + t * d
+				local o = op.inv * v3(x, 0, z)
+				local o1 = op.inv * v3(x, 1, z)
+				local d = { o1.X - o.X, o1.Y - o.Y, o1.Z - o.Z }
+				local oo = { o.X, o.Y, o.Z }
+				local half = { op.size.X / 2, op.size.Y / 2, op.size.Z / 2 }
+				local lo, hi = -math.huge, math.huge
+				for a = 1, 3 do
+					if math.abs(d[a]) < 1e-9 then
+						if math.abs(oo[a]) > half[a] + 1e-6 then
+							lo, hi = 1, 0
+							break
+						end
+					else
+						local t1, t2 = (-half[a] - oo[a]) / d[a], (half[a] - oo[a]) / d[a]
+						lo = math.max(lo, math.min(t1, t2))
+						hi = math.min(hi, math.max(t1, t2))
+					end
+				end
+				if lo <= hi then
+					list = setInterval(list, lo, hi, op.mat)
 				end
 			elseif op.kind == "replace" then
 				if x >= op.min.X and x <= op.max.X and z >= op.min.Z and z <= op.max.Z then
@@ -1102,8 +1162,32 @@ services.MarketplaceService = Instance.new("MarketplaceService")
 function services.MarketplaceService.UserOwnsGamePassAsync()
 	return false
 end
-function services.MarketplaceService.PromptProductPurchase() end
-function services.MarketplaceService.PromptGamePassPurchase() end
+-- Purchase prompts act like Studio's test purchases: the player confirms, then Roblox calls
+-- ProcessReceipt (products) or fires PromptGamePassPurchaseFinished (passes).
+local mockReceipts = 0
+function services.MarketplaceService.PromptProductPurchase(self, player, productId)
+	task.spawn(function()
+		task.wait(0.2)
+		local process = self.ProcessReceipt
+		if not process then
+			return
+		end
+		mockReceipts += 1
+		local decision = process({ PlayerId = player.UserId, ProductId = productId, PurchaseId = "mock-receipt-" .. mockReceipts, CurrencySpent = 0, PlaceIdWherePurchased = 0 })
+		self.PromptProductPurchaseFinished:Fire(player.UserId, productId, decision == Enum.ProductPurchaseDecision.PurchaseGranted)
+	end)
+end
+function services.MarketplaceService.PromptGamePassPurchase(self, player, passId)
+	task.spawn(function()
+		task.wait(0.2)
+		self.PromptGamePassPurchaseFinished:Fire(player, passId, true)
+	end)
+end
+-- PolicyService: a player's `MockPaidRandomRestricted` attribute stands in for where they live
+services.PolicyService = Instance.new("PolicyService")
+function services.PolicyService.GetPolicyInfoForPlayerAsync(_, player)
+	return { ArePaidRandomItemsRestricted = player:GetAttribute("MockPaidRandomRestricted") == true, AllowedExternalLinkReferences = {}, IsSubjectToChinaPolicies = false }
+end
 services.RunService.BindToRenderStep = function(_, _name, _priority, fn)
 	services.RunService.RenderStepped:Connect(fn)
 end

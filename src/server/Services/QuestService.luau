@@ -1,7 +1,8 @@
 -- Quests from the village dragons. Talking to a quest giver opens a dialog on the client;
 -- the client asks to accept or turn in, and this service checks the rules in QuestUtil.
 -- Other services report progress with QuestService.progress(player, type, target, amount).
--- During a night raid the quest givers are busy fighting (RaidService) and don't talk quests.
+-- During a night raid the quest givers in town are busy fighting (RaidService) and don't talk
+-- quests; the keepers at the dungeon entrances are far from it all and always do.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,10 +19,18 @@ local S
 
 local GIVER_RANGE = 40
 
+-- Next to the giver: at its spot, or (the dungeon keepers) inside your dungeon run.
 local function nearGiver(player: Player, giverId: string): boolean
 	local _, _, root = S.PlayerService.getCharacter(player)
+	if not root then
+		return false
+	end
 	local spot = Zones.QuestGivers[giverId]
-	return root ~= nil and spot ~= nil and (root.Position - spot.position).Magnitude <= GIVER_RANGE
+	if spot and (root.Position - spot.position).Magnitude <= GIVER_RANGE then
+		return true
+	end
+	local inside = S.DungeonService.keeperPosition(player, giverId)
+	return inside ~= nil and (root.Position - inside).Magnitude <= GIVER_RANGE
 end
 
 -- Report progress. `set` = true replaces progress with `amount` (used for "reach level N").
@@ -64,7 +73,7 @@ local function onAccept(player: Player, questId)
 	if not profile or not quest then
 		return false, "Unknown quest."
 	end
-	if S.RaidService.isActive() then
+	if S.RaidService.isActive() and not Quests.Givers[quest.giver].dungeon then
 		return false, Raids.QUEST_BUSY
 	end
 	if not nearGiver(player, quest.giver) then
@@ -103,7 +112,7 @@ local function onTurnIn(player: Player, questId)
 	if not profile or not quest then
 		return false, "Unknown quest."
 	end
-	if S.RaidService.isActive() then
+	if S.RaidService.isActive() and not Quests.Givers[quest.giver].dungeon then
 		return false, Raids.QUEST_BUSY
 	end
 	if not nearGiver(player, quest.giver) then
@@ -140,15 +149,21 @@ function QuestService.start()
 	Remotes.func("TurnInQuest").OnServerInvoke = onTurnIn
 	Remotes.func("AbandonQuest").OnServerInvoke = onAbandon
 
-	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
+	local function hook(prompt: Instance)
 		prompt.Triggered:Connect(function(player)
-			if S.RaidService.isActive() then
+			local giver = Quests.Givers[prompt:GetAttribute("GiverId") or ""]
+			if S.RaidService.isActive() and not (giver and giver.dungeon) then
 				S.PlayerService.notify(player, Raids.QUEST_BUSY, Color3.fromRGB(255, 150, 110), "⚔️")
 				return
 			end
 			Remotes.event("OpenQuestDialog"):FireClient(player, prompt:GetAttribute("GiverId"))
 		end)
 	end
+	for _, prompt in ipairs(CollectionService:GetTagged("QuestPrompt")) do
+		hook(prompt)
+	end
+	-- (the keepers inside a dungeon are built when the first group goes in)
+	CollectionService:GetInstanceAddedSignal("QuestPrompt"):Connect(hook)
 end
 
 return QuestService

@@ -127,7 +127,7 @@ function Shop.refresh()
 		return
 	end
 	titleLabel.Text = TAB_INFO[tab].title
-	restockButton.Visible = tab == "Buy"
+	restockButton.Visible = tab == "Buy" and App.Store.available("product", "Restock")
 	goldLabel.Text = string.format("💰 %s gold   <font color=\"#B9AFD2\">%s</font>%s", Util.formatNumber(p.gold), TAB_INFO[tab].hint,
 		tab == "Buy" and ("   <font color=\"#8CE678\">" .. Shop.restockText(p) .. "</font>") or "")
 	Theme.clear(list)

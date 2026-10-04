@@ -277,12 +277,24 @@ end
 
 function Props.watchtower(parent: Instance, base: Vector3)
 	local h = 18
+	local top = h + 5 -- where the roof sits
 	for _, o in ipairs({ Vector3.new(-3, 0, -3), Vector3.new(3, 0, -3), Vector3.new(-3, 0, 3), Vector3.new(3, 0, 3) }) do
 		Props.column(parent, base + o, h, 1, DARK_WOOD, Enum.Material.Wood)
 	end
 	Props.part(parent, Vector3.new(9, 1, 9), CFrame.new(base + Vector3.new(0, h, 0)), WOOD, Enum.Material.WoodPlanks)
-	Props.roof(parent, CFrame.new(base + Vector3.new(0, h + 5, 0)), 9, 9, 0, 4, Color3.fromRGB(80, 55, 35), Enum.Material.WoodPlanks)
-	Props.torch(parent, base + Vector3.new(4, h + 0.5, -4))
+	-- a post at each corner holds up the roof, with a railing between them
+	local corners = { Vector3.new(-4, 0, -4), Vector3.new(4, 0, -4), Vector3.new(4, 0, 4), Vector3.new(-4, 0, 4) }
+	for i, c in ipairs(corners) do
+		Props.column(parent, base + c + Vector3.new(0, h + 0.5, 0), top - h - 0.3, 0.6, DARK_WOOD, Enum.Material.Wood)
+		local nextC = corners[i % 4 + 1]
+		Props.beam(parent, base + c + Vector3.new(0, h + 2.6, 0), base + nextC + Vector3.new(0, h + 2.6, 0), 0.35, DARK_WOOD, Enum.Material.Wood)
+	end
+	Props.roof(parent, CFrame.new(base + Vector3.new(0, top, 0)), 9, 9, 0, 4, Color3.fromRGB(80, 55, 35), Enum.Material.WoodPlanks)
+	-- a fire basket on the lookout's platform
+	Props.part(parent, Vector3.new(1.3, 0.8, 1.3), CFrame.new(base + Vector3.new(2.8, h + 0.9, -2.8)), Color3.fromRGB(60, 60, 65), Enum.Material.Metal)
+	local coals = Props.part(parent, Vector3.new(1, 0.3, 1), CFrame.new(base + Vector3.new(2.8, h + 1.4, -2.8)), Color3.fromRGB(255, 140, 50), Enum.Material.Neon)
+	Props.fire(coals, 2.5)
+	Props.light(coals, Color3.fromRGB(255, 170, 90), 16, 1.5)
 end
 
 function Props.banner(parent: Instance, pos: Vector3, color: Color3, facing: Vector3?)
@@ -301,6 +313,54 @@ function Props.barrel(parent: Instance, pos: Vector3)
 	Props.column(parent, pos, 3.6, 2.6, Color3.fromRGB(120, 80, 45), Enum.Material.Wood)
 	Props.column(parent, pos + Vector3.new(0, 0.6, 0), 0.3, 2.75, Color3.fromRGB(70, 70, 75), Enum.Material.Metal)
 	Props.column(parent, pos + Vector3.new(0, 2.7, 0), 0.3, 2.75, Color3.fromRGB(70, 70, 75), Enum.Material.Metal)
+end
+
+-- A stone well with a little roof, a crank and a bucket. During a raid dragons dip in here for
+-- water to put out burning houses (RaidService); its "WellTag" sign lights up while a house burns.
+function Props.well(parent: Instance, pos: Vector3)
+	local model = Instance.new("Model")
+	model.Name = "Well"
+	local stone = Color3.fromRGB(135, 130, 128)
+	local y = Props.groundY(pos.X, pos.Z)
+	local base = Vector3.new(pos.X, y, pos.Z)
+	Props.column(model, base - Vector3.new(0, 1, 0), 4, 8, stone, Enum.Material.Cobblestone)
+	Props.column(model, base + Vector3.new(0, 3, 0), 0.5, 8.4, stone:Lerp(Color3.new(1, 1, 1), 0.15), Enum.Material.Slate)
+	local water = Props.column(model, base + Vector3.new(0, 3.5, 0), 0.12, 6.8, Color3.fromRGB(70, 140, 205), Enum.Material.Glass)
+	water.Name = "Water"
+	water.Transparency = 0.15
+	water.CanCollide = false
+	for _, side in ipairs({ -1, 1 }) do
+		Props.part(model, Vector3.new(0.8, 7, 0.8), CFrame.new(base + Vector3.new(side * 3.6, 6, 0)), DARK_WOOD, Enum.Material.Wood)
+	end
+	Props.roof(model, CFrame.new(base), 9, 6, 9.4, 2.6, Color3.fromRGB(150, 70, 55), Enum.Material.WoodPlanks)
+	Props.beam(model, base + Vector3.new(-3.6, 7.6, 0), base + Vector3.new(3.6, 7.6, 0), 0.6, WOOD, Enum.Material.Wood)
+	Props.part(model, Vector3.new(0.12, 3.2, 0.12), CFrame.new(base + Vector3.new(0.6, 5.9, 0)), Color3.fromRGB(200, 180, 130), Enum.Material.Fabric).CanCollide = false
+	local bucket = Props.column(model, base + Vector3.new(0.6, 3.6, 0), 1.3, 1.2, Color3.fromRGB(120, 80, 45), Enum.Material.Wood)
+	bucket.CanCollide = false
+	-- "Water here!", shown while a house is burning
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "WellTag"
+	gui.Size = UDim2.fromOffset(120, 32)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 15, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 300
+	gui.LightInfluence = 0
+	gui.Enabled = false
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundColor3 = Color3.fromRGB(20, 60, 110)
+	label.BackgroundTransparency = 0.2
+	label.TextColor3 = Color3.fromRGB(190, 230, 255)
+	label.Font = Enum.Font.FredokaOne
+	label.TextScaled = true
+	label.Text = "💧 Water"
+	label.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = label
+	gui.Parent = water
+	model.Parent = parent
+	return model
 end
 
 -- A viking longship floating with its waterline at `cf` (bow toward -Z). The hull is built

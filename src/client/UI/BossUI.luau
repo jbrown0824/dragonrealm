@@ -37,7 +37,7 @@ end
 local function update()
 	local data = App.State.boss
 	local me = Players.LocalPlayer.UserId
-	if not data or data.phase == "idle" or not data.name then
+	if not data or data.phase == "idle" or not data.name or Players.LocalPlayer:GetAttribute("InDungeon") then
 		banner.Visible = false
 		pill.Visible = false
 		minimized = false
@@ -173,6 +173,7 @@ function BossUI.init(app)
 	Theme.stroke(pill, Color3.fromRGB(255, 90, 60), 2)
 
 	App.State.bossChanged:Connect(update)
+	Players.LocalPlayer:GetAttributeChangedSignal("InDungeon"):Connect(update)
 	RunService.RenderStepped:Connect(function()
 		if banner.Visible or pill.Visible then
 			update()

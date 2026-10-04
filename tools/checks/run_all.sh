@@ -20,6 +20,10 @@ tail -1 $P/_walks.txt
 python3 $P/bundle.py $P/water_check.luau $P/_wc.luau && luau $P/_wc.luau > $P/_water.txt
 grep -q "^0 water problems" $P/_water.txt || { cat $P/_water.txt; exit 1 }
 tail -1 $P/_water.txt
+# Dungeons: floors under every monster, and every tunnel, ramp and bridge walkable.
+python3 $P/bundle.py $P/dungeon_check.luau $P/_dc.luau && luau $P/_dc.luau > $P/_dungeons.txt
+grep -q "^0 dungeon problems" $P/_dungeons.txt || { cat $P/_dungeons.txt; exit 1 }
+tail -1 $P/_dungeons.txt
 # The client's screens rendered at desktop and phone size.
 $D/gui_check.sh
 cd $D/../.. && rojo build default.project.json -o DragonRealm.rbxlx

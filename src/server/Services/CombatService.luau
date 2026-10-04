@@ -167,8 +167,16 @@ end
 -- have `practice` set and a plain { Position } as their root).
 function CombatService.collectTargets(attacker: Player?)
 	local list = {}
+	local from = nil
+	if attacker then
+		local _, _, aroot = S.PlayerService.getCharacter(attacker)
+		from = aroot and aroot.Position
+	end
 	for _, e in ipairs(S.EnemyService.alive()) do
-		table.insert(list, { model = e.model, humanoid = e.humanoid, root = e.root, radius = e.radius, enemy = e })
+		-- (a dungeon monster behind a shut boss door is out of reach)
+		if not (e.run and from and S.DungeonService.doorBetween(e.run, from, e.root.Position)) then
+			table.insert(list, { model = e.model, humanoid = e.humanoid, root = e.root, radius = e.radius, enemy = e })
+		end
 	end
 	if attacker then
 		for _, target in ipairs(S.RangeService.targetsFor(attacker)) do
@@ -228,6 +236,25 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 		return 0
 	end
 	local humanoid = info.humanoid
+	if info.immune then
+		-- (a dungeon boss behind its rune shield, or collapsed before its second life: the fight
+		-- is still on)
+		info.lastCombat = now()
+		if attacker then
+			queueNumber(attacker, info.root.Position + Vector3.new(0, info.height, 0), 0, "immune")
+		end
+		return 0
+	end
+	info.lastCombat = now()
+	amount *= info.damageTakenMult or 1 -- (raiders shielded on a longship's deck)
+	-- the level gap: you hit monsters below your level harder, ones above you softer (not the
+	-- training dummies, nor the world boss, which spawns above the group's level)
+	if attacker and info.level and not info.dummy and not info.arena then
+		local st = S.PlayerService.getStats(attacker)
+		if st and st.level then
+			amount *= StatCalc.levelGap(st.level - info.level)
+		end
+	end
 	amount = math.max(1, math.floor(amount + 0.5))
 	local before = humanoid.Health
 	humanoid.Health = math.max(0, before - amount)
@@ -261,6 +288,9 @@ function CombatService.damageEnemy(attacker: Player?, info, amount: number, crit
 	end
 
 	if humanoid.Health <= 0 then
+		if info.onLethal and info.onLethal(info) then
+			return dealt -- (it isn't finished yet: a dungeon boss's second life)
+		end
 		S.EnemyService.kill(info, attacker)
 	end
 	return dealt
@@ -296,6 +326,10 @@ function CombatService.damagePlayer(victim: Player, amount: number, opts)
 		return 0
 	end
 
+	-- the level gap: a monster above your level hits harder, one below you softer
+	if not opts.attackerPlayer and not opts.dotKind and opts.sourceLevel and not opts.noLevelGap then
+		amount *= StatCalc.levelGap(opts.sourceLevel - (stats.level or 1))
+	end
 	if not opts.dotKind then
 		amount = applyDefense(amount, stats.defense, opts.sourceLevel or 1)
 	end
@@ -445,7 +479,10 @@ end
 ---------------------------------------------------------------- casting
 
 local function groundBelow(pos: Vector3): Vector3
-	local ray = workspace:Raycast(pos + Vector3.new(0, 60, 0), Vector3.new(0, -200, 0), mapParams)
+	-- cast from 60 up, or from just under a ceiling if there's one closer (inside a dungeon cave)
+	local up = workspace:Raycast(pos + Vector3.new(0, 1, 0), Vector3.new(0, 59, 0), mapParams)
+	local from = up and (up.Position - Vector3.new(0, 1, 0)) or pos + Vector3.new(0, 60, 0)
+	local ray = workspace:Raycast(from, Vector3.new(0, -200, 0), mapParams)
 	if ray then
 		return ray.Position
 	end
@@ -468,6 +505,14 @@ local function setStealth(player: Player, on: boolean)
 		if character then
 			character:SetAttribute("Stealthed", false)
 		end
+	end
+end
+
+-- Drop out of stealth now (pushing a dungeon boss's doors open).
+function CombatService.breakStealth(player: Player)
+	local character = player.Character
+	if character and character:GetAttribute("Stealthed") then
+		setStealth(player, false)
 	end
 end
 
@@ -543,7 +588,7 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 			dir = root.CFrame.LookVector
 		end
 		dir = dir.Unit
-		broadcastVFX({ kind = "breath", character = character, dir = dir, classId = stats.classId, duration = ability.cooldown + 0.15 }, player)
+		broadcastVFX({ kind = "breath", character = character, dir = dir, classId = stats.classId, duration = ability.cooldown + 0.15, reach = 1 + (stats.breathRange or 0) / 100 }, player)
 		local cosLimit = math.cos(math.rad(ability.angle))
 		for _, target in ipairs(CombatService.collectTargets(player)) do
 			local to = target.root.Position - origin

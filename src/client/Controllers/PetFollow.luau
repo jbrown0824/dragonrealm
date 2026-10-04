@@ -1,7 +1,10 @@
 -- Draws every dragon's nano dragon pets on this client. The server only sets the "Pets"
 -- attribute on each character ("species:level:golden", comma-separated); each client builds
 -- small local copies that hover beside their owner, flap their wings and bob along, with a
--- nametag (name, then rarity and level) so other players can see what you've got.
+-- nametag (name, then rarity and level) so other players can see what you've got. To keep a
+-- crowd readable: other dragons' pet nametags only show up close, other dragons' pets (and every
+-- nametag) hide while you're in a boss fight (player attribute InBossFight), and a knocked-out
+-- dragon's pets settle on the ground beside it instead of flapping over the body.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -15,9 +18,10 @@ local DragonRig = require(Shared.DragonRig)
 
 local PetFollow = {}
 
-local PET_SCALE = 0.26
+local PET_SCALE = 0.22
 local SHOW_DISTANCE = 220
-local TAG_DISTANCE = 70 -- nametags show within this range of the camera
+local TAG_DISTANCE = 70 -- your own pets' nametags show within this range of the camera
+local OTHER_TAG_DISTANCE = 28 -- other dragons' pets' nametags only this close
 local folder: Folder
 local owners = {} -- [Model] = { key, pets = { { model, root, motors, info, pos, phase } } }
 
@@ -126,7 +130,7 @@ local function buildPet(entryText: string)
 			motors[d.Name] = d
 		end
 	end
-	nametag(model.PrimaryPart, speciesId, tonumber(level) or 1, isGolden)
+	local tag = nametag(model.PrimaryPart, speciesId, tonumber(level) or 1, isGolden)
 	if isGolden then
 		sparkle(model.PrimaryPart, Color3.fromRGB(255, 225, 90), "GoldenSparkle")
 	end
@@ -134,7 +138,8 @@ local function buildPet(entryText: string)
 		sparkle(model.PrimaryPart, species.aura, "SecretAura")
 	end
 	model.Parent = folder
-	return { model = model, root = model.PrimaryPart, motors = motors, info = DragonRig.info(model), phase = math.random() * 10 }
+	local stand = (model:GetAttribute("HipHeight") or 1) + model.PrimaryPart.Size.Y / 2
+	return { model = model, root = model.PrimaryPart, motors = motors, info = DragonRig.info(model), phase = math.random() * 10, tag = tag, stand = stand }
 end
 
 local function sync(character: Model)
@@ -170,13 +175,27 @@ local function watch(character: Instance)
 	end)
 end
 
+local groundParams = RaycastParams.new()
+groundParams.FilterType = Enum.RaycastFilterType.Exclude
+
+-- The floor under a point (for pets settling beside a fallen owner).
+local function groundY(pos: Vector3, character: Model): number?
+	groundParams.FilterDescendantsInstances = { folder, character }
+	local ray = workspace:Raycast(pos + Vector3.new(0, 6, 0), Vector3.new(0, -40, 0), groundParams)
+	return ray and ray.Position.Y or nil
+end
+
 local function updateOwner(character: Model, entry, now: number, dt: number, camPos: Vector3)
 	local root = character:FindFirstChild("HumanoidRootPart")
-	-- Your own pets always show; other dragons' pets only when they're near the camera.
+	-- Your own pets always show; other dragons' pets only when they're near the camera, and not
+	-- at all while you're fighting a boss.
 	local mine = character == Players.LocalPlayer.Character
-	local far = not mine and (root.Position - camPos).Magnitude > SHOW_DISTANCE
+	local bossFight = Players.LocalPlayer:GetAttribute("InBossFight") == true
+	local far = not mine and (bossFight or (root.Position - camPos).Magnitude > SHOW_DISTANCE)
 	local scale = character:GetAttribute("DragonScale") or 1
 	local ownerCF = root.CFrame
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local downed = character:GetAttribute("KnockedOut") == true or (humanoid ~= nil and humanoid.Health <= 0)
 	for i, pet in ipairs(entry.pets) do
 		if far then
 			pet.model.Parent = nil
@@ -185,9 +204,20 @@ local function updateOwner(character: Model, entry, now: number, dt: number, cam
 		if pet.model.Parent ~= folder then
 			pet.model.Parent = folder
 		end
+		if pet.tag then
+			pet.tag.Enabled = not bossFight
+			pet.tag.MaxDistance = mine and TAG_DISTANCE or OTHER_TAG_DISTANCE
+		end
 		local t = now + pet.phase
 		local offset = OFFSETS[(i - 1) % #OFFSETS + 1] * scale
 		local target = ownerCF * offset + Vector3.new(0, math.sin(t * 2.2) * 0.6, 0)
+		if downed then
+			-- down on the ground beside it, wings folded (not flapping over the body)
+			local side = ownerCF:VectorToWorldSpace(Vector3.new(offset.X, 0, offset.Z))
+			local spot = root.Position + side * 1.3
+			local floor = groundY(spot, character)
+			target = Vector3.new(spot.X, (floor or (root.Position.Y - 3 * scale)) + pet.stand, spot.Z)
+		end
 		-- Glide after the owner, but jump straight to them after a teleport (boss arena, fly home...).
 		if not pet.pos or pet.pos ~= pet.pos or (pet.pos - target).Magnitude > 80 then
 			pet.pos = target
@@ -201,7 +231,7 @@ local function updateOwner(character: Model, entry, now: number, dt: number, cam
 			look = Vector3.new(0, 0, -1)
 		end
 		pet.root.CFrame = CFrame.lookAt(pet.pos, pet.pos + look.Unit)
-		local pose = DragonRig.pose(pet.info, { t = t, mode = "fly", vy = 0, speed = 0 })
+		local pose = DragonRig.pose(pet.info, { t = t, mode = downed and "ground" or "fly", vy = 0, speed = 0 })
 		for name, cf in pairs(pose) do
 			local m = pet.motors[name]
 			if m then
