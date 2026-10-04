@@ -112,7 +112,9 @@ task.spawn(function()
 		shot("collection_" .. tab)
 	end
 	Windows.open("SkillTree")
-	shot("skilltree")
+	shot("skilltree") -- with the "Choose your path" card (no points spent yet)
+	click(Windows.registry.SkillTree.frame, "Let me choose!")
+	shot("skilltree_path")
 	-- a skill picked: its Learn / Max bubble sits between the row's two skills
 	for _, d in ipairs(Windows.registry.SkillTree.frame:GetDescendants()) do
 		if d.ClassName == "TextButton" and d.Size.X.Offset == 50 and d.Size.Y.Offset == 50 then

@@ -35,6 +35,11 @@ local tracker
 local skillBadge, petBadge, bagBadge
 local menuLabels = {}
 local menuActions = {} -- [menu id] = what clicking its button (or its speech bubble) does
+-- New abilities (your signature move at level 3, skills learned in the tree) glow on the
+-- ability bar with a small bubble until you first use them. Only for this session: abilities
+-- you already had when you joined are known.
+local knownAbilities = nil -- [abilityId] = true, filled from the first profile with abilities
+local freshAbilities = {} -- [abilityId] = true while it glows
 local menuStage = {} -- [menu id] = 0 hidden, 1 new (highlighted), 2 clicked; see the menu unlocks below
 local mobile = {}
 local starterAd, rushAd
@@ -612,6 +617,14 @@ local function startMenuLoop()
 			end
 			-- glowing buttons pulse gold, and their bubbles nudge toward them
 			local wave = math.sin(t * 6)
+			for i, slot in ipairs(slots) do
+				local id = abilityForSlot(i)
+				if slot.bubble and slot.bubble.Visible and id then
+					slot.stroke.Color = Color3.fromRGB(255, 215, 70)
+					slot.stroke.Thickness = 3.5 + wave * 1.5
+					slot.bubble.Position = UDim2.new(0.5, 0, 0, -10 - math.abs(wave) * 5)
+				end
+			end
 			for id, bubble in pairs(callouts) do
 				if bubble.Visible then
 					local b = menuButtons[id]
@@ -876,6 +889,7 @@ function HUD.setTrackerTop(y: number)
 end
 
 function HUD.goHome()
+	HUD.menuSeen("home") -- pressing H counts as finding the button
 	task.spawn(function()
 		local ok, err = Remotes.func("TeleportHome"):InvokeServer()
 		if not ok and err then
@@ -1009,9 +1023,49 @@ local function refresh()
 	gardenLabel.Visible = thirsty > 0 and not (p.robots and p.robots.water)
 	gardenLabel.Text = string.format("💧 %d plant%s thirsty at your lair!", thirsty, thirsty == 1 and " is" or "s are")
 
+	local abilityList = p.stats and p.stats.abilities
+	if abilityList then
+		local first = knownAbilities == nil
+		knownAbilities = knownAbilities or {}
+		for _, abilityId in ipairs(abilityList) do
+			if not knownAbilities[abilityId] then
+				knownAbilities[abilityId] = true
+				if not first then
+					freshAbilities[abilityId] = true
+					App.Sfx.play("Quest")
+				end
+			end
+		end
+	end
 	for i, slot in ipairs(slots) do
 		local id = abilityForSlot(i)
 		local a = id and Abilities.get(id)
+		local fresh = id ~= nil and freshAbilities[id] == true
+		if fresh and not slot.bubble then
+			slot.bubble = Theme.label({
+				Name = "NewAbility",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 0, -10),
+				Size = UDim2.fromOffset(150, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 0,
+				BackgroundColor3 = Color3.fromRGB(255, 205, 70),
+				TextColor3 = Color3.fromRGB(45, 25, 10),
+				TextSize = 14,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				ZIndex = 6,
+				Parent = slot.button,
+			})
+			Theme.corner(slot.bubble, 10)
+			Theme.pad(slot.bubble, 6)
+			Theme.stroke(slot.bubble, Color3.fromRGB(255, 255, 255), 2, 0)
+		end
+		if slot.bubble then
+			slot.bubble.Visible = fresh
+			if fresh then
+				slot.bubble.Text = string.format("<b>New!</b> %s\n%s 👇", a and a.name or id, App.Windows.mobile and "Tap it to use it" or ("Press " .. SLOT_KEYS[i]))
+			end
+		end
 		slot.icon.Text = a and a.icon or ""
 		slot.icon.TextTransparency = 0
 		slot.note.Text = ""
@@ -1124,6 +1178,12 @@ function HUD.init(app)
 				slot.cdText.Text = ""
 			elseif id then
 				local remaining, total = App.Combat.getCooldown(id)
+				if remaining > 0 and freshAbilities[id] then
+					-- used it: stop the glow
+					freshAbilities[id] = nil
+					slot.stroke.Thickness = 2
+					refresh()
+				end
 				if remaining > 0.05 and total > 0 then
 					slot.cd.Size = UDim2.fromScale(1, math.clamp(remaining / total, 0, 1))
 					slot.cdText.Text = remaining >= 1 and tostring(math.ceil(remaining)) or ""

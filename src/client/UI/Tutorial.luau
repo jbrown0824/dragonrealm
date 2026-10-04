@@ -29,6 +29,9 @@ local dummyHit = false
 local skipArmed = false
 local docked = false -- the panel sits at the left edge (false: big in the middle)
 local shownAt, shownFrom = 0, nil -- when the step popped up, and where the dragon was
+-- Keeping up: a step done within this many seconds of showing means the player's on a roll, so
+-- the next one (unless it has a button to read) slides in at the side instead of the middle.
+local ON_A_ROLL = 25
 
 -- In the middle: a bit bigger than life. Docked: under the player card.
 local CENTER_ANCHOR, CENTER_POS = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.4)
@@ -42,12 +45,41 @@ local function root(): BasePart?
 	return character and character:FindFirstChild("HumanoidRootPart")
 end
 
+local freePlot -- (below)
+
 local function homePosition(): Vector3?
 	local p = App.State.profile
 	local bases = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Bases")
 	local base = p and p.baseIndex and bases and bases:FindFirstChild("Base" .. p.baseIndex)
 	local home = base and base:FindFirstChild("HomeSpawn")
 	return home and home.Position
+end
+
+-- The nearest empty planting spot in your lair (for the planting step's marker).
+freePlot = function(): BasePart?
+	local p = App.State.profile
+	local bases = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Bases")
+	local base = p and p.baseIndex and bases and bases:FindFirstChild("Base" .. p.baseIndex)
+	local plots = base and base:FindFirstChild("Plots")
+	local r = root()
+	if not plots or not r then
+		return nil
+	end
+	local used = {}
+	for _, g in ipairs(p.garden or {}) do
+		used[g.plot] = true
+	end
+	local best, bestDist = nil, math.huge
+	for _, plot in ipairs(plots:GetChildren()) do
+		local index = plot:GetAttribute("PlotIndex")
+		if index and index <= (p.plotsUnlocked or 0) and not used[index] then
+			local d = (plot.Position - r.Position).Magnitude
+			if d < bestDist then
+				best, bestDist = plot, d
+			end
+		end
+	end
+	return best
 end
 
 local STEPS = {
@@ -108,14 +140,18 @@ local STEPS = {
 			local home = homePosition()
 			return r ~= nil and home ~= nil and (r.Position - home).Magnitude < 60
 		end },
-	{ title = "Plant a seed", text = "Walk up to a planting spot (the one you face glows) and press <b>E</b> to plant. When it gets thirsty (💧) press <b>R</b> to water it. Full flowers give seeds back!", unlock = "bag",
+	{ title = "Plant a seed", text = "The <b>green glowing</b> spots are free. Walk onto one and press <b>E</b>, or just <b>click</b> it, to plant. When it gets thirsty (💧) press <b>R</b> or click it to water. Full flowers give seeds back!", unlock = "bag",
+		target = function()
+			local spot = freePlot()
+			return spot and spot.Position + Vector3.new(0, 9, 0)
+		end,
 		check = function()
 			local p = App.State.profile
 			return p ~= nil and p.garden ~= nil and #p.garden > 0
 		end },
 	{ title = "Stay fed", text = "The orange bar is your <b>hunger</b>. Hunt animals in <b>Elk Meadows</b> (west) or <b>Whisperwood</b> (east), or fish at the 🎣 spots, then press <b>G</b> to eat. Hungry dragons fly and fight worse!", button = "Got it" },
 	{ title = "Pets & potions", text = "<b>Nestmother's Hatchery</b> sells eggs that hatch right away into nano dragon pets (<b>P</b>). The <b>Bubbling Cauldron</b> sells permanent potions. Your lair's <b>Bot Dock</b> sells garden robots.", button = "Cool!" },
-	{ title = "You're ready!", text = "Cross the bridge south to fight vikings, open camp chests and beat camp champions (💀). Finish the tour for <b>150 gold and a dragon egg</b>!", button = "Finish tour" },
+	{ title = "You're ready!", text = "Cross the bridge south to fight vikings, open camp chests and beat camp champions (💀). Finish the tour for <b>150 gold and a dragon egg</b>!", button = "I'm ready!", last = true },
 }
 
 -- Keep notification toasts below the tour panel while it's docked at the side.
@@ -133,11 +169,12 @@ local function clearGuide()
 	beam.Enabled = false
 end
 
-local function showStep()
+local function showStep(onARoll: boolean?)
 	local step = STEPS[current]
 	stepState = {}
 	skipArmed = false
 	skipButton.Text = "Skip tour"
+	skipButton.Visible = not step.last -- nothing left to skip
 	panel.Visible = true
 	stepLabel.Text = string.format("TOUR  %d / %d", current, #STEPS)
 	titleLabel.Text = step.title
@@ -147,17 +184,26 @@ local function showStep()
 	if step.unlock then
 		App.HUD.unlockMenu(step.unlock) -- the menu button this step talks about
 	end
-	-- pop up in the middle of the screen
-	docked = false
 	shownAt = os.clock()
 	local r = root()
 	shownFrom = r and r.Position
+	clearGuide()
+	task.defer(updateToastInset)
+	if onARoll and not step.button then
+		-- stay at the side: slide the new step in from the left and give it a little bounce
+		docked = true
+		panel.AnchorPoint = DOCK_ANCHOR
+		panel.Position = DOCK_POS - UDim2.fromOffset(380, 0)
+		zoom.Scale = 1
+		TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Position = DOCK_POS }):Play()
+		return
+	end
+	-- pop up in the middle of the screen
+	docked = false
 	panel.AnchorPoint = CENTER_ANCHOR
 	panel.Position = CENTER_POS
 	zoom.Scale = 0.5
 	TweenService:Create(zoom, TweenInfo.new(0.4, Enum.EasingStyle.Back), { Scale = App.Windows.mobile and 1 or 1.3 }):Play()
-	clearGuide()
-	task.defer(updateToastInset)
 end
 
 -- Glide over to the left edge, out of the way.
@@ -205,9 +251,11 @@ local function advance()
 		finish(false)
 		return
 	end
+	local finished = STEPS[current]
+	local onARoll = not finished.button and os.clock() - shownAt < ON_A_ROLL
 	current += 1
 	Remotes.event("TutorialStep"):FireServer(current)
-	showStep()
+	showStep(onARoll)
 end
 
 -- Start (or resume) the tour if the profile says it isn't finished.
