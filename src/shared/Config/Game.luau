@@ -18,8 +18,10 @@ Game.START_SEEDS = { Emberbloom = 3 }
 Game.INVENTORY_LIMIT = 60
 Game.MAX_UPGRADE = 10
 Game.RESPEC_COST_PER_LEVEL = 20
-Game.TRANSFORM_FREE_UNTIL_LEVEL = 5
-Game.TRANSFORM_COST = 50
+-- HUD menu buttons that start hidden and appear (highlighted) when they're first useful
+-- (client/UI/HUD). Saved per player in profile.menus: 1 = shown, 2 = clicked.
+Game.MENUS = { "skills", "bag", "pets", "quests", "collection", "home" }
+Game.TRANSFORM_FREE_UNTIL_LEVEL = 5 -- levels 1-5 transform free; after that it costs the same as a skill reset
 
 -- Farming
 Game.START_PLOTS = 6
@@ -122,8 +124,9 @@ function Game.paragonXp(paragon: number): number
 	return math.floor(8000 * (1 + 0.02 * paragon))
 end
 
+-- Same price as resetting your skills (TalentUtil.respecCost), free for the first few levels.
 function Game.transformCost(level: number): number
-	return level < Game.TRANSFORM_FREE_UNTIL_LEVEL and 0 or Game.TRANSFORM_COST
+	return level <= Game.TRANSFORM_FREE_UNTIL_LEVEL and 0 or Game.RESPEC_COST_PER_LEVEL * level
 end
 
 function Game.petSlots(level: number): number

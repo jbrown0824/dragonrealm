@@ -459,7 +459,7 @@ for i = 2, #Game.CAMP_RESPAWN_MULT do
 	check(Game.CAMP_RESPAWN_MULT[i] <= Game.CAMP_RESPAWN_MULT[i - 1], "respawn multiplier shrinks with more dragons")
 end
 check(Game.campRespawnMult(1) > Game.campRespawnMult(4) and Game.campRespawnMult(0) == 1, "respawn multiplier values")
-check(Game.transformCost(1) == 0 and Game.transformCost(20) == 50, "transform cost")
+check(Game.transformCost(1) == 0 and Game.transformCost(5) == 0 and Game.transformCost(20) == TalentUtil.respecCost(20), "transform cost: free to level 5, then a skill reset's price")
 do
 	local profile = { level = 15, hunger = 5, potions = { WingTonic = 2, IronBellyStew = 5 }, pets = { { uid = "a", species = "EmberKit" }, { uid = "b", species = "SparkSprite" }, { uid = "c", species = "VoidWhelp" } }, petsEquipped = { "a", "b", "c" } }
 	check(#BonusUtil.activePets(profile) == 2, "only 2 pets follow at level 15")

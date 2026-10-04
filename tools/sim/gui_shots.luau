@@ -51,6 +51,7 @@ task.spawn(function()
 	Remotes.func("ChooseClass"):InvokeServer("Stormwing")
 	mod("UI/ClassSelect").hide()
 	task.wait(1)
+	shot("tour") -- the tour's first step, big in the middle
 	Remotes.event("TutorialStep"):FireServer(-1) -- (finished: pays the tutorial egg)
 	task.wait(1)
 	click(gui, "Skip tour") -- and close the tour panel, so the HUD shots show what's under it
@@ -73,6 +74,9 @@ task.spawn(function()
 	end
 	profile.vikingKills = 80
 	profile.fishCaught = 12
+	for _, id in ipairs(Game.MENUS) do
+		profile.menus[id] = 2 -- a veteran has found every menu button
+	end
 	S.PlayerService.markDirty(me)
 	task.wait(4)
 	shot("hud")

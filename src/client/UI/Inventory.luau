@@ -28,6 +28,7 @@ local bagHeader, bagGrid
 local details = {}
 local seedsList
 local selectedId = nil
+local newIds = {} -- gear that was new when the Bag opened (tagged NEW until it closes)
 
 local function sortedInventory(p)
 	local list = table.clone(p.inventory)
@@ -127,6 +128,20 @@ local function itemCard(parent: Instance, item, order: number)
 	})
 	Theme.corner(card, 8)
 	Theme.stroke(card, better and UPGRADE_GREEN or color, selectedId == item.id and 3 or (better and 2.5 or 1.5), selectedId == item.id and 0 or (better and 0 or 0.3))
+	if newIds[item.id] then
+		local tag = Theme.label({
+			Position = UDim2.fromOffset(-4, -7),
+			Size = UDim2.fromOffset(38, 16),
+			BackgroundTransparency = 0,
+			BackgroundColor3 = C.bad,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = "NEW",
+			ZIndex = 3,
+			Parent = card,
+		})
+		Theme.corner(tag, 6)
+	end
 	if better then
 		-- better than what you're wearing in this slot
 		Theme.label({
@@ -382,7 +397,25 @@ function Inventory.init(app)
 	seedsList = Theme.scroll(seedsPage, { Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 1, -30) })
 	Theme.list(seedsList, 6)
 
-	App.Windows.register("Inventory", window, Inventory.refresh)
+	-- Opening the Bag clears the menu button's new-gear badge (the server forgets the flags);
+	-- the cards stay tagged NEW until the Bag closes.
+	App.Windows.register("Inventory", window, function()
+		local p = App.State.profile
+		newIds = {}
+		local any = p ~= nil and p.bagDot == true
+		for _, item in ipairs(p and p.inventory or {}) do
+			if item.new then
+				newIds[item.id] = true
+				any = true
+			end
+		end
+		if any then
+			Remotes.event("BagSeen"):FireServer()
+		end
+		Inventory.refresh()
+	end, function()
+		newIds = {}
+	end)
 	App.State.changed:Connect(function()
 		if window.Visible then
 			Inventory.refresh()

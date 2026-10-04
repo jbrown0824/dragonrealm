@@ -308,6 +308,8 @@ function PlayerService.snapshot(player: Player)
 		robots = profile.robots,
 		garden = S.FarmService.summary(player),
 		tutorial = profile.tutorial,
+		menus = profile.menus,
+		bagDot = profile.bagDot,
 		isAdmin = S.AdminService.isAdmin(player),
 		settings = profile.settings,
 	}
@@ -548,8 +550,18 @@ function PlayerService.addItem(player: Player, item, silent: boolean?): boolean
 		return false
 	end
 	table.insert(profile.inventory, item)
+	-- An empty slot puts new gear straight on (the Bag shows a dot); otherwise it waits in the
+	-- Bag marked new (the Bag button counts them) until the Bag is opened.
+	local equip = item.slot ~= nil and profile.equipped[item.slot] == nil
+	if equip then
+		profile.equipped[item.slot] = item.id
+		profile.bagDot = true
+		PlayerService.recompute(player)
+	else
+		item.new = true
+	end
 	if not silent then
-		PlayerService.notify(player, "Found: " .. ItemUtil.displayName(item), ItemUtil.rarityColor(item.rarity), "✨")
+		PlayerService.notify(player, (equip and "Found and equipped: " or "Found: ") .. ItemUtil.displayName(item), ItemUtil.rarityColor(item.rarity), "✨")
 	end
 	PlayerService.markDirty(player)
 	return true
@@ -917,6 +929,25 @@ function PlayerService.start()
 			profile.settings[key] = value
 			PlayerService.markDirty(player)
 		end
+	end)
+	-- HUD menu buttons appearing for the first time (only known ids, never going backwards)
+	Remotes.event("MenuUnlock").OnServerEvent:Connect(function(player, id, stage)
+		local profile = PlayerService.getProfile(player)
+		if profile and table.find(Game.MENUS, id) and (stage == 1 or stage == 2) and (profile.menus[id] or 0) < stage then
+			profile.menus[id] = stage
+			PlayerService.markDirty(player)
+		end
+	end)
+	Remotes.event("BagSeen").OnServerEvent:Connect(function(player)
+		local profile = PlayerService.getProfile(player)
+		if not profile then
+			return
+		end
+		profile.bagDot = false
+		for _, item in ipairs(profile.inventory) do
+			item.new = nil
+		end
+		PlayerService.markDirty(player)
 	end)
 	Remotes.func("TeleportHome").OnServerInvoke = onTeleportHome
 	Remotes.func("TeleportTo").OnServerInvoke = onTeleportTo
