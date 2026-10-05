@@ -22,6 +22,85 @@ local function click(root: Instance, text: string)
 	return b
 end
 
+-- Legendary dragons on the client: a showcase platform's window (tabs, the price, then "Become"
+-- once bought), the Store's dragons and their See it, becoming a Tidecaller, its Tide Shots
+-- opening the jaw, Solaris' beam drawn for another dragon, and the class picker's gold cards.
+-- (Its own function: the main scenario is out of local variables.)
+local function legendaryClientScenario(me)
+	local VFX = mod("Controllers/VFX")
+	local State = mod("Controllers/State")
+	local function hasText(root: Instance, text: string): boolean
+		for _, d in ipairs(root:GetDescendants()) do
+			if (d.ClassName == "TextLabel" or d.ClassName == "TextButton") and tostring(d.Text):find(text, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	local classBefore = State.profile.class
+	Remotes.event("OpenPanel"):FireClient(me, "DragonShowcase", "Solaris")
+	task.wait(0.3)
+	local frame = Windows.registry.DragonShowcase.frame
+	check(Windows.isOpen("DragonShowcase") and hasText(frame, "Solaris") and hasText(frame, "Sunfall") and hasText(frame, "Solar Beam"), "a showcase platform opens Solaris' window")
+	check(findButton(frame, "R$ 999") ~= nil, "...with its price until it's yours")
+	click(frame, "Tidecaller")
+	task.wait(0.2)
+	check(hasText(frame, "Tide Shot") and hasText(frame, "Tidal Surge") and findButton(frame, "R$ 399") ~= nil, "the tabs switch to the Tidecaller")
+	Windows.open("Store")
+	task.wait(0.3)
+	local storeFrame = Windows.registry.Store.frame
+	local see = storeFrame:FindFirstChild("SeeDragon", true)
+	check(hasText(storeFrame, "Legendary Dragons") and see ~= nil, "the Store lists the legendary dragons")
+	if see then
+		see.Activated:Fire()
+		task.wait(0.3)
+	end
+	check(Windows.isOpen("DragonShowcase"), "See it opens the showcase")
+	mod("UI/DragonShowcase").show("Tidecaller")
+	click(frame, "Unlock for R$") -- (a Studio test purchase: the pass has no id yet)
+	task.wait(1)
+	check(findButton(frame, "Become a Tidecaller") ~= nil, "once bought, the button becomes Become a Tidecaller (free)")
+	click(frame, "Become a Tidecaller")
+	task.wait(1.5)
+	check(State.profile.class == "Tidecaller" and not Windows.isOpen("DragonShowcase"), "the Tidecaller is yours")
+	-- its own primary attack on the left click
+	local hud = mod("UI/HUD")
+	check(hud.abilityForSlot(1) == "Breath", "the primary attack is still on the left click")
+	local character = me.Character
+	mod("Controllers/Combat").cast("Breath")
+	task.wait(0.05)
+	check(character and VFX.isBreathing(character), "spitting Tide Shots opens the jaw")
+	task.wait(1)
+	check(character and not VFX.isBreathing(character), "...and it shuts again")
+	-- another dragon's beam (Solaris' primary): drawn, jaw open while it lasts
+	local other = nil -- (the Solaris on its showcase)
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("Model") and d:GetAttribute("Showcase") == "Solaris" then
+			other = d
+			break
+		end
+	end
+	if other then
+		Remotes.event("VFX"):FireAllClients({ kind = "beam", character = other, to = other:GetPivot().Position + Vector3.new(0, 0, -40), classId = "Solaris", duration = 0.4 })
+		task.wait(0.1)
+		check(VFX.isBreathing(other), "a Solar Beam opens the jaw like a breath")
+		task.wait(1.2)
+		check(not VFX.isBreathing(other), "...until it stops")
+	end
+	check(VFX.errorCount == 0, "the legendary effects played cleanly (" .. VFX.errorCount .. " errors)")
+	-- the class picker: gold cards, free for one you own, the price for one you don't
+	local picker = mod("UI/ClassSelect")
+	picker.show("transform")
+	task.wait(0.2)
+	local overlay = Windows.guis.Overlay:FindFirstChild("ClassSelect")
+	check(overlay and hasText(overlay, "LEGENDARY") and findButton(overlay, "R$ 999") ~= nil, "the class picker shows Solaris' price")
+	check(overlay and findButton(overlay, "Current") ~= nil, "...and the Tidecaller as current")
+	picker.hide()
+	Remotes.func("AdminAction"):InvokeServer("setClass", { classId = classBefore })
+	task.wait(1)
+	check(State.profile.class == classBefore, "back to " .. tostring(classBefore))
+end
+
 -- Dungeons on the client: the 🏰 button at level 15 (and its badge), the unlock toast, the window,
 -- the pill (queue, run, ready check), the cave's light, the dungeon minimap and map, Haldor on his
 -- throne, the hoard opening, the low hover, the death screen's Leave, invites as a toast.
@@ -925,6 +1004,16 @@ task.spawn(function()
 	Waypoint.trackQuest("C1")
 	task.wait(0.3)
 	check(not okQ or (Waypoint.get() and Waypoint.get().questId == "C1"), "tracking a quest sets its waypoint")
+	-- at a world boss the pin, guide line and map pins hide, and come back after the fight
+	if okQ then
+		local pin = me.PlayerGui:FindFirstChild("WaypointMarker")
+		me:SetAttribute("InBossFight", true)
+		task.wait(0.2)
+		check(Waypoint.get() == nil and pin and not pin.Enabled and not workspace.Terrain.WaypointBeam.Enabled, "no waypoint pin or guide line in a boss fight")
+		me:SetAttribute("InBossFight", false)
+		task.wait(0.2)
+		check(Waypoint.get() ~= nil and Waypoint.get().questId == "C1", "the quest waypoint comes back after the boss fight")
+	end
 	local mini = Windows.guis.HUD:FindFirstChild("Minimap")
 	check(mini ~= nil, "minimap exists")
 	-- the Wayfinder pass: a 🌀 beside every place on the map teleports you there
@@ -1181,6 +1270,7 @@ task.spawn(function()
 	Remotes.func("RangeAction"):InvokeServer("stop")
 	task.wait(0.3)
 
+	legendaryClientScenario(me)
 	dungeonClientScenario(me)
 
 	-- eat with G, go home with H, pets with P

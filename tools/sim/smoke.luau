@@ -15,6 +15,126 @@ local function hurt(p, e, frac: number)
 	return S.CombatService.damageEnemy(p, e, e.humanoid.MaxHealth * frac / gap, false)
 end
 
+-- Legendary (Robux) dragons: refused until their pass is owned, then free to become; Solaris'
+-- beam pierces a line of vikings, the Tidecaller's water orbs soak (slow), its wave hits each
+-- viking in its path once, the whirlpool drags them in, Sunfall keeps hitting (8 pulses), and the
+-- extra skill comes at level 10. (Its own function: the main scenario is short of locals.)
+local function legendaryScenario(p1, profile)
+	local Talents = require(__proxy("Shared/Config/Talents"))
+	local Abilities = require(__proxy("Shared/Config/Abilities"))
+	step("legendary dragons")
+	local classBefore, talentsBefore = profile.class, table.clone(profile.talents)
+	local okNo, whyNo = invoke("Transform", p1, "Solaris")
+	check(not okNo and profile.class == classBefore, "a legendary dragon needs its pass first (" .. tostring(whyNo) .. ")")
+	check(invoke("StudioPurchase", p1, "pass", "SolarisDragon"), "Solaris unlocked (Studio test purchase)")
+	check(S.PlayerService.snapshot(p1).passes.SolarisDragon == true, "the client sees the dragon pass")
+	local gold0 = profile.gold
+	check(invoke("Transform", p1, "Solaris") and profile.class == "Solaris" and profile.gold == gold0, "becoming a legendary dragon you own is free")
+	check(not invoke("Transform", p1, "Tidecaller"), "...but not one you don't own")
+	task.wait(1)
+	invoke("AdminAction", p1, "god", { on = true })
+	invoke("AdminAction", p1, "noCooldowns", { on = true })
+
+	-- three vikings in a line ahead of the dragon (tough, so nothing dies mid-test)
+	local base = Zones.Camps[1].center + Vector3.new(70, 0, -40)
+	tp(p1, base + Vector3.new(0, 5, 0))
+	task.wait(0.5)
+	local line = {}
+	for i, dist in ipairs({ 14, 25, 36 }) do
+		local e = S.EnemyService.spawn("Raider", 5, base + Vector3.new(0, 0, dist), {})
+		e.humanoid.MaxHealth = 1e7
+		e.humanoid.Health = 1e7
+		line[i] = e
+	end
+	task.wait(0.3)
+	local hits = {} -- [enemy] = hits taken (not counting burns and poison)
+	local damageEnemy = S.CombatService.damageEnemy
+	S.CombatService.damageEnemy = function(attacker, info, amount, crit, opts)
+		if not (opts and opts.dotKind) then
+			hits[info] = (hits[info] or 0) + 1
+		end
+		return damageEnemy(attacker, info, amount, crit, opts)
+	end
+	local function resetHits()
+		for _, e in ipairs(line) do
+			hits[e] = 0
+		end
+	end
+	resetHits()
+	fire("CastAbility", p1, "Breath", line[3].root.Position, nil)
+	task.wait(0.2)
+	check(hits[line[1]] == 1 and hits[line[2]] == 1 and hits[line[3]] == 1, string.format("the Solar Beam burns through all three vikings in a line (%d, %d, %d)", hits[line[1]], hits[line[2]], hits[line[3]]))
+	check(remoteCount("VFX") > 0, "beam drawn")
+
+	-- level 10's extra skill, and every tree ability, cast without errors
+	check(table.find(S.PlayerService.getStats(p1).abilities, "Sunfall") ~= nil, "Solaris has Sunfall past level " .. Game.BONUS_LEVEL)
+	profile.talents = {}
+	for _, branch in ipairs(Talents.Solaris) do
+		for _, t in ipairs(branch.talents) do
+			if t.ability then
+				profile.talents[t.id] = 1
+			end
+		end
+	end
+	S.PlayerService.recompute(p1)
+	local abilities = S.PlayerService.getStats(p1).abilities
+	check(#abilities == 10 and abilities[3] == "SolarFlare" and abilities[#abilities] == "Sunfall", "signature on key 1, the tree's abilities, then Sunfall last (" .. #abilities .. ")")
+	for _, id in ipairs(abilities) do
+		fire("CastAbility", p1, id, line[2].root.Position, "sol_" .. id)
+		task.wait(0.15)
+	end
+	task.wait(6) -- (till the lasting ones are over; Phoenix Form's aura only reaches the nearest)
+	-- Sunfall keeps burning: 8 pulses (its burn left out so only the pulses count)
+	local sunfall = Abilities.Sunfall
+	local effects = sunfall.effects
+	sunfall.effects = nil
+	resetHits()
+	fire("CastAbility", p1, "Sunfall", line[3].root.Position, nil)
+	task.wait(sunfall.delay + sunfall.pulses * sunfall.interval + 0.5)
+	sunfall.effects = effects
+	check(hits[line[3]] == sunfall.pulses, string.format("Sunfall hits %d times (%d)", sunfall.pulses, hits[line[3]] or 0))
+
+	-- the Tidecaller
+	check(invoke("StudioPurchase", p1, "pass", "TidecallerDragon") and invoke("Transform", p1, "Tidecaller") and profile.class == "Tidecaller", "the Tidecaller unlocked and chosen")
+	task.wait(1)
+	tp(p1, base + Vector3.new(0, 5, 0))
+	task.wait(0.3)
+	for _, e in ipairs(line) do
+		S.CombatService.clearStatus(e.model)
+		e.model:SetAttribute("Slowed", false)
+	end
+	resetHits()
+	fire("CastAbility", p1, "Breath", line[1].root.Position, "tide1")
+	task.wait(0.6)
+	check(hits[line[1]] == 1 and line[1].model:GetAttribute("Slowed") == true, "a Tide Shot splashes the viking and soaks it (slowed)")
+	check((hits[line[2]] or 0) == 0, "...and stops there (it isn't a beam)")
+	resetHits()
+	fire("CastAbility", p1, "TidalSurge", line[3].root.Position, "wave1")
+	task.wait(2)
+	check(hits[line[1]] == 1 and hits[line[2]] == 1 and hits[line[3]] == 1, string.format("the Tidal Surge rolls through every viking in its path, once each (%d, %d, %d)", hits[line[1]], hits[line[2]], hits[line[3]]))
+	-- Riptide drags things toward its middle
+	local target = line[2]
+	target.root.AssemblyLinearVelocity = Vector3.zero
+	local center = target.root.Position + Vector3.new(7, 0, 0)
+	fire("CastAbility", p1, "Riptide", center, nil)
+	task.wait(Abilities.Riptide.delay + 0.2)
+	local v = target.root.AssemblyLinearVelocity
+	check(Vector3.new(v.X, 0, v.Z).Magnitude > 1 and v.X > 0, "Riptide's whirlpool drags the viking toward its middle")
+
+	-- back to how the dragon was
+	invoke("AdminAction", p1, "noCooldowns", { on = false })
+	S.CombatService.damageEnemy = damageEnemy
+	for _, e in ipairs(line) do
+		S.EnemyService.despawn(e)
+	end
+	invoke("AdminAction", p1, "god", { on = false })
+	invoke("AdminAction", p1, "setClass", { classId = classBefore })
+	profile.talents = talentsBefore
+	S.PlayerService.recompute(p1)
+	task.wait(1)
+	check(profile.class == classBefore, "back to " .. tostring(classBefore))
+end
+
 local function dungeonScenario(p1, p2, profile)
 	step("dungeons: unlock + groups")
 	local Dungeons = require(__proxy("Shared/Config/Dungeons"))
@@ -1000,6 +1120,7 @@ task.spawn(function()
 	task.wait(1)
 	step("choose class")
 	check(invoke("GetProfile", p1) ~= nil, "GetProfile")
+	check(invoke("ChooseClass", p1, "Tidecaller") == false, "a new dragon can't pick a legendary type without its pass")
 	check(invoke("ChooseClass", p1, "Behemoth") == true, "ChooseClass p1")
 	check(invoke("ChooseClass", p2, "Stormwing") == true, "ChooseClass p2")
 	task.wait(1)
@@ -1550,6 +1671,8 @@ task.spawn(function()
 	local okAgain, whyAgain = invoke("TeleportTo", p1, "range")
 	check(okAgain, "Wayfinder works again after the cooldown (" .. tostring(whyAgain) .. ")")
 	tp(p1, S.FarmService.getHomeCFrame(p1).Position)
+
+	legendaryScenario(p1, profile)
 
 	step("paid random items (PolicyService)")
 	check(p1:GetAttribute("PaidRandomItems") == true and p2:GetAttribute("PaidRandomItems") == true, "paid random items are on where the policy allows them")

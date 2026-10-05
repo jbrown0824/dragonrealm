@@ -1,5 +1,6 @@
--- Robux purchases (Config/Store): game passes (2x XP, 2x Gold, and the handy ones: 2x Flight
--- Time, Never Hungry, Wayfinder) and developer products (Starter Pack, Gold Rush, gold packs, the
+-- Robux purchases (Config/Store): game passes (2x XP, 2x Gold, the handy ones: 2x Flight
+-- Time, Never Hungry, Wayfinder, and the legendary dragons, which PlayerService.canBe asks about)
+-- and developer products (Starter Pack, Gold Rush, gold packs, the
 -- Mythic and Secret Eggs, treats, shop restock). Other services ask about passes here
 -- (xpMultiplier, goldMultiplier, flightMultiplier, hasPass).
 --
@@ -117,7 +118,13 @@ local function passGranted(player: Player, passId: string)
 	local pass = Store.Passes[passId]
 	owned[player] = owned[player] or {}
 	owned[player][passId] = true
-	S.PlayerService.notify(player, string.format("Thank you! %s %s is now active.", pass.icon, pass.name), Color3.fromRGB(120, 230, 140), "💎")
+	if pass.dragon then
+		-- a legendary dragon: theirs to become (for free) from its showcase, Elder Pyrrhus or the Store
+		S.PlayerService.notify(player, string.format("Thank you! %s %s is yours: transform into it any time, for free.", pass.icon, pass.name), Color3.fromRGB(120, 230, 140), "💎")
+		Remotes.event("Announce"):FireClient(player, { title = pass.icon .. " " .. pass.name:upper() .. " UNLOCKED!", text = "Become one from its showcase in the town square, or right here.", color = Color3.fromRGB(255, 215, 90), duration = 5 })
+	else
+		S.PlayerService.notify(player, string.format("Thank you! %s %s is now active.", pass.icon, pass.name), Color3.fromRGB(120, 230, 140), "💎")
+	end
 	S.PlayerService.recompute(player)
 	S.PlayerService.markDirty(player)
 end

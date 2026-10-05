@@ -75,6 +75,33 @@ local PLANS = {
 		marks = "spots",
 		frill = true,
 	},
+	-- Sea dragon (legendary): a long smooth body, manta fin-wings of see-through water on glowing
+	-- ribs, a ribbed sail down the back, gill frills, whiskers and a pearl on the brow, webbed
+	-- feet and a whale's fluke for a tail.
+	Tidecaller = {
+		body = { w = 3.3, h = 2.7, l = 8.4, y = 0.15, pitch = 0 },
+		neck = { segs = 3, len = 4.6, thick = 1.6, rise = 0.5 },
+		head = { style = "sea", w = 2.3, h = 1.7, l = 3.2 },
+		tail = { segs = 7, len = 14, thick = 1.9, droop = 0.06, tip = "fluke" },
+		wings = { span = 1.12, fingers = 4, fins = true },
+		legs = { count = 4, thick = 1.05, splay = 1.12, webbed = true },
+		back = "sail",
+		marks = "waves",
+	},
+	-- Sun dragon (legendary): gilded armor plates, layered flight feathers over a sunlit
+	-- membrane, a crown of horns with a blazing sunburst halo behind it, gold greaves and a
+	-- phoenix plume of a tail.
+	Solaris = {
+		body = { w = 3.4, h = 3.1, l = 7.8, y = 0.4, pitch = 0.1 },
+		neck = { segs = 3, len = 4.8, thick = 1.7, rise = 0.6 },
+		head = { style = "regal", w = 2.2, h = 1.8, l = 3.1 },
+		tail = { segs = 6, len = 12.5, thick = 1.8, droop = 0.05, tip = "plume" },
+		wings = { span = 1.28, fingers = 4, feathers = true },
+		legs = { count = 4, thick = 1.05, splay = 1.0, greaves = true },
+		back = "plates",
+		marks = "sunrays",
+		halo = true,
+	},
 }
 DragonBuilder.PLANS = PLANS
 
@@ -311,6 +338,28 @@ function DragonBuilder.build(classId: string, options)
 					limb(base + V(0.35 * side, -0.15, 0), tip, 0.2 * s, i % 2 == 0 and colors.horn or colors.secondary)
 					ellipsoid(V(0.22, 0.22, 0.22), CFrame.new(tip), colors.accent, Enum.Material.Neon)
 				end
+			elseif backStyle == "plates" then
+				-- overlapping gilded plates, each with a little fin, sunfire glowing between them
+				ellipsoid(V(bw * 0.62, 0.55, bl * 0.2), bodyCF * CFrame.new(V(0, y + 0.05, z)) * CFrame.Angles(-0.22, 0, 0), colors.wing, Enum.Material.Metal)
+				triangle(base + V(0, 0.25, -0.3), base + V(0, 0.25, 0.55), base + V(0, 1.05 - (i % 2) * 0.3, 0.75), colors.horn, Enum.Material.Metal, nil, 0.12)
+				if i < spineCount - 1 then
+					ellipsoid(V(0.45, 0.3, 0.45), CFrame.new(base + V(0, 0.15, bl * 0.075)), fire.colorA, Enum.Material.Neon)
+				end
+			end
+		end
+		if backStyle == "sail" then
+			-- one long fin down the back: glowing ribs with see-through webbing between them
+			local n = 7
+			local bases, tips = {}, {}
+			for i = 1, n do
+				local z = -bl * 0.38 + (i - 1) * (bl * 0.8 / (n - 1))
+				bases[i] = B(0, topY(z) - 0.15, z)
+				tips[i] = bases[i] + V(0, 0.7 + 1.7 * math.sin(math.pi * (i - 0.4) / (n + 0.2)), 0.55)
+				limb(bases[i], tips[i], 0.16 * s, colors.accent, Enum.Material.Neon)
+			end
+			for i = 1, n - 1 do
+				triangle(bases[i], tips[i], tips[i + 1], colors.wing, Enum.Material.Glass, 0.35, 0.08)
+				triangle(bases[i], tips[i + 1], bases[i + 1], colors.wing, Enum.Material.Glass, 0.35, 0.08)
 			end
 		end
 		if backStyle == "shell" then
@@ -363,6 +412,28 @@ function DragonBuilder.build(classId: string, options)
 				for k = 0, 3 do
 					ellipsoid(V(0.36, 0.5, 0.5), BCF(x * 1.01, bh * (0.15 - (k % 2) * 0.2), -bl * 0.25 + k * bl * 0.16), colors.accent, runeMat)
 				end
+			elseif marks == "waves" then
+				-- two rolling waves along each flank
+				for row = 0, 1 do
+					local prevPt
+					for k = 0, 6 do
+						local z = -bl * 0.24 + k * bl * 0.08
+						local pt = B(x * (1.0 - row * 0.03), bh * (0.14 - row * 0.22) + math.sin(k * 1.4 + row) * bh * 0.07, z)
+						if prevPt then
+							limb(prevPt, pt, 0.14 * s, colors.accent, runeMat)
+						end
+						prevPt = pt
+					end
+				end
+			elseif marks == "sunrays" then
+				-- a sun on each flank, its rays reaching out over the scales
+				local c = B(x * 1.02, bh * 0.02, -bl * 0.04)
+				ellipsoid(V(0.3, 0.8, 0.8), CFrame.new(c), colors.accent, runeMat)
+				for k = 0, 7 do
+					local a = k / 8 * math.pi * 2
+					local d = Vector3.new(0, math.cos(a), math.sin(a)) * s
+					limb(c + d * 0.6, c + d * (k % 2 == 0 and 1.35 or 1.0), 0.12 * s, colors.accent, runeMat)
+				end
 			end
 		end
 	end)
@@ -397,6 +468,11 @@ function DragonBuilder.build(classId: string, options)
 				limb(top, top + V(0, 0.9, 0.35), 0.32 * s, colors.accent, Enum.Material.Ice)
 			elseif plan.back == "shell" then
 				ellipsoid(V(1.3, 0.6, segLen * 0.6), CFrame.lookAt(top, top + dir), colors.secondary, Enum.Material.Slate)
+			elseif plan.back == "sail" then
+				triangle(top - dir * 0.6 * s, top + dir * 0.5 * s, top + V(0, 0.8, 0.6), colors.wing, Enum.Material.Glass, 0.35, 0.08)
+				limb(top + dir * 0.5 * s, top + V(0, 0.8, 0.6), 0.12 * s, colors.accent, Enum.Material.Neon)
+			elseif plan.back == "plates" then
+				ellipsoid(V(1.15, 0.45, segLen * 0.6), CFrame.lookAt(top, top + dir), colors.wing, Enum.Material.Metal)
 			end
 		end)
 		if plan.frill and k == 1 then
@@ -435,7 +511,7 @@ function DragonBuilder.build(classId: string, options)
 	local eyeScale = style == "feline" and 1.2 or (style == "brute" and 0.85 or 1)
 	local eyePos = {}
 	group(head, function()
-		local snoutLen = style == "feline" and 0.7 or (style == "crested" and 1.0 or 0.85)
+		local snoutLen = style == "feline" and 0.7 or (style == "crested" and 1.0 or (style == "regal" and 0.95 or 0.85))
 		ellipsoid(V(hp.w * 0.72, hp.h * 0.56, hp.l * snoutLen), CFrame.new(H + V(0, -hp.h * 0.13, -hp.l * (0.3 + snoutLen * 0.35))), colors.primary)
 		ellipsoid(V(hp.w * 0.42, hp.h * 0.22, hp.l * snoutLen * 0.72), CFrame.new(H + V(0, hp.h * 0.1, -hp.l * (0.3 + snoutLen * 0.35))), colors.secondary)
 		local noseZ = -hp.l * (0.3 + snoutLen * 0.82)
@@ -489,6 +565,34 @@ function DragonBuilder.build(classId: string, options)
 				for i = 0, 2 do
 					limb(Hp(hp.w * 0.46, -hp.h * 0.1 + i * 0.25, hp.l * (0.05 + i * 0.1)), Hp(hp.w * 0.75, -hp.h * 0.1 + i * 0.3, hp.l * (0.2 + i * 0.12)), 0.16 * s, colors.accent)
 				end
+			elseif style == "sea" then
+				-- smooth pearl horns, a see-through fin for an ear, feathery gill stalks and whiskers
+				limb(Hp(hp.w * 0.24, hp.h * 0.42, hp.l * 0.05), Hp(hp.w * 0.3, hp.h * 0.58, hp.l * 0.75), 0.28 * s, colors.horn)
+				triangle(Hp(hp.w * 0.46, hp.h * 0.05, 0), Hp(hp.w * 0.46, hp.h * 0.3, hp.l * 0.42), Hp(hp.w * 1.05, hp.h * 0.55, hp.l * 0.6), colors.wing, Enum.Material.Glass, 0.3, 0.1)
+				for g = 0, 2 do
+					local base = Hp(hp.w * 0.4, -hp.h * 0.18 + g * 0.1, hp.l * (0.22 + g * 0.1))
+					local tip = Hp(hp.w * (0.85 + g * 0.1), (g - 1) * 0.5, hp.l * (0.5 + g * 0.12))
+					limb(base, tip, 0.17 * s, colors.accent, Enum.Material.Neon)
+					for f = 1, 3 do
+						local m = base:Lerp(tip, f / 3.4)
+						limb(m, m + (tip - base).Unit * 0.35 * s + V(0, 0.32, 0.12), 0.11 * s, colors.wing)
+						limb(m, m + (tip - base).Unit * 0.35 * s + V(0, -0.32, 0.12), 0.11 * s, colors.wing)
+					end
+				end
+				local w0 = Hp(hp.w * 0.3, -hp.h * 0.12, noseZ + hp.l * 0.22)
+				local w1 = Hp(hp.w * 0.62, -hp.h * 0.42, noseZ + hp.l * 0.6)
+				limb(w0, w1, 0.1 * s, colors.horn)
+				limb(w1, w1 + V(side * 0.15, -0.75, 0.55), 0.08 * s, colors.horn)
+			elseif style == "regal" then
+				-- a crown: three swept horns a side (the middle one longest), gilded at the tips
+				for i, h in ipairs({ { 0.16, 0.5, 1.3 }, { 0.3, 0.38, 1.0 }, { 0.42, 0.2, 0.7 } }) do
+					local base = Hp(hp.w * h[1], hp.h * 0.42, hp.l * (i * 0.06))
+					local mid = Hp(hp.w * (h[1] + 0.08), hp.h * (0.48 + h[2]), hp.l * (0.3 + h[3] * 0.3))
+					local tip = Hp(hp.w * (h[1] + 0.12), hp.h * (0.56 + h[2] * 1.3), hp.l * (0.3 + h[3] * 0.75))
+					limb(base, mid, (0.36 - i * 0.05) * s, colors.horn)
+					limb(mid, tip, (0.24 - i * 0.03) * s, colors.wing, Enum.Material.Metal)
+				end
+				triangle(Hp(hp.w * 0.45, -hp.h * 0.05, hp.l * 0.05), Hp(hp.w * 0.45, -hp.h * 0.25, hp.l * 0.4), Hp(hp.w * 0.95, -hp.h * 0.15, hp.l * 0.5), colors.wing, Enum.Material.Metal, nil, 0.1)
 			end
 		end
 		if style == "crested" then
@@ -499,6 +603,45 @@ function DragonBuilder.build(classId: string, options)
 			end
 		elseif style == "brute" then
 			limb(H + V(0, hp.h * 0.15, -hp.l * 0.85), H + V(0, hp.h * 0.55, -hp.l * 0.95), 0.5 * s, colors.horn)
+		elseif style == "sea" then
+			-- a glowing pearl set in the brow
+			ellipsoid(V(0.75, 0.3, 0.75), CFrame.new(H + V(0, hp.h * 0.44, -hp.l * 0.22)), colors.eyes, Enum.Material.Metal)
+			ellipsoid(V(0.55, 0.55, 0.55), CFrame.new(H + V(0, hp.h * 0.56, -hp.l * 0.22)), colors.belly:Lerp(colors.accent, 0.3), Enum.Material.Neon)
+		elseif style == "regal" then
+			-- a sun-gem on the brow
+			ellipsoid(V(0.5, 0.62, 0.36), CFrame.new(H + V(0, hp.h * 0.38, -hp.l * 0.4)) * CFrame.Angles(0.5, 0, 0), fire.colorA, Enum.Material.Neon)
+		end
+		if plan.halo then
+			-- a blazing sunburst behind the crown: a glowing disc ringed with gold and long and short rays
+			local hc = H + V(0, hp.h * 0.62, hp.l * 0.72)
+			local R = 1.9
+			local face = CFrame.new(hc) * CFrame.Angles(0, math.rad(90), 0)
+			local sunDisc = makePart("Part", Vector3.new(0.1 * s, R * 2 * s, R * 2 * s), face, colors.accent:Lerp(fire.colorA, 0.45), Enum.Material.Neon)
+			sunDisc.Shape = Enum.PartType.Cylinder
+			sunDisc.Transparency = tint and 0 or 0.25
+			sunDisc.Name = "Halo"
+			local core = makePart("Part", Vector3.new(0.14 * s, R * 1.1 * s, R * 1.1 * s), face * CFrame.new(0.04 * s, 0, 0), fire.colorA, Enum.Material.Neon)
+			core.Shape = Enum.PartType.Cylinder
+			for k = 1, 20 do
+				local a0, a1 = (k - 1) / 20 * math.pi * 2, k / 20 * math.pi * 2
+				limb(hc + V(math.cos(a0) * R, math.sin(a0) * R, 0), hc + V(math.cos(a1) * R, math.sin(a1) * R, 0), 0.36 * s, colors.secondary, Enum.Material.Metal)
+			end
+			for k = 1, 16 do
+				local a = (k - 0.5) / 16 * math.pi * 2
+				local len = k % 2 == 0 and 1.6 or 0.85
+				local function at(ang: number, r: number)
+					return hc + V(math.cos(ang) * r, math.sin(ang) * r, 0.05)
+				end
+				triangle(at(a - 0.11, R + 0.1), at(a + 0.11, R + 0.1), at(a, R + len), k % 2 == 0 and fire.colorA or colors.accent, Enum.Material.Neon, nil, 0.1)
+			end
+			if not tint then
+				local glow = Instance.new("PointLight")
+				glow.Name = "HaloLight"
+				glow.Color = fire.colorA
+				glow.Range = 12 * s
+				glow.Brightness = 1.5
+				glow.Parent = sunDisc
+			end
 		end
 	end)
 
@@ -538,8 +681,11 @@ function DragonBuilder.build(classId: string, options)
 	---------------------------------------------------------------- wings (two-part: arm + hand)
 	local wp = plan.wings
 	local ws = wp.span
-	local wingMat = wp.glass and Enum.Material.Glass or nil
-	local wingTrans = wp.glass and 0.3 or nil
+	local wingMat = (wp.glass or wp.fins) and Enum.Material.Glass or nil
+	local wingTrans = wp.glass and 0.3 or (wp.fins and 0.35 or nil)
+	-- (sea dragons' fins hang on glowing ribs)
+	local ribColor = wp.fins and colors.accent or colors.secondary
+	local ribMat = wp.fins and Enum.Material.Neon or nil
 	for _, side in ipairs({ -1, 1 }) do
 		local S = B(side * bw * 0.42, bh * 0.36, -bl * 0.2)
 		local function W(x, y, z)
@@ -555,7 +701,7 @@ function DragonBuilder.build(classId: string, options)
 		end
 		local trail = E + W(0.2, -1.0, 4.3)
 		local bodyEdge = S + W(-0.25, -0.5, 4.3)
-		local pull = wp.tattered and 0.38 or 0.22
+		local pull = wp.tattered and 0.38 or (wp.fins and 0.3 or 0.22)
 
 		local armRoot = jointPart(side > 0 and "WingRootR" or "WingRootL", S)
 		group(armRoot, function()
@@ -567,6 +713,15 @@ function DragonBuilder.build(classId: string, options)
 			if wp.armored then
 				ellipsoid(V(2.4, 0.9, 1.5), lookAt((S + E) / 2 + V(0, 0.35, 0), E + V(0, 0.35, 0)), colors.secondary, Enum.Material.Slate)
 			end
+			if wp.feathers then
+				-- secondary feathers hanging back from the arm, laid over the membrane
+				for k = 1, 4 do
+					local base = S:Lerp(E, 0.12 + k * 0.2)
+					local out = base + W(0.25, -0.6, 3.9 - k * 0.15)
+					limb(base, out, 0.95 * s, k % 2 == 0 and colors.primary or colors.wing, nil, 0.16)
+					limb(base:Lerp(out, 0.8), out, 0.6 * s, fire.colorA, Enum.Material.Neon, 0.18)
+				end
+			end
 		end)
 		motor(side > 0 and "WingR" or "WingL", torso, armRoot, CFrame.new(S))
 
@@ -575,7 +730,21 @@ function DragonBuilder.build(classId: string, options)
 			limb(E, Wr, 0.48 * s, colors.secondary)
 			limb(Wr, Wr + W(0.2, 0.6, -0.9), 0.3 * s, colors.horn)
 			for i, tip in ipairs(tips) do
-				limb(Wr, tip, (0.32 - i * 0.03) * s, colors.secondary)
+				limb(Wr, tip, (0.32 - i * 0.03) * s, ribColor, ribMat)
+			end
+			if wp.feathers then
+				-- long flight feathers fanned over the hand, tipped with sunfire
+				local fan = {}
+				for i = 1, #tips - 1 do
+					table.insert(fan, tips[i])
+					table.insert(fan, tips[i]:Lerp(tips[i + 1], 0.5))
+				end
+				table.insert(fan, tips[#tips])
+				for i, tip in ipairs(fan) do
+					local out = Wr + (tip - Wr) * 1.2
+					limb(Wr:Lerp(tip, 0.2), out, 0.9 * s, i % 2 == 0 and colors.primary or colors.wing, nil, 0.16)
+					limb(Wr:Lerp(out, 0.78), out, 0.62 * s, colors.accent, Enum.Material.Neon, 0.18)
+				end
 			end
 			for i = 1, #tips - 1 do
 				local mid = tips[i]:Lerp(tips[i + 1], 0.5):Lerp(Wr, pull)
@@ -642,6 +811,12 @@ function DragonBuilder.build(classId: string, options)
 				local base = toe + V(dx * lp.thick, -0.05, 0)
 				limb(base, base + V(dx * 0.4, -0.2, -0.55), 0.2 * s, colors.horn)
 			end
+			if lp.webbed then
+				ellipsoid(Vector3.new(thick * 1.35, 0.12 * s, thick * 0.9), CFrame.new(toe + V(0, -0.12, -0.3)), colors.wing, Enum.Material.Glass)
+			end
+			if lp.greaves then
+				ellipsoid(Vector3.new(thick * 0.92, thick * 0.92, (ankle - knee).Magnitude * 0.5), lookAt(knee:Lerp(ankle, 0.5), ankle), colors.wing, Enum.Material.Metal)
+			end
 		end)
 		motor("Knee" .. leg.key, upper, lower, CFrame.new(knee))
 	end
@@ -674,6 +849,16 @@ function DragonBuilder.build(classId: string, options)
 				limb(top, top + V(0, h, 0.7), 0.16 * s, colors.horn)
 			elseif plan.back == "shell" then
 				ellipsoid(Vector3.new(thick * 0.8, thick * 0.35, tailSeg * s * 0.7), CFrame.lookAt(top, top + dir), colors.secondary, Enum.Material.Slate)
+			elseif plan.back == "sail" then
+				triangle(top - dir * 0.5 * s, top + dir * 0.5 * s, top + V(0, h * 0.9, 0.5), colors.wing, Enum.Material.Glass, 0.35, 0.08)
+			elseif plan.back == "plates" then
+				ellipsoid(Vector3.new(thick * 0.85, thick * 0.32, tailSeg * s * 0.62), CFrame.lookAt(top, top + dir), colors.wing, Enum.Material.Metal)
+			end
+			if plan.marks == "waves" and not lite then
+				-- glowing dots down the sides, like a deep-sea fish
+				for _, side in ipairs({ -1, 1 }) do
+					ellipsoid(Vector3.new(thick * 0.18, thick * 0.18, thick * 0.18), CFrame.new(mid + Vector3.new(side * thick * 0.46, -thick * 0.08, 0)), colors.accent, Enum.Material.Neon)
+				end
 			end
 			if k % 2 == 1 and plan.marks ~= "lava" and not lite then
 				ellipsoid(Vector3.new(thick * 0.72, thick * 0.2, tailSeg * s * 0.3), CFrame.lookAt(mid + Vector3.new(0, -thick * 0.42, 0), mid + Vector3.new(0, -thick * 0.42, 0) + dir), colors.belly)
@@ -712,6 +897,26 @@ function DragonBuilder.build(classId: string, options)
 			ellipsoid(V(1.2, 1.1, 1.5), CFrame.new(t + V(0, 0, 0.4)), colors.secondary)
 			limb(t + V(0, 0.2, 0.7), t + V(0, 1.1, 1.9), 0.55 * s, colors.horn)
 			ellipsoid(V(0.5, 0.5, 0.5), CFrame.new(t + V(0, 1.25, 2.1)), colors.accent, Enum.Material.Neon)
+		elseif tip == "fluke" then
+			-- a whale's fluke: two crescent lobes of see-through fin with glowing leading edges
+			ellipsoid(V(1.1, 0.8, 1.5), CFrame.new(t + V(0, 0, 0.3)), colors.primary)
+			for _, side in ipairs({ -1, 1 }) do
+				local outer = t + V(side * 3.7, 0.2, 2.5)
+				local inner = t + V(side * 0.9, 0, 2.7)
+				triangle(t + V(0, 0, -0.2), outer, inner, colors.wing, Enum.Material.Glass, 0.25, 0.14)
+				triangle(t + V(0, 0, -0.2), t + V(side * 1.7, 0.1, 0.7), outer, colors.wing, Enum.Material.Glass, 0.25, 0.14)
+				limb(t + V(side * 0.4, 0, 0), t + V(side * 1.7, 0.1, 0.7), 0.24 * s, colors.accent, Enum.Material.Neon)
+				limb(t + V(side * 1.7, 0.1, 0.7), outer, 0.18 * s, colors.accent, Enum.Material.Neon)
+			end
+		elseif tip == "plume" then
+			-- phoenix plumes: five long feathers fanning out, glowing toward eye-spot tips
+			for i, a in ipairs({ -0.62, -0.31, 0, 0.31, 0.62 }) do
+				local len = 6.6 - math.abs(a) * 2.2
+				local tipPos = t + V(math.sin(a) * len * 0.75, 0.4 + (i % 2) * 0.35, math.cos(a) * len)
+				limb(t, tipPos, 1.0 * s, i % 2 == 0 and colors.primary or colors.wing, nil, 0.22)
+				limb(t:Lerp(tipPos, 0.5), tipPos, 0.75 * s, colors.accent, Enum.Material.Neon, 0.25)
+				ellipsoid(V(0.75, 0.35, 0.95), CFrame.new(tipPos), fire.colorA, Enum.Material.Neon)
+			end
 		end
 	end)
 
@@ -749,6 +954,17 @@ function DragonBuilder.build(classId: string, options)
 		elseif class.id == "Behemoth" then
 			emitter.Acceleration = Vector3.new(0, 4, 0)
 			emitter.Size = NumberSequence.new(0.35 * s, 0)
+		elseif class.id == "Tidecaller" then
+			-- bubbles drifting up off its scales
+			emitter.Acceleration = Vector3.new(0, 3, 0)
+			emitter.Rate = 7
+			emitter.Size = NumberSequence.new(0.25 * s, 0.45 * s)
+		elseif class.id == "Solaris" then
+			-- golden motes rising like heat
+			emitter.LightEmission = 1
+			emitter.Acceleration = Vector3.new(0, 2.5, 0)
+			emitter.Rate = 12
+			emitter.Size = NumberSequence.new(0.4 * s, 0)
 		end
 		emitter.Parent = torso
 	end

@@ -1,5 +1,6 @@
--- The 💎 Store window (Robux): the Starter Pack (for new dragons), boosts (a cheap Gold Rush and
--- the 2x passes), handy passes (flight time, never hungry, Wayfinder teleports), gold packs sized
+-- The 💎 Store window (Robux): the Starter Pack (for new dragons), the legendary dragons (each
+-- with a "See it" button to its showcase window), boosts (a cheap Gold Rush and the 2x passes),
+-- handy passes (flight time, never hungry, Wayfinder teleports), gold packs sized
 -- to your level, the Mythic and Secret Eggs and a few extras. Buying
 -- opens Roblox's own purchase prompt; StoreService grants the item when Roblox confirms. Items
 -- without an id yet (see Config/Store) can be tested for free in Studio.
@@ -20,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local StoreInfo = require(Shared.Config.Store)
 local PetInfo = require(Shared.Config.Pets)
+local ClassInfo = require(Shared.Config.Classes)
 local StatCalc = require(Shared.StatCalc)
 local Util = require(Shared.Util)
 local Remotes = require(Shared.Remotes)
@@ -184,6 +186,36 @@ function Store.refresh()
 		passCards(true)
 	end
 
+	local function dragonSection()
+		section(nextOrder(), "🐉 Legendary Dragons (forever)")
+		for _, key in ipairs(StoreInfo.DragonOrder) do
+			local pass = StoreInfo.Passes[key]
+			local class = ClassInfo.get(pass.dragon)
+			local owned = p.passes and p.passes[key] == true
+			local frame = card(nextOrder(), pass.icon, pass.name, pass.desc, owned and "<font color=\"#6EDC6E\">Yours! Become one from its showcase, or at Elder Pyrrhus (free).</font>" or nil,
+				pass.robux, owned, function()
+					Store.buy("pass", key)
+				end, 112)
+			frame.UIStroke.Color = class.colors.accent
+			frame.UIStroke.Thickness = 2.5
+			for _, label in ipairs(frame:GetChildren()) do
+				if label:IsA("TextLabel") and label.Position.X.Offset == 76 then
+					label.Size = UDim2.new(1, -350, label.Size.Y.Scale, label.Size.Y.Offset) -- (room for "See it")
+				end
+			end
+			Theme.button("👀 See it", C.panel3, function()
+				App.DragonShowcase.open(pass.dragon)
+			end, {
+				Name = "SeeDragon",
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -170, 0.5, 0),
+				Size = UDim2.fromOffset(84, 34),
+				TextSize = 14,
+				Parent = frame,
+			})
+		end
+	end
+
 	local function goldSection()
 		if not Store.available("product", "GoldSmall") then
 			return
@@ -241,8 +273,8 @@ function Store.refresh()
 	end
 
 	-- opened from a "Get gold" button: the gold first
-	local sections = focus == "Gold" and { goldSection, boostSection, starterSection, eggSection, handySection, extrasSection }
-		or { starterSection, boostSection, goldSection, eggSection, handySection, extrasSection }
+	local sections = focus == "Gold" and { goldSection, boostSection, starterSection, eggSection, dragonSection, handySection, extrasSection }
+		or { starterSection, dragonSection, boostSection, goldSection, eggSection, handySection, extrasSection }
 	for _, build in ipairs(sections) do
 		build()
 	end

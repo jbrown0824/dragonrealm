@@ -9,6 +9,7 @@ Game.DATASTORE_NAME = "DragonRealm_Profiles_v1"
 Game.LEVEL_CAP = 30
 Game.TALENT_POINTS_PER_TIER = 4 -- points needed in a branch to unlock each next tier
 Game.SIGNATURE_LEVEL = 3 -- each dragon type's own ability unlocks here (goes on key 1)
+Game.BONUS_LEVEL = 10 -- a legendary dragon's extra ability (Classes.X.bonus) unlocks here (keys 2-5)
 Game.LOW_LEVEL_XP_PENALTY_GAP = 6 -- enemies this many levels below you give reduced XP
 Game.LOW_LEVEL_XP_MULT = 0.25
 

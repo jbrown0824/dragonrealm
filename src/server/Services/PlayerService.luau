@@ -511,6 +511,10 @@ function PlayerService.addXP(player: Player, amount: number, raw: boolean?): num
 			local a = Abilities.get(class.signature)
 			PlayerService.notify(player, string.format("New ability: %s %s! Use it with key 1.", a.icon, a.name), Color3.fromRGB(255, 215, 80), "✨")
 		end
+		if class and class.bonus and startLevel < Game.BONUS_LEVEL and profile.level >= Game.BONUS_LEVEL then
+			local a = Abilities.get(class.bonus)
+			PlayerService.notify(player, string.format("New ability: %s %s! It's on your skill keys (2-5).", a.icon, a.name), Color3.fromRGB(255, 215, 80), "✨")
+		end
 		if profile.level >= Game.LEVEL_CAP then
 			gainParagon(player, profile) -- leftover XP
 		end
@@ -687,10 +691,20 @@ end
 
 ---------------------------------------------------------------- remotes
 
+-- A legendary dragon (Config/Classes `pass`) needs its pass; the five free ones are open to all.
+local function canBe(player: Player, classId: string): boolean
+	local class = Classes.get(classId)
+	return class ~= nil and (class.pass == nil or S.StoreService.hasPass(player, class.pass))
+end
+PlayerService.canBe = canBe
+
 local function onChooseClass(player: Player, classId)
 	local profile = PlayerService.getProfile(player)
 	if not profile or profile.class ~= nil or type(classId) ~= "string" or not Classes.get(classId) then
 		return false
+	end
+	if not canBe(player, classId) then
+		return false, "Unlock the " .. Classes.get(classId).name .. " in the 💎 Store first."
 	end
 	profile.class = classId
 	PlayerService.recompute(player)
@@ -707,7 +721,12 @@ local function onTransform(player: Player, classId)
 	if classId == profile.class then
 		return false, "You are already a " .. classId .. "."
 	end
-	local cost = Game.transformCost(profile.level)
+	local class = Classes.get(classId)
+	if not canBe(player, classId) then
+		return false, "Unlock the " .. class.name .. " in the 💎 Store first."
+	end
+	-- (a legendary dragon you bought is yours to become any time, for free)
+	local cost = class.pass and 0 or Game.transformCost(profile.level)
 	if not PlayerService.spendGold(player, cost) then
 		return false, string.format("You need %d gold to transform.", cost)
 	end

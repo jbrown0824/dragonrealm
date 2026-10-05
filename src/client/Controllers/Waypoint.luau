@@ -7,6 +7,8 @@
 --     pick one again.
 --   * Places you pick clear themselves when you arrive.
 --   * Inside a dungeon it never points outside it (only at the keeper standing in there).
+--   * In a boss fight (player attribute InBossFight: the world boss arena, or a dungeon boss's
+--     room) nothing shows at all: no pin, guide line or map pin. It comes back when the fight ends.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -183,7 +185,15 @@ local function apply(new)
 	end
 end
 
+-- In a boss fight there's nowhere else to go: the waypoint waits, hidden, until it's over.
+function Waypoint.hidden(): boolean
+	return player:GetAttribute("InBossFight") == true
+end
+
 function Waypoint.get()
+	if Waypoint.hidden() then
+		return nil
+	end
 	return current
 end
 
@@ -316,11 +326,14 @@ function Waypoint.init(app)
 	beam.Parent = workspace.Terrain
 
 	App.State.changed:Connect(Waypoint.refreshQuest)
+	player:GetAttributeChangedSignal("InBossFight"):Connect(function()
+		Waypoint.changed:Fire(Waypoint.get())
+	end)
 
 	RunService.Heartbeat:Connect(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if not current or not root then
+		if not current or not root or Waypoint.hidden() then
 			marker.Enabled = false
 			beam.Enabled = false
 			return

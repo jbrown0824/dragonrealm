@@ -270,6 +270,104 @@ Talents.Venomspine = {
 	},
 }
 
+---------------------------------------------------------------- Legendary dragons (Robux)
+
+Talents.Tidecaller = {
+	{
+		id = "Torrent", name = "Torrent", icon = "🌊",
+		desc = "Water shots that hit hard and far.",
+		talents = {
+			T("PressureJet", "Pressure Jet", 1, 1, 3, { breathPct = 10 }),
+			T("DeepCurrents", "Deep Currents", 1, 2, 3, { attackPct = 5 }),
+			T("Riptooth", "Riptooth", 2, 1, 3, { critChance = 3 }),
+			T("Whitewater", "Whitewater", 2, 2, 2, { critDamage = 20 }),
+			T("Geyser", "Geyser", 3, 1, 1, {}, { ability = "Geyser" }),
+			T("Surge", "Surge", 3, 2, 3, { abilityPct = 8 }),
+			T("GeyserMastery", "Geyser Mastery", 4, 1, 2, {}, { requires = "Geyser", mods = { Geyser = { dmgPct = 25, radiusPct = 20 } } }),
+			T("SpringTide", "Spring Tide", 4, 2, 3, { cooldownPct = 6 }),
+			T("Maelstrom", "Maelstrom", 5, 1.5, 1, {}, { ability = "Maelstrom" }),
+		},
+	},
+	{
+		id = "Tidewarden", name = "Tidewarden", icon = "🐚",
+		desc = "Healing tides and a hide like a reef.",
+		talents = {
+			T("PearlScales", "Pearl Scales", 1, 1, 3, { defensePct = 8 }),
+			T("Saltblood", "Saltblood", 1, 2, 3, { healthPct = 6 }),
+			T("Tidepool", "Tidepool", 2, 1, 3, { regen = 0.4 }),
+			T("Barnacles", "Barnacles", 2, 2, 2, { thorns = 12 }),
+			T("HealingTide", "Healing Tide", 3, 1, 1, {}, { ability = "HealingTide" }),
+			T("Kelpwrap", "Kelpwrap", 3, 2, 3, { lifesteal = 2 }),
+			T("TideMastery", "Tide Mastery", 4, 1, 2, {}, { requires = "HealingTide", mods = { HealingTide = { healPct = 10, cdFlat = -3 } } }),
+			T("Reefheart", "Reefheart", 4, 2, 3, { healthPct = 7 }),
+			T("AbyssalShell", "Abyssal Shell", 5, 1.5, 1, {}, { ability = "AbyssalShell" }),
+		},
+	},
+	{
+		id = "Abyss", name = "Abyss", icon = "🐙",
+		desc = "Pull them under: drags, slows and crushing depths.",
+		talents = {
+			T("ColdDepths", "Cold Depths", 1, 1, 3, { slowPct = 10 }),
+			T("Leviathan", "Leviathan", 1, 2, 3, { attackPct = 5 }),
+			T("CrushingPressure", "Crushing Pressure", 2, 1, 3, { executePct = 12 }),
+			T("Seafarer", "Seafarer", 2, 2, 2, { staminaPct = 15, speedPct = 4 }),
+			T("Undertow", "Undertow", 3, 1, 1, {}, { ability = "Undertow" }),
+			T("Drowning", "Drowning", 3, 2, 3, { bossPct = 8 }),
+			T("UndertowMastery", "Undertow Mastery", 4, 1, 2, {}, { requires = "Undertow", mods = { Undertow = { dmgPct = 25, radiusPct = 15 } } }),
+			T("AbyssalFury", "Abyssal Fury", 4, 2, 3, { abilityPct = 8 }),
+			T("KrakensGrasp", "Kraken's Grasp", 5, 1.5, 1, {}, { ability = "KrakensGrasp" }),
+		},
+	},
+}
+
+Talents.Solaris = {
+	{
+		id = "Radiance", name = "Radiance", icon = "🔆",
+		desc = "A beam that burns through everything.",
+		talents = {
+			T("FocusedLight", "Focused Light", 1, 1, 3, { breathPct = 10 }),
+			T("Sunsteel", "Sunsteel", 1, 2, 3, { attackPct = 5 }),
+			T("Glare", "Glare", 2, 1, 3, { critChance = 3 }),
+			T("WhiteHot", "White Hot", 2, 2, 2, { critDamage = 20 }),
+			T("Sunspear", "Sunspear", 3, 1, 1, {}, { ability = "Sunspear" }),
+			T("Brilliance", "Brilliance", 3, 2, 3, { abilityPct = 8 }),
+			T("SpearMastery", "Spear Mastery", 4, 1, 2, {}, { requires = "Sunspear", mods = { Sunspear = { dmgPct = 25, cdFlat = -1.5 } } }),
+			T("Prism", "Prism", 4, 2, 3, { bossPct = 10 }),
+			T("Zenith", "Zenith", 5, 1.5, 1, {}, { ability = "Zenith" }),
+		},
+	},
+	{
+		id = "Phoenix", name = "Phoenix", icon = "🐦",
+		desc = "Rise from the ashes: healing, lifesteal and rebirth.",
+		talents = {
+			T("Emberheart", "Emberheart", 1, 1, 3, { healthPct = 6 }),
+			T("GildedScales", "Gilded Scales", 1, 2, 3, { defensePct = 8 }),
+			T("Kindling", "Kindling", 2, 1, 3, { lifesteal = 2 }),
+			T("WarmGlow", "Warm Glow", 2, 2, 2, { regen = 0.5 }),
+			T("PhoenixFeathers", "Phoenix Feathers", 3, 1, 1, {}, { ability = "PhoenixFeathers" }),
+			T("Pyre", "Pyre", 3, 2, 3, { burnPct = 15 }),
+			T("FeatherMastery", "Feather Mastery", 4, 1, 2, {}, { requires = "PhoenixFeathers", mods = { PhoenixFeathers = { healPct = 10, cdFlat = -3 } } }),
+			T("Ashborn", "Ashborn", 4, 2, 3, { healthPct = 7 }),
+			T("PhoenixForm", "Phoenix Form", 5, 1.5, 1, {}, { ability = "PhoenixForm" }),
+		},
+	},
+	{
+		id = "Corona", name = "Corona", icon = "☄️",
+		desc = "Comet strikes and exploding stars.",
+		talents = {
+			T("SolarWind", "Solar Wind", 1, 1, 3, { speedPct = 5 }),
+			T("Flarescale", "Flarescale", 1, 2, 3, { critChance = 3 }),
+			T("Heatwave", "Heatwave", 2, 1, 3, { burnPct = 15 }),
+			T("Daystar", "Daystar", 2, 2, 2, { fireballPct = 15 }),
+			T("Dawnbreak", "Dawnbreak", 3, 1, 1, {}, { ability = "Dawnbreak" }),
+			T("Starfire", "Starfire", 3, 2, 3, { attackPct = 5 }),
+			T("CometMastery", "Comet Mastery", 4, 1, 2, {}, { requires = "Dawnbreak", mods = { Dawnbreak = { dmgPct = 30, cdFlat = -1 } } }),
+			T("CoronalMass", "Coronal Mass", 4, 2, 3, { cooldownPct = 6 }),
+			T("Supernova", "Supernova", 5, 1.5, 1, {}, { ability = "Supernova" }),
+		},
+	},
+}
+
 -- Build a flat lookup: Talents.byId["Shadowstalker.KeenEyes"] = { talent, branchIndex, classId }
 Talents.byId = {}
 for classId, branches in pairs(Talents) do

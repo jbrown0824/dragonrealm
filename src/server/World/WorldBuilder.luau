@@ -16,6 +16,7 @@ local Zones = require(Shared.Config.Zones)
 local Quests = require(Shared.Config.Quests)
 local Dungeons = require(Shared.Config.Dungeons)
 local Game = require(Shared.Config.Game)
+local Classes = require(Shared.Config.Classes)
 
 local Props = require(script.Parent.Props)
 local WorldUtil = require(script.Parent.WorldUtil)
@@ -451,6 +452,140 @@ local function buildRange(parent: Instance)
 	Props.sign(f, CFrame.lookAt(Vector3.new(xBack - 2.6, 29, signZ), Vector3.new(0, 29, signZ)), "🏹 TARGET PRACTICE\nFireball the moving targets!", Vector2.new(16, 5))
 end
 
+-- The legendary dragons' showcases in the town square (Zones.Showcases): each dragon, a good deal
+-- bigger than life, on a two-tier dais in its own style (a pearl dais in a pool with fountains
+-- for the Tidecaller; white marble, gold and burning braziers for Solaris), a shaft of light, a
+-- sign and its name floating overhead. The prompt opens the showcase window (PanelPrompt).
+local SHOWCASE_LOOK = {
+	Tidecaller = {
+		base = Color3.fromRGB(70, 96, 120), top = Color3.fromRGB(232, 244, 246), trim = Color3.fromRGB(80, 255, 225),
+		shaft = Color3.fromRGB(150, 240, 255), sign = Color3.fromRGB(26, 70, 96), text = Color3.fromRGB(190, 255, 245),
+	},
+	Solaris = {
+		base = Color3.fromRGB(244, 238, 226), top = Color3.fromRGB(236, 180, 64), trim = Color3.fromRGB(255, 160, 30),
+		shaft = Color3.fromRGB(255, 236, 160), sign = Color3.fromRGB(120, 80, 20), text = Color3.fromRGB(255, 236, 170),
+	},
+}
+
+local function buildShowcase(parent: Instance, show)
+	local class = Classes.get(show.classId)
+	local look = SHOWCASE_LOOK[show.classId]
+	local model = Instance.new("Model")
+	model.Name = "Showcase" .. show.classId
+	model.Parent = parent
+	local y = Props.groundY(show.pos.X, show.pos.Z)
+	local at = Vector3.new(show.pos.X, y, show.pos.Z)
+	local face = facingCF(at, show.facing)
+	local R = Zones.SHOWCASE_RADIUS
+
+	-- the dais: a broad step and a raised top with a glowing rim
+	Props.column(model, at - Vector3.new(0, 1, 0), 2.6, 22, look.base, Enum.Material.Marble)
+	Props.column(model, at + Vector3.new(0, 1.4, 0), 1.8, 17.4, look.trim, Enum.Material.Neon)
+	Props.column(model, at + Vector3.new(0, 1.5, 0), 1.9, 17, look.top, show.classId == "Solaris" and Enum.Material.Foil or Enum.Material.Marble)
+	local top = at + Vector3.new(0, 3.4, 0)
+
+	if show.classId == "Tidecaller" then
+		-- a shallow pool round the dais, with four fountains spraying
+		local pool = Props.column(model, at - Vector3.new(0, 0.6, 0), 0.9, R * 2, Color3.fromRGB(60, 160, 220), Enum.Material.Glass)
+		pool.Transparency = 0.35
+		pool.CanCollide = false
+		for k = 1, 4 do
+			local a = (k - 0.5) / 4 * math.pi * 2
+			local spout = Props.part(model, Vector3.new(1.2, 1.2, 1.2), CFrame.new(at + Vector3.new(math.cos(a) * 11.8, 0.4, math.sin(a) * 11.8)), Color3.fromRGB(150, 235, 255), Enum.Material.Neon)
+			spout.Shape = Enum.PartType.Ball
+			spout.CanCollide = false
+			local spray = Instance.new("ParticleEmitter")
+			spray.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			spray.Color = ColorSequence.new(Color3.fromRGB(225, 250, 255), Color3.fromRGB(80, 180, 240))
+			spray.LightEmission = 0.5
+			spray.Rate = 30
+			spray.Speed = NumberRange.new(9, 13)
+			spray.SpreadAngle = Vector2.new(8, 8)
+			spray.Acceleration = Vector3.new(0, -30, 0)
+			spray.Lifetime = NumberRange.new(0.6, 0.9)
+			spray.Size = NumberSequence.new(0.5, 0.15)
+			spray.EmissionDirection = Enum.NormalId.Top
+			spray.Parent = spout
+		end
+	else
+		-- sun rays inlaid in the gold, and four braziers burning round the edge
+		for k = 1, 12 do
+			local a = k / 12 * math.pi * 2
+			local ray = Props.part(model, Vector3.new(0.6, 0.1, 6.5), CFrame.lookAt(top + Vector3.new(0, -0.03, 0), top + Vector3.new(math.cos(a), -0.03, math.sin(a))) * CFrame.new(0, 0, -4.2), look.trim, Enum.Material.Neon)
+			ray.CanCollide = false
+		end
+		for k = 1, 4 do
+			local a = (k - 0.5) / 4 * math.pi * 2
+			local spot = at + Vector3.new(math.cos(a) * 11.6, 0, math.sin(a) * 11.6)
+			Props.column(model, spot - Vector3.new(0, 0.5, 0), 4.2, 1.1, look.top, Enum.Material.Foil)
+			Props.column(model, spot + Vector3.new(0, 3.6, 0), 1, 2.6, look.top, Enum.Material.Foil) -- the bowl
+			local flame = Props.part(model, Vector3.new(1, 1, 1), CFrame.new(spot + Vector3.new(0, 4.9, 0)), Color3.fromRGB(255, 170, 60), Enum.Material.Neon)
+			flame.CanCollide = false
+			Props.fire(flame, 3, Color3.fromRGB(255, 170, 50))
+			Props.light(flame, Color3.fromRGB(255, 190, 110), 18, 1.4)
+		end
+	end
+
+	-- a soft shaft of light from above
+	local shaft = Props.column(model, top, 70, 15, look.shaft, Enum.Material.Neon)
+	shaft.Transparency = 0.9
+	shaft.CanCollide = false
+	shaft.CanQuery = false
+	shaft.CastShadow = false
+	local glow = Props.part(model, Vector3.new(0.4, 0.4, 0.4), CFrame.new(top + Vector3.new(0, 18, 0)), look.shaft, Enum.Material.Neon)
+	glow.Transparency = 1
+	glow.CanCollide = false
+	glow.CanQuery = false
+	Props.light(glow, look.shaft, 30, 1.6)
+
+	-- the dragon itself, larger than life
+	local dragon = placeDragon(model, show.classId, top, show.facing, { scale = 1.35, name = class.name })
+	dragon:SetAttribute("Showcase", show.classId)
+
+	-- a low plaque in front of the dais (so it doesn't hide the dragon), and the name overhead
+	Props.sign(model, face * CFrame.new(0, 2.6, -15.5),
+		string.format("%s %s\n💎 Legendary Dragon", class.icon, class.name:upper()), Vector2.new(11, 3.6), look.text, look.sign, 1.2)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "ShowcaseName"
+	gui.Size = UDim2.fromOffset(240, 56)
+	gui.StudsOffset = Vector3.new(0, 11, 0)
+	gui.MaxDistance = 160
+	gui.LightInfluence = 0
+	local name = Instance.new("TextLabel")
+	name.BackgroundTransparency = 1
+	name.Size = UDim2.new(1, 0, 0.6, 0)
+	name.Font = Enum.Font.FredokaOne
+	name.TextScaled = true
+	name.TextColor3 = class.colors.accent
+	name.TextStrokeTransparency = 0.2
+	name.Text = class.icon .. " " .. class.name
+	name.Parent = gui
+	local sub = Instance.new("TextLabel")
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.fromScale(0, 0.6)
+	sub.Size = UDim2.new(1, 0, 0.4, 0)
+	sub.Font = Enum.Font.GothamBold
+	sub.TextScaled = true
+	sub.TextColor3 = Color3.fromRGB(255, 225, 120)
+	sub.TextStrokeTransparency = 0.4
+	sub.Text = "💎 Legendary Dragon"
+	sub.Parent = gui
+	gui.Parent = dragon:FindFirstChild("Head") or dragon.PrimaryPart
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "See this dragon"
+	prompt.ObjectText = class.name .. " (Legendary)"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 22
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("Panel", "DragonShowcase")
+	prompt:SetAttribute("DragonClass", show.classId)
+	CollectionService:AddTag(prompt, "PanelPrompt")
+	prompt.Parent = dragon.PrimaryPart
+	return model
+end
+
 local function buildTown(map: Folder)
 	local town = folder("Town", map)
 
@@ -474,6 +609,9 @@ local function buildTown(map: Folder)
 	end
 	buildQuestGivers(town, false)
 	buildWarHorn(town)
+	for _, show in ipairs(Zones.Showcases) do
+		buildShowcase(town, show)
+	end
 	buildTraining(town)
 	buildRange(town)
 

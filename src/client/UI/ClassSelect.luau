@@ -1,5 +1,7 @@
 -- The "Choose Your Dragon" screen with spinning 3D previews. Also used by Elder Pyrrhus to
 -- transform into a different dragon type later.
+-- Legendary dragons (Config/Classes `pass`) get a gold card; until you own one its button is its
+-- Robux price (App.Store.buy, only when clicked), and once you do, becoming one is free.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,6 +10,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Classes = require(Shared.Config.Classes)
 local Game = require(Shared.Config.Game)
+local StoreInfo = require(Shared.Config.Store)
 local DragonBuilder = require(Shared.DragonBuilder)
 local Remotes = require(Shared.Remotes)
 
@@ -49,23 +52,33 @@ local function transformCost(): number
 	return p and Game.transformCost(p.level) or 0
 end
 
+-- Do you own this legendary dragon's pass? (The five free types: always.)
+function ClassSelect.owns(classId: string): boolean
+	local class = Classes.get(classId)
+	local p = App.State.profile
+	return class ~= nil and (class.pass == nil or (p ~= nil and p.passes ~= nil and p.passes[class.pass] == true))
+end
+
 local function choose(classId: string)
 	if busy then
 		return
 	end
+	local class = Classes.get(classId)
+	if class.pass and not ClassSelect.owns(classId) then
+		App.Store.buy("pass", class.pass) -- (Roblox's purchase prompt; the card turns into Choose)
+		return
+	end
 	busy = true
+	local ok, err
 	if mode == "choose" then
-		local ok = Remotes.func("ChooseClass"):InvokeServer(classId)
-		if ok then
-			ClassSelect.hide()
-		end
+		ok, err = Remotes.func("ChooseClass"):InvokeServer(classId)
 	else
-		local ok, err = Remotes.func("Transform"):InvokeServer(classId)
-		if ok then
-			ClassSelect.hide()
-		elseif err then
-			App.Notifications.toast(err, C.bad, "🐉")
-		end
+		ok, err = Remotes.func("Transform"):InvokeServer(classId)
+	end
+	if ok then
+		ClassSelect.hide()
+	elseif err then
+		App.Notifications.toast(err, C.bad, "🐉")
 	end
 	busy = false
 end
@@ -80,7 +93,7 @@ local function buildCard(parent: Instance, classId: string, index: number)
 		Parent = parent,
 	})
 	Theme.corner(card, 14)
-	local stroke = Theme.stroke(card, class.colors.accent, 2.5, 0.2)
+	local stroke = Theme.stroke(card, class.pass and C.gold or class.colors.accent, class.pass and 3.5 or 2.5, 0.2)
 
 	local viewport = Theme.make("ViewportFrame", {
 		Position = UDim2.fromOffset(6, 6),
@@ -148,7 +161,7 @@ local function buildCard(parent: Instance, classId: string, index: number)
 		TextStrokeColor3 = class.fire.colorB,
 		TextStrokeTransparency = 0.3,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		Text = "🔥 " .. class.fire.name,
+		Text = (class.fire.icon or "🔥") .. " " .. class.fire.name,
 		Parent = card,
 	})
 	Theme.label({
@@ -172,7 +185,43 @@ local function buildCard(parent: Instance, classId: string, index: number)
 		Parent = card,
 	})
 
+	if class.pass then
+		Theme.label({
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 10),
+			Size = UDim2.fromOffset(130, 22),
+			BackgroundTransparency = 0.15,
+			BackgroundColor3 = Color3.fromRGB(70, 50, 10),
+			TextSize = 13,
+			TextColor3 = C.gold,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Text = "💎 LEGENDARY",
+			ZIndex = 3,
+			Parent = card,
+		})
+	end
+
 	cards[classId] = { card = card, model = model, camera = camera, button = button, stroke = stroke, offset = index * 1.3 }
+end
+
+-- Each card's button: Choose / Transform / Current, or a legendary dragon's price.
+local function refreshButtons()
+	local p = App.State.profile
+	for classId, entry in pairs(cards) do
+		local class = Classes.get(classId)
+		local current = mode == "transform" and p and p.class == classId
+		if current then
+			entry.button.Text = "Current"
+		elseif class.pass and not ClassSelect.owns(classId) then
+			local pass = StoreInfo.Passes[class.pass]
+			entry.button.Text = "💎 R$ " .. pass.robux
+		elseif mode == "transform" then
+			entry.button.Text = class.pass and "Transform (free)" or "Transform"
+		else
+			entry.button.Text = "Choose"
+		end
+		Theme.setButtonEnabled(entry.button, not current)
+	end
 end
 
 local function positionCamera(entry, angle: number)
@@ -187,7 +236,6 @@ function ClassSelect.show(newMode: string?)
 	mode = newMode or "choose"
 	frame.Visible = true
 	App.Windows.close()
-	local p = App.State.profile
 	if mode == "transform" then
 		local cost = transformCost()
 		title.Text = "Transform Your Dragon"
@@ -199,11 +247,7 @@ function ClassSelect.show(newMode: string?)
 		subtitle.Text = "Each dragon has its own look, fire, stats and skill tree. You can transform later at Elder Pyrrhus."
 		cancelButton.Visible = false
 	end
-	for classId, entry in pairs(cards) do
-		local current = mode == "transform" and p and p.class == classId
-		entry.button.Text = current and "Current" or (mode == "transform" and "Transform" or "Choose")
-		Theme.setButtonEnabled(entry.button, not current)
-	end
+	refreshButtons()
 	if not spinConnection then
 		local t = 0
 		spinConnection = RunService.RenderStepped:Connect(function(dt)
@@ -283,11 +327,19 @@ function ClassSelect.init(app)
 	for i, classId in ipairs(Classes.Order) do
 		buildCard(row, classId, i)
 	end
-	-- center the row when it fits
+	-- center the row when it fits; when it's only a little too wide (all seven cards on a
+	-- desktop), shrink it to fit instead of hiding the last cards off to the side
+	local rowScale = Theme.make("UIScale", { Parent = row })
 	local function recenter()
-		local width = row.AbsoluteSize.X / (App.Windows.scale or 1)
-		local avail = scroller.AbsoluteSize.X / (App.Windows.scale or 1)
-		row.Position = UDim2.fromOffset(math.max(0, (avail - width) / 2), 0)
+		local s = App.Windows.scale or 1
+		local natural = row.AbsoluteSize.X / s / rowScale.Scale
+		local avail = scroller.AbsoluteSize.X / s
+		local fit = math.min(1, avail / math.max(1, natural))
+		local want = fit >= 0.78 and fit or 1
+		if math.abs(rowScale.Scale - want) > 0.005 then
+			rowScale.Scale = want
+		end
+		row.Position = UDim2.fromOffset(math.max(0, (avail - natural * rowScale.Scale) / 2), 0)
 	end
 	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(recenter)
 	scroller:GetPropertyChangedSignal("AbsoluteSize"):Connect(recenter)
@@ -310,6 +362,11 @@ function ClassSelect.init(app)
 		end
 	end
 	App.State.changed:Connect(check)
+	App.State.changed:Connect(function()
+		if frame.Visible then
+			refreshButtons() -- (a legendary dragon just bought)
+		end
+	end)
 	check()
 
 	RunService:BindToRenderStep("DragonMenuCamera", Enum.RenderPriority.Camera.Value + 1, function()
