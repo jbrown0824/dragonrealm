@@ -1,7 +1,9 @@
 -- The "Choose Your Dragon" screen with spinning 3D previews. Also used by Elder Pyrrhus to
 -- transform into a different dragon type later.
 -- Legendary dragons (Config/Classes `pass`) get a gold card; until you own one its button is its
--- Robux price (App.Store.buy, only when clicked), and once you do, becoming one is free.
+-- Robux price (App.Store.buy, only when clicked), and once you do, becoming one is free. A new
+-- dragon's first pick leaves them out (five cards are plenty to take in; one already bought on
+-- the game's page still shows): they're on the transform screen, their showcases and the Store.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -204,11 +206,13 @@ local function buildCard(parent: Instance, classId: string, index: number)
 	cards[classId] = { card = card, model = model, camera = camera, button = button, stroke = stroke, offset = index * 1.3 }
 end
 
--- Each card's button: Choose / Transform / Current, or a legendary dragon's price.
+-- Which cards show (not legendary ones you don't own on your first pick), and each one's button:
+-- Choose / Transform / Current, or a legendary dragon's price.
 local function refreshButtons()
 	local p = App.State.profile
 	for classId, entry in pairs(cards) do
 		local class = Classes.get(classId)
+		entry.card.Visible = mode == "transform" or not class.pass or ClassSelect.owns(classId)
 		local current = mode == "transform" and p and p.class == classId
 		if current then
 			entry.button.Text = "Current"
@@ -364,7 +368,7 @@ function ClassSelect.init(app)
 	App.State.changed:Connect(check)
 	App.State.changed:Connect(function()
 		if frame.Visible then
-			refreshButtons() -- (a legendary dragon just bought)
+			refreshButtons() -- (a legendary dragon just bought, or its pass found when you joined)
 		end
 	end)
 	check()

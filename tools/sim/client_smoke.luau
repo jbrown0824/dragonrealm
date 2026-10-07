@@ -57,7 +57,7 @@ local function legendaryClientScenario(me)
 	end
 	check(Windows.isOpen("DragonShowcase"), "See it opens the showcase")
 	mod("UI/DragonShowcase").show("Tidecaller")
-	click(frame, "Unlock for R$") -- (a Studio test purchase: the pass has no id yet)
+	click(frame, "Unlock for R$") -- (Roblox's prompt: the mock confirms like a Studio test purchase)
 	task.wait(1)
 	check(findButton(frame, "Become a Tidecaller") ~= nil, "once bought, the button becomes Become a Tidecaller (free)")
 	click(frame, "Become a Tidecaller")
@@ -370,6 +370,18 @@ task.spawn(function()
 	local State = mod("Controllers/State")
 	check(State.profile ~= nil, "client got its profile")
 	check(mod("UI/ClassSelect").isVisible(), "class select shows for a new dragon")
+	do
+		local overlay = Windows.guis.Overlay:FindFirstChild("ClassSelect")
+		local shown, legendary = 0, 0
+		for _, d in ipairs(overlay:GetDescendants()) do
+			local class = d:IsA("Frame") and require(__proxy("Shared/Config/Classes")).get(d.Name)
+			if class and d.Visible then
+				shown += 1
+				legendary += class.pass and 1 or 0
+			end
+		end
+		check(shown == 5 and legendary == 0, string.format("a new dragon's first pick shows just the five free types (%d cards, %d legendary)", shown, legendary))
+	end
 
 	-- choose a dragon the way the class screen does
 	check(Remotes.func("ChooseClass"):InvokeServer("Frostwyrm") == true, "choose class from client")

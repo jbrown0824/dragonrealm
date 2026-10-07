@@ -531,9 +531,12 @@ function DragonBuilder.build(classId: string, options)
 			end
 		end
 
+		-- Where breath and shots come out: inside the mouth, between the upper teeth and the open
+		-- jaw (it drops about a sixth of the head's length here), not out at the nose tip, where
+		-- fire used to look like it came out of the nostrils.
 		local mouth = Instance.new("Attachment")
 		mouth.Name = "Mouth"
-		mouth.CFrame = head.CFrame:Inverse() * CFrame.new(H + V(0, -hp.h * 0.3, noseZ - 0.3))
+		mouth.CFrame = head.CFrame:Inverse() * CFrame.new(H + V(0, -hp.h * 0.3 - hp.l * 0.15, noseZ + hp.l * 0.3))
 		mouth.Parent = head
 
 		-- Horns, crests and frills by style
