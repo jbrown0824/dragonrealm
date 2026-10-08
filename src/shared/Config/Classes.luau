@@ -255,11 +255,11 @@ Classes.Tidecaller = {
 		style = "tide",
 	},
 	stats = {
-		health = 118, healthPerLevel = 23,
-		attack = 12, attackPerLevel = 3.15,
-		defense = 5, defensePerLevel = 1.7,
-		crit = 8, critDamage = 150,
-		speed = 21, stamina = 140,
+		health = 124, healthPerLevel = 24,
+		attack = 13, attackPerLevel = 3.3,
+		defense = 6, defensePerLevel = 1.9,
+		crit = 10, critDamage = 160,
+		speed = 22, stamina = 150,
 	},
 	-- hold to fire: 3+ orbs a second out to 95 studs (a breath cone reaches ~24)
 	breath = {
@@ -268,7 +268,7 @@ Classes.Tidecaller = {
 		range = 95, cooldown = 0.3, mult = 0.7, speed = 150, radius = 3.5, size = 0.9, count = 1,
 		slowPct = 15, slowDuration = 1.5,
 	},
-	statBars = { health = 3, attack = 4, speed = 4, defense = 3 },
+	statBars = { health = 4, attack = 5, speed = 4, defense = 3 },
 }
 
 -- A radiant sun dragon: ivory scales under gilded armor, feathered wings over a sunlit membrane,
@@ -306,11 +306,11 @@ Classes.Solaris = {
 		style = "solar",
 	},
 	stats = {
-		health = 124, healthPerLevel = 24,
-		attack = 13, attackPerLevel = 3.3,
-		defense = 6, defensePerLevel = 1.9,
-		crit = 10, critDamage = 160,
-		speed = 22, stamina = 150,
+		health = 118, healthPerLevel = 23,
+		attack = 12, attackPerLevel = 3.15,
+		defense = 5, defensePerLevel = 1.7,
+		crit = 8, critDamage = 150,
+		speed = 21, stamina = 140,
 	},
 	-- hold to keep the beam on: it pierces everything along a 55-stud line
 	breath = {
@@ -318,7 +318,7 @@ Classes.Solaris = {
 		desc = "Hold to pour out a beam of sunlight. It burns through everything in a long line, and wins more crits.",
 		range = 55, width = 5, cooldown = 0.25, mult = 0.6, critBonus = 5,
 	},
-	statBars = { health = 4, attack = 5, speed = 4, defense = 3 },
+	statBars = { health = 3, attack = 4, speed = 4, defense = 3 },
 }
 
 

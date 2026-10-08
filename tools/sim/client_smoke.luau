@@ -29,6 +29,10 @@ end
 local function legendaryClientScenario(me)
 	local VFX = mod("Controllers/VFX")
 	local State = mod("Controllers/State")
+	local Passes = require(__proxy("Shared/Config/Store")).Passes
+	local function price(passKey: string): string
+		return "R$ " .. Passes[passKey].robux
+	end
 	local function hasText(root: Instance, text: string): boolean
 		for _, d in ipairs(root:GetDescendants()) do
 			if (d.ClassName == "TextLabel" or d.ClassName == "TextButton") and tostring(d.Text):find(text, 1, true) then
@@ -42,10 +46,10 @@ local function legendaryClientScenario(me)
 	task.wait(0.3)
 	local frame = Windows.registry.DragonShowcase.frame
 	check(Windows.isOpen("DragonShowcase") and hasText(frame, "Solaris") and hasText(frame, "Sunfall") and hasText(frame, "Solar Beam"), "a showcase platform opens Solaris' window")
-	check(findButton(frame, "R$ 999") ~= nil, "...with its price until it's yours")
+	check(findButton(frame, price("SolarisDragon")) ~= nil, "...with its price until it's yours")
 	click(frame, "Tidecaller")
 	task.wait(0.2)
-	check(hasText(frame, "Tide Shot") and hasText(frame, "Tidal Surge") and findButton(frame, "R$ 399") ~= nil, "the tabs switch to the Tidecaller")
+	check(hasText(frame, "Tide Shot") and hasText(frame, "Tidal Surge") and findButton(frame, price("TidecallerDragon")) ~= nil, "the tabs switch to the Tidecaller")
 	Windows.open("Store")
 	task.wait(0.3)
 	local storeFrame = Windows.registry.Store.frame
@@ -93,7 +97,7 @@ local function legendaryClientScenario(me)
 	picker.show("transform")
 	task.wait(0.2)
 	local overlay = Windows.guis.Overlay:FindFirstChild("ClassSelect")
-	check(overlay and hasText(overlay, "LEGENDARY") and findButton(overlay, "R$ 999") ~= nil, "the class picker shows Solaris' price")
+	check(overlay and hasText(overlay, "LEGENDARY") and findButton(overlay, price("SolarisDragon")) ~= nil, "the class picker shows Solaris' price")
 	check(overlay and findButton(overlay, "Current") ~= nil, "...and the Tidecaller as current")
 	picker.hide()
 	Remotes.func("AdminAction"):InvokeServer("setClass", { classId = classBefore })
@@ -1061,6 +1065,14 @@ task.spawn(function()
 	task.wait(1.5)
 	local banner = Windows.guis.HUD:FindFirstChild("BossBanner")
 	check(banner and banner.Visible, "boss banner shows")
+	-- it pops up big at the top, then glides over to the left once the dragon gets going
+	-- (no new locals here: the main scenario is out of them)
+	check(banner.AnchorPoint.X == 0.5 and banner.Zoom.Scale > 1, "the boss banner pops up big at the top")
+	task.wait(mod("UI/SideDock").MIN_CENTER)
+	tp(me, rootOf(me).Position + Vector3.new(mod("UI/SideDock").DOCK_MOVE + 4, 0, 0))
+	task.wait(0.3)
+	check(banner.AnchorPoint.X == 0 and banner.Position.X.Offset == 12 and banner.Zoom.Scale == 1, "...then docks at the side once you move")
+	check(Windows.guis.HUD.Toasts.Position.Y.Offset >= banner.Position.Y.Offset + banner.Size.Y.Offset, "the toasts make room under the docked banner")
 	local minimize = banner:FindFirstChild("Minimize", true)
 	check(minimize ~= nil, "boss banner has a minimize button")
 	if minimize then
@@ -1069,6 +1081,7 @@ task.spawn(function()
 	task.wait(0.3)
 	local pillButton = Windows.guis.HUD:FindFirstChild("BossPill")
 	check(pillButton and pillButton.Visible and not banner.Visible, "banner minimized to a pill")
+	check(pillButton.Position.X.Offset == 12 and pillButton.Position.Y.Offset == banner.Position.Y.Offset, "the pill sits in the banner's spot")
 	pillButton.Activated:Fire()
 	task.wait(0.3)
 	check(banner.Visible, "pill reopens the banner")
@@ -1142,6 +1155,7 @@ task.spawn(function()
 	task.wait(1)
 	local raidBar = Windows.guis.HUD:FindFirstChild("RaidBar")
 	check(raidBar and raidBar.Visible, "the raid bar shows")
+	check(raidBar.AnchorPoint.X == 0.5, "a new raid pops the bar up at the top")
 	local minimize = raidBar:FindFirstChild("Minimize", true)
 	check(minimize ~= nil, "the raid bar has a minimize button")
 	if minimize then
@@ -1171,10 +1185,13 @@ task.spawn(function()
 	end
 	tp(me, S.FarmService.getHomeCFrame(me).Position)
 	-- a house on fire: the water chip says where to get water, then how much you carry
+	task.wait(mod("UI/SideDock").MIN_CENTER) -- (and by now the raid bar has moved aside)
 	Remotes.func("AdminAction"):InvokeServer("burnHouse")
 	task.wait(0.6)
 	local chip = Windows.guis.HUD:FindFirstChild("WaterChip")
 	check(chip and chip.Visible and chip.Text:find("on fire") ~= nil, "a burning house shows the water hint (" .. tostring(chip and chip.Text) .. ")")
+	check(raidBar.AnchorPoint.X == 0 and raidBar.Position.X.Offset == 12, "the raid bar docked at the side once you got going")
+	check(chip.Position.X.Offset == 12 and chip.Position.Y.Offset == raidBar.Position.Y.Offset + raidBar.Size.Y.Offset + 6, "the water chip rides under the docked raid bar")
 	local well = workspace.Map.Town:FindFirstChild("Well1")
 	check(well and well:FindFirstChild("WellTag", true).Enabled, "the wells light up \"Water\" while a house burns")
 	tp(me, Zones.Wells[1] + Vector3.new(4, 4, 0))

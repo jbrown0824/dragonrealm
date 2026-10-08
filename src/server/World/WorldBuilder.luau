@@ -542,8 +542,13 @@ local function buildShowcase(parent: Instance, show)
 	local dragon = placeDragon(model, show.classId, top, show.facing, { scale = 1.35, name = class.name })
 	dragon:SetAttribute("Showcase", show.classId)
 
-	-- a low plaque in front of the dais (so it doesn't hide the dragon), and the name overhead
-	Props.sign(model, face * CFrame.new(0, 2.6, -15.5),
+	-- a low plaque in front of the dais (so it doesn't hide the dragon) standing on a stone plinth
+	-- with a glowing edge (on bare posts it looked sunk into the grass), and the name overhead
+	local plaqueAt = face * CFrame.new(0, 0, -15.5)
+	Props.part(model, Vector3.new(12.4, 1.8, 1.6), plaqueAt * CFrame.new(0, 0.3, 0), look.base, Enum.Material.Marble)
+	local edge = Props.part(model, Vector3.new(12.4, 0.25, 0.3), plaqueAt * CFrame.new(0, 1.07, -0.72), look.trim, Enum.Material.Neon)
+	edge.CanCollide = false
+	Props.sign(model, plaqueAt * CFrame.new(0, 3, 0),
 		string.format("%s %s\n💎 Legendary Dragon", class.icon, class.name:upper()), Vector2.new(11, 3.6), look.text, look.sign, 1.2)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "ShowcaseName"

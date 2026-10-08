@@ -44,9 +44,9 @@ Store.Passes = {
 -- for good: choose it, or transform into it for free (Elder Pyrrhus, or its showcase in the town
 -- square). Nothing random, so no `paidRandom`.
 Store.DragonOrder = { "TidecallerDragon", "SolarisDragon" }
-Store.Passes.TidecallerDragon = { assetId = 2017232269, dragon = "Tidecaller", name = "Tidecaller", icon = "🌊", robux = 399,
+Store.Passes.TidecallerDragon = { assetId = 2017232269, dragon = "Tidecaller", name = "Tidecaller", icon = "🌊", robux = 999,
 	desc = "Unlock the Tidecaller, a legendary sea dragon: rapid water shots that reach far, whirlpools, healing tides and a great wave at level 10." }
-Store.Passes.SolarisDragon = { assetId = 2017538250, dragon = "Solaris", name = "Solaris", icon = "☀️", robux = 999,
+Store.Passes.SolarisDragon = { assetId = 2017538250, dragon = "Solaris", name = "Solaris", icon = "☀️", robux = 399,
 	desc = "Unlock Solaris, the crowned sun dragon: a piercing beam of sunlight, a blazing halo and phoenix plumes, and pillars of sunfire at level 10." }
 
 -- The pass that unlocks a dragon type, or nil.
