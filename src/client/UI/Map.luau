@@ -668,7 +668,7 @@ function Map.refreshList()
 		return
 	end
 	local wp = App.Waypoint.get()
-	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 17, TextColor3 = C.accent, Text = "📍 Waypoint: " .. (wp and wp.label or "none"), Parent = big.list })
+	Theme.label({ Size = UDim2.new(1, -8, 0, 22), LayoutOrder = nextOrder(), Font = Theme.Fonts.title, TextSize = 17, TextColor3 = C.accent, Text = "📍 Waypoint: " .. (wp and wp.label or (App.Waypoint.hidden() and "hidden in boss fights" or "none")), Parent = big.list })
 	if wp and wp.source == "quest" then
 		Theme.button("Stop guiding me to quests", C.panel3, function()
 			App.Waypoint.stopGuiding()

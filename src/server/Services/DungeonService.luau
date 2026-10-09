@@ -1103,24 +1103,33 @@ end
 
 -- A draught turns up somewhere on the boss room's floor, well away from the boss (and goes again
 -- after DRAUGHT_LIFE if nobody drinks it, flickering first).
+-- (with the boss in the middle every random spot can land too close: then the farthest safe one)
 local function dropDraught(run, boss)
 	local room = boss.room
+	local spot, spotAway = nil, -1
 	for _ = 1, 16 do
 		local a = math.random() * math.pi * 2
 		local r = math.sqrt(math.random()) * math.max(4, room.radius - 10)
 		local p = floorAt(room.center + Vector3.new(math.cos(a) * r, 4, math.sin(a) * r))
-		if flat(p - boss.e.root.Position).Magnitude >= 18 and not DungeonNav.inHazard(run.def, p - run.built.origin) then
-			local model = DungeonBuilder.draught(run.built.model, p)
-			local looks = {}
-			for _, part in ipairs(model:GetDescendants()) do
-				if part:IsA("BasePart") then
-					looks[part] = part.Transparency
-				end
+		local away = flat(p - boss.e.root.Position).Magnitude
+		if away > spotAway and not DungeonNav.inHazard(run.def, p - run.built.origin) then
+			spot, spotAway = p, away
+			if away >= 18 then
+				break
 			end
-			table.insert(run.draughts, { model = model, pos = p, expires = now() + Dungeons.DRAUGHT_LIFE, looks = looks })
-			return
 		end
 	end
+	if not spot then
+		return
+	end
+	local model = DungeonBuilder.draught(run.built.model, spot)
+	local looks = {}
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			looks[part] = part.Transparency
+		end
+	end
+	table.insert(run.draughts, { model = model, pos = spot, expires = now() + Dungeons.DRAUGHT_LIFE, looks = looks })
 end
 
 local function drink(player: Player)

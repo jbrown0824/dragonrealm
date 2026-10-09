@@ -28,6 +28,9 @@ local lastTouch = false
 local lastRangeHint = 0
 local aimParams = RaycastParams.new()
 aimParams.FilterType = Enum.RaycastFilterType.Exclude
+local mapParams = RaycastParams.new() -- the map and terrain only, like the server's (beams, waves)
+mapParams.FilterType = Enum.RaycastFilterType.Include
+mapParams.IgnoreWater = true
 
 -- Keys for the action bar slots (HUD.abilityForSlot says what's in each).
 local KEY_SLOTS = {
@@ -113,6 +116,11 @@ function Combat.aimPoint(): Vector3
 	return ray.Origin + ray.Direction * 250
 end
 
+local function castMap(from: Vector3, dir: Vector3)
+	mapParams.FilterDescendantsInstances = { workspace:FindFirstChild("Map") or workspace.Terrain, workspace.Terrain }
+	return workspace:Raycast(from, dir, mapParams)
+end
+
 local function mouthPosition(character: Model): Vector3
 	local head = character:FindFirstChild("Head")
 	local mouth = head and head:FindFirstChild("Mouth")
@@ -172,7 +180,7 @@ function Combat.cast(abilityId: string?, aimAt: Vector3?)
 		projectileId = player.UserId .. "_" .. projectileCounter
 	end
 	Remotes.event("CastAbility"):FireServer(abilityId, aim, projectileId)
-	App.Movement.faceToward(aim, ability.kind == "breath" and 0.5 or 0.35)
+	App.Movement.faceToward(aim, abilityId == "Breath" and 0.5 or 0.35)
 
 	local origin = mouthPosition(character)
 	if ability.kind == "breath" then
@@ -182,7 +190,23 @@ function Combat.cast(abilityId: string?, aimAt: Vector3?)
 		end
 		App.VFX.breath(character, dir.Unit, p.class, ability.cooldown + 0.15)
 		App.Sfx.play("Breath", 0.35)
+	elseif ability.kind == "beam" then
+		-- (the server's ray: to its range, or the first wall it meets)
+		local dir = aim - origin
+		if dir.Magnitude < 1 then
+			dir = root.CFrame.LookVector
+		end
+		dir = dir.Unit
+		local hit = castMap(origin, dir * ability.range)
+		App.LegendFX.beam(character, hit and hit.Position or origin + dir * ability.range, p.class, ability.cooldown + 0.15)
+		App.Sfx.play("Breath", 0.35)
 	elseif ability.kind == "projectile" then
+		if ability.ground then
+			-- a wave rolls along the ground ahead of you (CombatService does the same)
+			local down = castMap(root.Position + Vector3.new(0, 1, 0), Vector3.new(0, -200, 0))
+			origin = (down and down.Position or Vector3.new(root.Position.X, 0, root.Position.Z)) + Vector3.new(0, 3, 0)
+			aim = Vector3.new(aim.X, origin.Y, aim.Z)
+		end
 		local baseDir = aim - origin
 		if baseDir.Magnitude < 1 then
 			baseDir = root.CFrame.LookVector
@@ -198,8 +222,8 @@ function Combat.cast(abilityId: string?, aimAt: Vector3?)
 			end
 			table.insert(list, { id = projectileId .. "_" .. i, dir = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(angle)) * baseDir })
 		end
-		App.VFX.projectiles({ origin = origin, list = list, speed = ability.speed, range = ability.range, size = ability.size, classId = p.class, abilityId = abilityId })
-		App.Sfx.play("Fireball", 0.5)
+		App.VFX.projectiles({ origin = origin, list = list, speed = ability.speed, range = ability.range, size = ability.size, width = ability.width, classId = p.class, abilityId = abilityId, character = character })
+		App.Sfx.play("Fireball", abilityId == "Breath" and 0.25 or 0.5)
 	elseif ability.kind == "dash" then
 		local d = aim - root.Position
 		d = Vector3.new(d.X, 0, d.Z)

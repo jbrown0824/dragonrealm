@@ -107,8 +107,12 @@ for id, a in pairs(Abilities) do
 		local k = a.kind
 		if k == "projectile" then
 			check(a.speed and a.range and a.radius and a.mult and a.cooldown, id .. " projectile fields")
+			check(not a.pierce or (a.width and a.width > 0), id .. " a piercing shot has a width")
 		elseif k == "strike" then
 			check(a.radius and a.delay and a.castRange and a.mult and a.cooldown, id .. " strike fields")
+			if a.pulses then
+				check(a.pulses >= 2 and a.interval and a.interval > 0, id .. " a lasting strike has pulses and an interval")
+			end
 		elseif k == "nova" then
 			check(a.radius and a.mult and a.cooldown, id .. " nova fields")
 		elseif k == "dash" then
@@ -144,9 +148,56 @@ for _, classId in ipairs(Classes.Order) do
 	local high = StatCalc.compute(classId, Game.SIGNATURE_LEVEL, {}, {}, {})
 	check(#low.abilities == 2 and high.abilities[3] == sig, classId .. " signature unlocks at level " .. Game.SIGNATURE_LEVEL)
 end
+-- legendary dragons: their extra ability comes at Game.BONUS_LEVEL, after the tree's, and their
+-- own primary attack replaces the breath cone
+local bonuses = {}
+for _, classId in ipairs(Classes.Order) do
+	local class = Classes.get(classId)
+	if class.bonus then
+		local a = Abilities.get(class.bonus)
+		check(a and a.bonus == true and not a.signature, classId .. " bonus ability " .. class.bonus .. " is marked bonus")
+		check(not bonuses[class.bonus], classId .. " bonus ability is its own")
+		bonuses[class.bonus] = true
+		local talents = {}
+		for _, t in ipairs(Talents[classId][1].talents) do
+			if t.tier == 1 then
+				talents[t.id] = t.maxRank
+			end
+		end
+		local before = StatCalc.compute(classId, Game.BONUS_LEVEL - 1, {}, talents, {})
+		local after = StatCalc.compute(classId, Game.BONUS_LEVEL, {}, talents, {})
+		check(not table.find(before.abilities, class.bonus) and after.abilities[#after.abilities] == class.bonus, classId .. " bonus unlocks at level " .. Game.BONUS_LEVEL .. ", after the tree's abilities")
+		check(after.abilities[3] == class.signature, classId .. " signature still on key 1")
+	end
+	if class.pass then
+		local pass = StoreInfo.Passes[class.pass]
+		check(pass and pass.dragon == classId and pass.robux > 0 and not pass.paidRandom, classId .. " has its own dragon pass")
+		check(table.find(StoreInfo.DragonOrder, class.pass) ~= nil and StoreInfo.passForDragon(classId) == class.pass, classId .. " is listed with the Store's dragons")
+		check(class.bonus ~= nil and class.breath.kind ~= nil, classId .. " (legendary) has a bonus ability and its own primary attack")
+		check(not table.find(StoreInfo.PassOrder, class.pass), classId .. "'s pass isn't listed with the boosts")
+	end
+	if class.breath.kind then
+		local st = StatCalc.compute(classId, 10, {}, {}, { { stats = { cooldownPct = 30 } } })
+		local a = StatCalc.resolveAbility("Breath", classId, st)
+		check(a.kind == class.breath.kind and a.name == class.breath.name and a.desc == class.breath.desc, classId .. " primary attack resolves to its own kind and words")
+		check(math.abs(a.cooldown - class.breath.cooldown) < 1e-6, classId .. " primary attack keeps its own pace (no cooldown reduction)")
+		if a.kind == "projectile" then
+			check(a.speed and a.range and a.radius and a.size and (a.count or 1) >= 1, classId .. " primary shots have their fields")
+			check(a.effects.slowPct >= (class.breath.slowPct or 0), classId .. " primary keeps its slow")
+		elseif a.kind == "beam" then
+			check(a.range and a.width and a.width > 0, classId .. " beam has range and width")
+		else
+			check(false, classId .. " unknown primary kind " .. tostring(a.kind))
+		end
+		check(a.range > 30, classId .. " primary reaches farther than a breath cone")
+	end
+end
 for id, a in pairs(Abilities) do
-	if type(a) == "table" and a.id and id ~= "Breath" and id ~= "Fireball" and not signatures[id] then
+	if type(a) == "table" and a.id and id ~= "Breath" and id ~= "Fireball" and not signatures[id] and not bonuses[id] then
 		check(unlockedBy[id] == 1, id .. " unlocked by " .. tostring(unlockedBy[id]) .. " talents")
+	end
+	if type(a) == "table" and a.bonus then
+		check(bonuses[id] == true, id .. " is some legendary dragon's bonus")
 	end
 end
 
@@ -1199,10 +1250,21 @@ do
 	for _, classId in ipairs(Classes.Order) do
 		for _, level in ipairs({ 5, 15, 30 }) do
 			local st = StatCalc.compute(classId, level, gearAt(level, "Rare"), {}, {})
-			local old = BEFORE[classId][level]
-			local band = level == 5 and 0.08 or 0.07
-			check(math.abs(st.maxHealth / old[1] - 1) <= band and math.abs(st.attack / old[2] - 1) <= band,
-				string.format("%s %d with at-level Rare gear is about as strong as before (%d hp, %.1f atk; was %d, %.1f)", classId, level, st.maxHealth, st.attack, old[1], old[2]))
+			if BEFORE[classId] then
+				local old = BEFORE[classId][level]
+				local band = level == 5 and 0.08 or 0.07
+				check(math.abs(st.maxHealth / old[1] - 1) <= band and math.abs(st.attack / old[2] - 1) <= band,
+					string.format("%s %d with at-level Rare gear is about as strong as before (%d hp, %.1f atk; was %d, %.1f)", classId, level, st.maxHealth, st.attack, old[1], old[2]))
+			else
+				-- a legendary (Robux) dragon: a little stronger than the free types, never far past them
+				local total, n = 0, 0
+				for free in pairs(BEFORE) do
+					total += StatCalc.power(StatCalc.compute(free, level, gearAt(level, "Rare"), {}, {}))
+					n += 1
+				end
+				local ratio = StatCalc.power(st) / (total / n)
+				check(ratio >= 1.0 and ratio <= 1.12, string.format("%s %d is a little stronger than the free dragons (power x%.2f of their average)", classId, level, ratio))
+			end
 		end
 		local a = StatCalc.compute(classId, 15, gearAt(15, "Rare"), {}, {})
 		local b = StatCalc.compute(classId, 16, gearAt(15, "Rare"), {}, {})

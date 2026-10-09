@@ -97,12 +97,34 @@ function Notifications.toast(text: string, color: Color3?, icon: string?, action
 	return frame
 end
 
--- Push the toast column down so it never covers something above it (the tutorial panel).
-function Notifications.setTopInset(bottomOfAbove: number?)
+-- Push the toast column down so it never covers what sits above it in the left column: the docked
+-- tour panel ("tour"), the dungeon pill ("dungeon"), the docked boss and raid boxes ("side").
+-- Each says where its bottom is (nil: nothing there now); the toasts go under the lowest.
+local insets = {} -- [who] = bottom (HUD coordinates)
+function Notifications.setTopInset(bottomOfAbove: number?, who: string?)
+	insets[who or "tour"] = bottomOfAbove
 	if App.Windows.mobile then
 		return -- phones keep toasts at the top center, under the bars
 	end
-	toastHolder.Position = UDim2.fromOffset(12, math.max(TOAST_TOP, (bottomOfAbove or 0) + 10))
+	local bottom = 0
+	for _, b in pairs(insets) do
+		bottom = math.max(bottom, b)
+	end
+	local top = math.max(TOAST_TOP, bottom + 10)
+	toastHolder.Position = UDim2.fromOffset(12, top)
+	-- (pushed far down, the column gets shorter so it never hangs off the bottom of the screen)
+	toastHolder.Size = UDim2.fromOffset(330, math.clamp(App.Windows.hudHeight() - top - 8, 100, 300))
+end
+
+-- The lowest bottom claimed in the left column by anyone but `except`, or nil.
+function Notifications.claimedBottom(except: string?): number?
+	local bottom = nil
+	for who, b in pairs(insets) do
+		if who ~= except then
+			bottom = math.max(bottom or 0, b)
+		end
+	end
+	return bottom
 end
 
 function Notifications.announce(data)

@@ -1,7 +1,7 @@
 -- The 💎 Store: Robux game passes and developer products (StoreService, UI/Store).
 --
 -- SETUP, once per game, in the Creator Dashboard (create.roblox.com > your game > Monetization):
---   1. Create the Game Passes below and paste each one's id into `assetId`.
+--   1. Create the Game Passes below (the legendary dragons too) and paste each one's id into `assetId`.
 --   2. Create a Developer Product for each entry in Products and paste its id into `productId`.
 --   3. Set their prices to the `robux` shown here (the Store shows these numbers; Roblox charges
 --      whatever the dashboard says, so keep them the same).
@@ -39,6 +39,25 @@ Store.Passes = {
 	Wayfinder = { assetId = 2001674828, name = "Wayfinder", icon = "🧭", robux = 149, handy = true,
 		desc = "Teleport to any place on the world map (M) with the 🌀 button next to it. Not in combat or boss fights; a short cooldown between jumps." },
 }
+
+-- Legendary dragons: a pass per dragon type (Config/Classes `pass`). Owning one unlocks that type
+-- for good: choose it, or transform into it for free (Elder Pyrrhus, or its showcase in the town
+-- square). Nothing random, so no `paidRandom`.
+Store.DragonOrder = { "TidecallerDragon", "SolarisDragon" }
+Store.Passes.TidecallerDragon = { assetId = 2017232269, dragon = "Tidecaller", name = "Tidecaller", icon = "🌊", robux = 999,
+	desc = "Unlock the Tidecaller, a legendary sea dragon: rapid water shots that reach far, whirlpools, healing tides and a great wave at level 10." }
+Store.Passes.SolarisDragon = { assetId = 2017538250, dragon = "Solaris", name = "Solaris", icon = "☀️", robux = 399,
+	desc = "Unlock Solaris, the crowned sun dragon: a piercing beam of sunlight, a blazing halo and phoenix plumes, and pillars of sunfire at level 10." }
+
+-- The pass that unlocks a dragon type, or nil.
+function Store.passForDragon(classId: string): string?
+	for _, key in ipairs(Store.DragonOrder) do
+		if Store.Passes[key].dragon == classId then
+			return key
+		end
+	end
+	return nil
+end
 
 Store.ProductOrder = { "StarterPack", "StarterPet", "GoldRush", "GoldSmall", "GoldMedium", "GoldLarge", "MythicEgg", "SecretEgg", "TreatBag", "Restock" }
 Store.Products = {

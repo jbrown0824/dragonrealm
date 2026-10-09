@@ -153,6 +153,10 @@ function StatCalc.compute(classId: string, level: number, equipped, talents, buf
 	for _, talent in ipairs(branchOrder) do
 		table.insert(s.abilities, talent.ability)
 	end
+	-- a legendary dragon's extra ability goes after the tree's, so it never bumps them off their keys
+	if class.bonus and level >= Game.BONUS_LEVEL then
+		table.insert(s.abilities, class.bonus)
+	end
 
 	-- Buffs
 	for _, buff in ipairs(buffs or {}) do
@@ -196,6 +200,9 @@ function StatCalc.power(stats): number
 	return math.floor(StatCalc.dps(stats) * 2 + stats.maxHealth * 0.2 + stats.defense * 2)
 end
 
+-- What a legendary dragon's `breath` can set for its own kind of attack (Config/Classes).
+local PRIMARY_KEYS = { "speed", "size", "count", "spread", "radius", "width", "pierce" }
+
 local function copyTable(t)
 	local c = {}
 	for k, v in pairs(t) do
@@ -217,6 +224,14 @@ function StatCalc.resolveAbility(abilityId: string, classId: string, stats)
 	if a.kind == "breath" then
 		local class = Classes.get(classId)
 		local cb = class and class.breath or {}
+		if cb.kind then
+			-- a legendary dragon's own primary attack: a stream of shots or a beam
+			a.kind = cb.kind
+			a.name, a.icon, a.desc = cb.name or a.name, cb.icon or a.icon, cb.desc or a.desc
+			for _, k in ipairs(PRIMARY_KEYS) do
+				a[k] = cb[k]
+			end
+		end
 		a.range = (cb.range or 24) * (1 + stats.breathRange / 100)
 		a.angle = cb.angle or 30
 		a.cooldown = cb.cooldown or 0.5
@@ -238,7 +253,7 @@ function StatCalc.resolveAbility(abilityId: string, classId: string, stats)
 	a.damageMult = (a.mult or 0) * (1 + dmgPct / 100) * tuneDmg
 
 	local cd = (a.cooldown or 1) * tuneCd
-	if a.kind ~= "breath" then
+	if abilityId ~= "Breath" then -- (the primary attack's pace is the dragon's own)
 		cd = cd * (1 - stats.cooldownPct / 100)
 	end
 	cd += mods.cdFlat or 0

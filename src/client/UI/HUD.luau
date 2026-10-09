@@ -346,7 +346,7 @@ local function buildAbilityBar()
 				local p = App.State.profile
 				local fire = id == "Breath" and p and Classes.get(p.class)
 				tooltip.Title.Text = (a.icon or "") .. " " .. (fire and fire.fire.name or a.name)
-				tooltip.Body.Text = a.desc
+				tooltip.Body.Text = fire and fire.breath.desc or a.desc
 				tooltip.Visible = true
 			end
 		end)
@@ -998,7 +998,7 @@ local function refresh()
 		starterAd.Price.Text = "R$ " .. StoreInfo.Products[starterKey].robux
 	end
 	rushAd.Visible = class ~= nil and not starterAd.Visible and App.Store.available("product", "GoldRush")
-	card.icon.Text = class and ({ Shadowstalker = "🌑", Stormwing = "⚡", Behemoth = "🌋", Frostwyrm = "❄️", Venomspine = "🐍" })[class.id] or "🐉"
+	card.icon.Text = class and class.icon or "🐉"
 	card.gold.Text = "💰 " .. Util.formatNumber(p.gold)
 	card.glory.Text = "⚔️ " .. Util.formatNumber(p.glory)
 	card.power.Text = "⚡ " .. Util.formatNumber(p.power or 0)
@@ -1110,7 +1110,7 @@ local function refresh()
 		end
 		slot.stroke.Color = (a and a.ultimate) and Color3.fromRGB(255, 120, 60) or C.accentDark
 		if id == "Breath" and class then
-			slot.icon.Text = ({ Shadowstalker = "💜", Stormwing = "🌬️", Behemoth = "🔥", Frostwyrm = "❄️", Venomspine = "🧪" })[class.id] or "🔥"
+			slot.icon.Text = class.fire.icon or "🔥"
 		end
 		-- practice range: the mouse button fires Fireball too, and the rest sit out
 		if Players.LocalPlayer:GetAttribute("RangeMode") then

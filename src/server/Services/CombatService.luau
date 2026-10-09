@@ -28,6 +28,8 @@ local function now()
 	return os.clock()
 end
 
+CombatService.GROUND_SHOT_HEIGHT = 3 -- a wave (`ground` projectile) rolls along this far above the ground
+
 local function broadcastVFX(data, except: Player?)
 	local remote = Remotes.event("VFX")
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -226,6 +228,15 @@ local function applyEffects(attacker: Player?, target, effects, dealt: number, f
 		away = Vector3.new(away.X, 0, away.Z)
 		if away.Magnitude > 0.1 then
 			root.AssemblyLinearVelocity = away.Unit * effects.knockback + Vector3.new(0, 14, 0)
+		end
+	end
+	-- a whirlpool or an undertow drags things toward its middle (never past it)
+	if (effects.pull or 0) > 0 and fromPos and target.enemy and not target.enemy.isBoss then
+		local root = target.root
+		local toward = fromPos - root.Position
+		toward = Vector3.new(toward.X, 0, toward.Z)
+		if toward.Magnitude > 2 then
+			root.AssemblyLinearVelocity = toward.Unit * math.min(effects.pull, toward.Magnitude * 2.5) + Vector3.new(0, 6, 0)
 		end
 	end
 end
@@ -439,7 +450,25 @@ end
 local function explodeProjectile(id: string, proj, pos: Vector3)
 	projectiles[id] = nil
 	broadcastVFX({ kind = "projectileHit", id = id, pos = pos, radius = proj.ability.radius, classId = proj.ctx.classId, abilityId = proj.ability.id })
-	aoe(proj.ctx, pos, proj.ability.radius, proj.ability.damageMult, proj.ability.effects, proj.ability.radius)
+	if not proj.ability.pierce then -- (a piercing shot already hit everything on its way)
+		aoe(proj.ctx, pos, proj.ability.radius, proj.ability.damageMult, proj.ability.effects, proj.ability.radius)
+	end
+end
+
+-- A piercing shot (a spear of light, a rolling wave) hits everything it passes, once each, and
+-- carries on. Knockback pushes along its way.
+local function pierceStep(proj, from: Vector3, to: Vector3)
+	for _, target in ipairs(CombatService.collectTargets(proj.ctx.player)) do
+		local key = target.model or target.practice or target.root
+		if key and not proj.hit[key] then
+			local p = closestPointOnSegment(from, to, target.root.Position)
+			local hitRadius = target.practice and math.min(proj.hitRadius, Range.PROJECTILE_RADIUS) or proj.hitRadius
+			if (p - target.root.Position).Magnitude <= hitRadius + target.radius then
+				proj.hit[key] = true
+				hitTarget(proj.ctx, target, proj.ability.damageMult, proj.ability.effects, target.root.Position - proj.dir * 6)
+			end
+		end
+	end
 end
 
 local function stepProjectiles(dt: number)
@@ -452,6 +481,15 @@ local function stepProjectiles(dt: number)
 		if ray then
 			hitPos = ray.Position
 			to = ray.Position
+		end
+		if proj.ability.pierce then
+			pierceStep(proj, from, to)
+			proj.pos = to
+			proj.traveled += step
+			if hitPos or proj.traveled >= proj.range then
+				explodeProjectile(id, proj, to)
+			end
+			continue
 		end
 		local bestDist = math.huge
 		for _, target in ipairs(CombatService.collectTargets(proj.ctx.player)) do
@@ -600,6 +638,11 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 			end
 		end
 	elseif ability.kind == "projectile" then
+		if ability.ground then
+			-- a wave: it rolls along the ground ahead of the dragon, flat
+			origin = groundBelow(root.Position) + Vector3.new(0, CombatService.GROUND_SHOT_HEIGHT, 0)
+			aim = Vector3.new(aim.X, origin.Y, aim.Z)
+		end
 		local baseDir = aim - origin
 		if baseDir.Magnitude < 1 then
 			baseDir = root.CFrame.LookVector
@@ -624,11 +667,33 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 				speed = ability.speed,
 				range = ability.range,
 				traveled = 0,
-				hitRadius = (ability.size or 1.5) * 0.8 + 1,
+				hitRadius = ability.pierce and ability.width and ability.width / 2 or (ability.size or 1.5) * 0.8 + 1,
+				hit = {}, -- (piercing shots: what they've already hit)
 			}
 			table.insert(list, { id = id, dir = dir })
 		end
-		broadcastVFX({ kind = "projectiles", origin = origin, list = list, speed = ability.speed, range = ability.range, size = ability.size, classId = stats.classId, abilityId = abilityId }, player)
+		broadcastVFX({ kind = "projectiles", origin = origin, list = list, speed = ability.speed, range = ability.range, size = ability.size, width = ability.width, classId = stats.classId, abilityId = abilityId, character = character }, player)
+	elseif ability.kind == "beam" then
+		-- a ray from the mouth toward the aim, as far as its range or the first wall; it hits
+		-- everything along it
+		local dir = aim - origin
+		if dir.Magnitude < 1 then
+			dir = root.CFrame.LookVector
+		end
+		dir = dir.Unit
+		local finish = origin + dir * ability.range
+		local ray = workspace:Raycast(origin, dir * ability.range, mapParams)
+		if ray then
+			finish = ray.Position
+		end
+		broadcastVFX({ kind = "beam", character = character, to = finish, classId = stats.classId, duration = ability.cooldown + 0.15 }, player)
+		for _, target in ipairs(CombatService.collectTargets(player)) do
+			local p = closestPointOnSegment(origin, finish, target.root.Position)
+			local reach = target.practice and math.min(ability.width / 2, Range.PROJECTILE_RADIUS) or ability.width / 2
+			if (p - target.root.Position).Magnitude <= reach + target.radius then
+				hitTarget(ctx, target, ability.damageMult, ability.effects, origin, ability.critBonus)
+			end
+		end
 	elseif ability.kind == "nova" then
 		local center = root.Position
 		broadcastVFX({ kind = "nova", pos = center, radius = ability.radius, classId = stats.classId, abilityId = abilityId, character = character }, nil)
@@ -640,9 +705,17 @@ local function cast(player: Player, abilityId: string, aim: Vector3, projectileI
 			target = root.Position + flat.Unit * ability.castRange
 		end
 		local pos = groundBelow(target)
-		broadcastVFX({ kind = "strike", pos = pos, radius = ability.radius, delay = ability.delay, style = ability.style, classId = stats.classId, abilityId = abilityId, character = character }, nil)
+		broadcastVFX({ kind = "strike", pos = pos, radius = ability.radius, delay = ability.delay, style = ability.style, classId = stats.classId, abilityId = abilityId, character = character,
+			pulses = ability.pulses, interval = ability.interval }, nil)
+		-- (a lasting one, like a whirlpool or a pillar of sunfire, hits `pulses` times)
 		task.delay(ability.delay, function()
-			if player.Parent then
+			for pulse = 1, ability.pulses or 1 do
+				if pulse > 1 then
+					task.wait(ability.interval or 0.5)
+				end
+				if not player.Parent then
+					return
+				end
 				aoe(ctx, pos, ability.radius, ability.damageMult, ability.effects, ability.radius + 10)
 			end
 		end)

@@ -794,7 +794,7 @@ function SpellFX.onBuff(data): boolean
 		SpellFX.rampage(character, duration)
 		return true
 	end
-	return false
+	return App.LegendFX.buff(data)
 end
 
 function SpellFX.onNova(data)
@@ -808,6 +808,8 @@ function SpellFX.onNova(data)
 		SpellFX.umbralDevour(data.pos, data.radius)
 	elseif data.abilityId == "AbsoluteZero" then
 		SpellFX.absoluteZero(data.pos, data.radius)
+	else
+		App.LegendFX.nova(data)
 	end
 	-- life-stealing novas heal their caster
 	local ability = Abilities[data.abilityId or ""]

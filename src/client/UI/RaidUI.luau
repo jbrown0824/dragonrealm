@@ -1,10 +1,12 @@
 -- The night raid bar (RaidService): longships incoming, raiders left, the wave, burned houses and
 -- the time left to beat them, with a button to fly home to town. After a lost raid it counts down
 -- until the shops reopen. Under it, while a house burns or you carry water, a chip says how many
--- splashes you have or where to get water. Everything comes from workspace attributes, so late joiners see it too. It can
--- be minimized to a small pill (click the pill to open it again; a new raid opens it by itself).
--- Desktop: top center (under the boss banner when that's up). Phones: bottom left of center,
--- clear of the bars at the top and the thumb buttons on the right.
+-- splashes you have or where to get water. Everything comes from workspace attributes, so late
+-- joiners see it too. It pops up big at the top when the longships are sighted, when they land and
+-- when the shops close, then glides over to the side once you get going (SideDock: the left column
+-- on computers, under the boss banner when that's up; the bottom-left stack on phones), the water
+-- chip with it. It can be minimized to a small pill in the same spot (click the pill to open it
+-- again; a new raid opens it by itself).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -16,15 +18,17 @@ local Raids = require(Shared.Config.Raids)
 local Util = require(Shared.Util)
 
 local Theme = require(script.Parent.Theme)
+local SideDock = require(script.Parent.SideDock)
 local C = Theme.Colors
 
 local RaidUI = {}
 local App
 
-local bar, title, info, homeButton, stroke, pill, waterChip
+local bar, title, info, homeButton, stroke, pill, waterChip, dock, chipDock
 local accumulated = 0
 local minimized = false
 local lastPhase = nil
+local lastShown = nil -- what the bar showed last: "incoming" | "fighting" | "closed" | nil
 
 local RAID_COLOR = Color3.fromRGB(255, 110, 70)
 local CLOSED_COLOR = Color3.fromRGB(255, 190, 90)
@@ -39,33 +43,11 @@ local function inDungeon(): boolean
 	return Players.LocalPlayer:GetAttribute("InDungeon") ~= nil
 end
 
-local function place()
-	if App.Windows.mobile then
-		bar.AnchorPoint = Vector2.new(0, 1)
-		bar.Position = UDim2.new(0, 130, 1, -8)
-		bar.Size = UDim2.fromOffset(372, 58)
-		pill.AnchorPoint = Vector2.new(0, 1)
-		pill.Position = UDim2.new(0, 130, 1, -8)
-		return
-	end
-	local hud = App.Windows.guis.HUD
-	local boss = hud:FindFirstChild("BossBanner")
-	local bossPill = hud:FindFirstChild("BossPill")
-	local y = 8
-	if boss and boss.Visible then
-		y = 112
-	elseif bossPill and bossPill.Visible then
-		y = 48
-	end
-	bar.AnchorPoint = Vector2.new(0.5, 0)
-	bar.Position = UDim2.new(0.5, 0, 0, y)
-	bar.Size = UDim2.fromOffset(500, 58)
-	pill.AnchorPoint = Vector2.new(0.5, 0)
-	pill.Position = UDim2.new(0.5, 0, 0, y)
-end
-
 function RaidUI.setMinimized(on: boolean)
 	minimized = on
+	if not on then
+		SideDock.raise(dock) -- (opened on purpose: it gets the room on a phone)
+	end
 	RaidUI.update()
 end
 
@@ -82,13 +64,14 @@ local function burningHouses(): number
 	return n
 end
 
--- The water chip: under the raid bar (or its pill) on desktop, above it on phones. A gauge along
--- its bottom shows how much water you carry (it runs down as you pour).
+-- The water chip: it rides with the raid bar (SideDock puts it under it). A gauge along its bottom
+-- shows how much water you carry (it runs down as you pour).
 local function updateWater()
 	local water = Players.LocalPlayer:GetAttribute("Water") or 0
 	local fires = burningHouses()
-	waterChip.Visible = water > 0 or fires > 0
-	if not waterChip.Visible then
+	local shown = water > 0 or fires > 0
+	SideDock.show(chipDock, shown and "box" or nil)
+	if not shown then
 		return
 	end
 	local gauge = waterChip:FindFirstChild("Gauge")
@@ -104,25 +87,13 @@ local function updateWater()
 		waterChip.Text = string.format("🔥 %d house%s on fire! Dive into the river or a well for water", fires, fires == 1 and "" or "s")
 		waterChip.BackgroundColor3 = Color3.fromRGB(90, 30, 15)
 	end
-	local above = (bar.Visible and bar) or (pill.Visible and pill) or nil
-	if App.Windows.mobile then
-		waterChip.AnchorPoint = Vector2.new(0, 1)
-		waterChip.Size = UDim2.fromOffset(372, 30)
-		waterChip.Position = UDim2.new(0, 130, 1, above and -(14 + above.Size.Y.Offset) or -8)
-	else
-		waterChip.AnchorPoint = Vector2.new(0.5, 0)
-		waterChip.Size = UDim2.fromOffset(420, 30)
-		local y = above and (above.Position.Y.Offset + above.Size.Y.Offset + 6) or 8
-		waterChip.Position = UDim2.new(0.5, 0, 0, y)
-	end
 end
 
 function RaidUI.update()
 	if inDungeon() then
 		-- off in a dungeon: the raid (if any) shows again when you come back
-		bar.Visible = false
-		pill.Visible = false
-		waterChip.Visible = false
+		SideDock.show(dock, nil)
+		SideDock.show(chipDock, nil)
 		return
 	end
 	RaidUI.updateBar()
@@ -137,6 +108,11 @@ function RaidUI.updateBar()
 		minimized = false -- a new raid: show it
 	end
 	lastPhase = phase
+	local showing = phase or ((closedUntil and closedUntil > now) and "closed" or nil)
+	if showing and showing ~= lastShown then
+		SideDock.pop(dock) -- longships sighted, the vikings landing, the shops closing: up top for a moment
+	end
+	lastShown = showing
 	local short
 	if phase == "incoming" then
 		local lands = Util.formatTime((workspace:GetAttribute("RaidLandsAt") or now) - now)
@@ -162,24 +138,19 @@ function RaidUI.updateBar()
 		info.Text = string.format("The shops reopen in <b>%s</b>.", open)
 		short = "🔒 Shops open in " .. open
 	else
-		bar.Visible = false
-		pill.Visible = false
+		SideDock.show(dock, nil)
 		return
 	end
 	local raiding = phase ~= nil
-	place()
-	pill.Visible = minimized
+	SideDock.show(dock, minimized and "pill" or "box")
 	pill.Text = short .. "  (open)"
-	bar.Visible = not minimized
 	if minimized then
 		return
 	end
 	stroke.Color = raiding and RAID_COLOR or CLOSED_COLOR
 	title.TextColor3 = raiding and RAID_COLOR or CLOSED_COLOR
 	homeButton.Visible = raiding and not inTown()
-	title.Size = UDim2.new(1, homeButton.Visible and -150 or -50, 0, 24)
-	info.Size = UDim2.new(1, homeButton.Visible and -150 or -50, 0, 22)
-	homeButton.Position = UDim2.new(1, -40, 0.5, 0)
+	bar.Size = UDim2.fromOffset(SideDock.WIDTH, homeButton.Visible and 104 or 70)
 end
 
 function RaidUI.init(app)
@@ -195,7 +166,7 @@ function RaidUI.init(app)
 	stroke = Theme.stroke(bar, RAID_COLOR, 2)
 	title = Theme.label({
 		Position = UDim2.fromOffset(12, 5),
-		Size = UDim2.new(1, -50, 0, 24),
+		Size = UDim2.new(1, -48, 0, 24),
 		Font = Theme.Fonts.title,
 		TextSize = 19,
 		TextColor3 = RAID_COLOR,
@@ -205,19 +176,18 @@ function RaidUI.init(app)
 	})
 	info = Theme.label({
 		Position = UDim2.fromOffset(12, 30),
-		Size = UDim2.new(1, -50, 0, 22),
+		Size = UDim2.new(1, -24, 0, 34),
 		TextSize = 13,
 		RichText = true,
-		TextWrapped = false,
-		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextTruncate = Enum.TextTruncate.AtEnd, -- (two lines at most)
 		Parent = bar,
 	})
-	homeButton = Theme.button("🏠 Fly home", C.blue, function()
+	homeButton = Theme.button("🏠 Fly home to defend the town", C.blue, function()
 		App.HUD.goHome()
 	end, {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(100, 38),
+		Position = UDim2.fromOffset(12, 68),
+		Size = UDim2.new(1, -24, 0, 28),
 		TextSize = 14,
 		Visible = false,
 		Parent = bar,
@@ -230,7 +200,7 @@ function RaidUI.init(app)
 		RaidUI.setMinimized(false)
 	end, {
 		Name = "RaidPill",
-		Size = UDim2.fromOffset(320, 32),
+		Size = UDim2.fromOffset(SideDock.WIDTH, 32),
 		TextSize = 14,
 		Visible = false,
 		Parent = App.Windows.guis.HUD,
@@ -238,17 +208,18 @@ function RaidUI.init(app)
 	Theme.stroke(pill, RAID_COLOR, 2)
 	waterChip = Theme.label({
 		Name = "WaterChip",
+		Size = UDim2.fromOffset(SideDock.WIDTH, 44),
 		BackgroundTransparency = 0.1,
 		BackgroundColor3 = Color3.fromRGB(20, 60, 110),
 		TextColor3 = Color3.fromRGB(215, 240, 255),
 		TextSize = 14,
 		Font = Theme.Fonts.title,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextWrapped = false,
-		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextTruncate = Enum.TextTruncate.AtEnd, -- (two lines at most)
 		Visible = false,
 		Parent = App.Windows.guis.HUD,
 	})
+	Theme.make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingBottom = UDim.new(0, 4), Parent = waterChip })
 	Theme.corner(waterChip, 10)
 	Theme.stroke(waterChip, Color3.fromRGB(140, 200, 255), 1.5)
 	local gauge = Theme.make("Frame", {
@@ -268,7 +239,8 @@ function RaidUI.init(app)
 		BorderSizePixel = 0,
 		Parent = gauge,
 	})
-	place()
+	dock = SideDock.add(bar, { pill = pill })
+	chipDock = SideDock.add(waterChip, { follow = dock })
 	RunService.RenderStepped:Connect(function(dt)
 		accumulated += dt
 		if accumulated >= 0.25 then

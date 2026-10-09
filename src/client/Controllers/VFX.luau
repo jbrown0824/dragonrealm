@@ -1,5 +1,6 @@
 -- Visual effects: dragon breath, fireballs, explosions, novas, meteor/lightning strikes,
--- boss telegraphs, viking axes, level-ups... Everything here is purely cosmetic.
+-- boss telegraphs, viking axes, level-ups... Everything here is purely cosmetic. The legendary
+-- dragons' own looks (beams, water, sunlight) come from LegendFX.
 
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -277,7 +278,7 @@ end
 
 function VFX.isBreathing(character: Model): boolean
 	local b = breaths[character]
-	return b ~= nil and os.clock() < b.untilTime
+	return (b ~= nil and os.clock() < b.untilTime) or App.LegendFX.mouthOpen(character)
 end
 
 local function updateBreaths()
@@ -309,9 +310,11 @@ function VFX.projectiles(data)
 	local size = data.size or 1.6
 	for _, entry in ipairs(data.list) do
 		local parts = {}
-		local main
-		local plain = true -- a glowing ball with a fiery trail (fireballs, bolts...)
-		if data.abilityId == "VenomSpit" then
+		local main, riders = App.LegendFX.projectile(data, entry) -- (a legendary dragon's own shots)
+		local plain = main == nil -- a glowing ball with a fiery trail (fireballs, bolts...)
+		if main then
+			-- (drawn by LegendFX)
+		elseif data.abilityId == "VenomSpit" then
 			main = App.SpellFX.venomGlob(data.origin, size)
 			main.CFrame = CFrame.lookAt(data.origin, data.origin + entry.dir)
 			plain = false
@@ -339,9 +342,22 @@ function VFX.projectiles(data)
 		light.Range = 12
 		light.Brightness = 2
 		light.Parent = main
-		projectiles[entry.id] = { main = main, origin = data.origin, dir = entry.dir, speed = data.speed, range = data.range, start = os.clock() }
+		projectiles[entry.id] = { main = main, riders = riders, origin = data.origin, dir = entry.dir, speed = data.speed, range = data.range, start = os.clock() }
 		Debris:AddItem(main, data.range / math.max(1, data.speed) + 1)
+		for _, rider in ipairs(riders or {}) do
+			Debris:AddItem(rider[1], data.range / math.max(1, data.speed) + 1)
+		end
 	end
+end
+
+local function dropProjectile(id: string, p)
+	if p.main.Parent then
+		p.main:Destroy()
+	end
+	for _, rider in ipairs(p.riders or {}) do
+		rider[1]:Destroy()
+	end
+	projectiles[id] = nil
 end
 
 local function updateProjectiles()
@@ -349,13 +365,13 @@ local function updateProjectiles()
 	for id, p in pairs(projectiles) do
 		local traveled = (now - p.start) * p.speed
 		if traveled > p.range + 4 or not p.main.Parent then
-			if p.main.Parent then
-				p.main:Destroy()
-			end
-			projectiles[id] = nil
+			dropProjectile(id, p)
 		else
 			local pos = p.origin + p.dir * traveled
 			p.main.CFrame = CFrame.lookAt(pos, pos + p.dir)
+			for _, rider in ipairs(p.riders or {}) do
+				rider[1].CFrame = p.main.CFrame * rider[2]
+			end
 		end
 	end
 end
@@ -363,8 +379,10 @@ end
 function VFX.projectileHit(data)
 	local p = projectiles[data.id]
 	if p then
-		p.main:Destroy()
-		projectiles[data.id] = nil
+		dropProjectile(data.id, p)
+	end
+	if App.LegendFX.projectileHit(data) then
+		return
 	end
 	if data.abilityId == "VenomSpit" then
 		App.SpellFX.venomSplat(data.pos, data.radius or 6)
@@ -421,6 +439,9 @@ function VFX.strike(data)
 		VFX.telegraph(pos, radius, delay, colorA)
 	end
 	App.SpellFX.onStrike(data)
+	if App.LegendFX.strike(data) then
+		return
+	end
 	if style == "meteor" and delay > 0 then
 		local start = pos + Vector3.new(30, 90, 20)
 		local rock = part(Vector3.new(6, 6, 6), CFrame.new(start), Color3.fromRGB(80, 40, 20), Enum.Material.Slate, 0, Enum.PartType.Ball)
@@ -791,6 +812,9 @@ end
 local HANDLERS = {
 	breath = function(d)
 		VFX.breath(d.character, d.dir, d.classId, d.duration, d.reach)
+	end,
+	beam = function(d)
+		App.LegendFX.beam(d.character, d.to, d.classId, d.duration or 0.4)
 	end,
 	projectiles = VFX.projectiles,
 	projectileHit = VFX.projectileHit,

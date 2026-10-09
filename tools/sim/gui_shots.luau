@@ -7,6 +7,7 @@ local W, H, TOUCH = GUI_W or 1280, GUI_H or 720, GUI_TOUCH == true
 local function mod(path)
 	return require(__proxy("Client/" .. path))
 end
+local SideDockInfo = require(__proxy("Client/UI/SideDock"))
 
 task.spawn(function()
 	task.wait(2)
@@ -107,6 +108,15 @@ task.spawn(function()
 	task.wait(0.5)
 	mod("UI/Store").open()
 	shot("store")
+	-- the legendary dragons: the showcase window (a platform's prompt), and the class picker's cards
+	mod("UI/DragonShowcase").open("Solaris")
+	shot("showcase")
+	mod("UI/DragonShowcase").show("Tidecaller")
+	shot("showcase_tide")
+	Windows.close()
+	mod("UI/ClassSelect").show("transform")
+	shot("classselect_transform")
+	mod("UI/ClassSelect").hide()
 	for _, tab in ipairs({ "Pets", "Achievements", "Skins" }) do
 		mod("UI/Collection").open(tab)
 		shot("collection_" .. tab)
@@ -152,10 +162,13 @@ task.spawn(function()
 	S.DayNightService.setHour(22)
 	Remotes.func("AdminAction"):InvokeServer("raidNow")
 	task.wait(1)
-	shot("raid")
+	shot("raid") -- up top, big, when the longships are sighted
+	task.wait(3)
+	tp(me, S.FarmService.getHomeCFrame(me).Position + Vector3.new(12, 4, 0)) -- (getting going: it glides aside)
+	task.wait(1)
 	Remotes.func("AdminAction"):InvokeServer("burnHouse")
 	task.wait(0.5)
-	shot("raid_fire")
+	shot("raid_fire") -- docked at the side, the water chip under it
 	me:SetAttribute("Water", 3)
 	task.wait(0.5)
 	mod("UI/RaidUI").setMinimized(true)
@@ -165,6 +178,27 @@ task.spawn(function()
 	Remotes.func("AdminAction"):InvokeServer("raidEnd", { won = false })
 	task.wait(0.5)
 	shot("shops_closed")
+	-- a world boss (its state played to the client only): the warning up top over the docked
+	-- shops-closed bar, then your fight, then both docked down the left side
+	local bossState = mod("Controllers/State")
+	local now = workspace:GetServerTimeNow()
+	bossState.boss = { phase = "warning", bossId = "Hrothgar", name = "Hrothgar the Dragonslayer", title = "Bane of Wings", spawnAt = now + 150, queue = { me.UserId } }
+	bossState.bossChanged:Fire(bossState.boss)
+	task.wait(SideDockInfo.DOCK_AFTER + 1)
+	tp(me, S.FarmService.getHomeCFrame(me).Position + Vector3.new(0, 4, 12))
+	task.wait(0.5)
+	now = workspace:GetServerTimeNow()
+	bossState.boss = { phase = "fight", bossId = "Hrothgar", name = "Hrothgar the Dragonslayer", title = "Bane of Wings", spawnAt = now, queue = {},
+		participants = { me.UserId }, endsAt = now + 170, maxLives = 3, lives = { [tostring(me.UserId)] = 2 }, hp = 61250, maxHp = 98000 }
+	bossState.bossChanged:Fire(bossState.boss)
+	task.wait(0.5)
+	shot("boss")
+	task.wait(SideDockInfo.MIN_CENTER + 0.5)
+	tp(me, S.FarmService.getHomeCFrame(me).Position + Vector3.new(12, 4, 12))
+	task.wait(0.5)
+	shot("boss_docked")
+	bossState.boss = { phase = "idle" }
+	bossState.bossChanged:Fire(bossState.boss)
 	Remotes.func("AdminAction"):InvokeServer("shops", { open = true })
 	S.DayNightService.setHour(10)
 	tp(me, Vector3.new(Zones.Range.matX, 6, Zones.Range.lanes[1]))
@@ -208,7 +242,7 @@ task.spawn(function()
 	SIM.done = true
 end)
 
-local limit = 160
+local limit = 190
 while not SIM.done and SIM.now < limit do
 	SIM.step(1 / 30)
 end

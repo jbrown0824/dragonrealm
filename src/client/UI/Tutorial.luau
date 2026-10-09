@@ -158,9 +158,9 @@ local STEPS = {
 local function updateToastInset()
 	if panel.Visible and docked then
 		local scale = App.Windows.scale or 1
-		App.Notifications.setTopInset(132 + panel.AbsoluteSize.Y / scale)
+		App.Notifications.setTopInset(132 + panel.AbsoluteSize.Y / scale, "tour")
 	else
-		App.Notifications.setTopInset(nil)
+		App.Notifications.setTopInset(nil, "tour")
 	end
 end
 

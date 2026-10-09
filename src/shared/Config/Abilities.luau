@@ -3,17 +3,23 @@
 -- unlocked from the skill tree (see Config/Talents).
 --
 -- kinds:
---   breath      cone in front of the dragon (class-specific params in Config/Classes)
+--   breath      cone in front of the dragon (class-specific params in Config/Classes; a legendary
+--               dragon's `breath.kind` turns it into its own attack: shots or a beam)
 --   projectile  fireball-style shots: count, spread (deg), speed, range, radius
+--               `pierce` (with `width`): passes through, hitting everything along it once
+--               `ground`: rolls along the ground ahead of the dragon (a wave), not from its mouth
+--   beam        (legendary primary only) a ray from the mouth: range, width; hits everything on it
 --   nova        burst around the dragon: radius
 --   strike      delayed blast at the aim point: radius, delay, castRange
+--               `pulses` / `interval`: keeps hitting that many times (a lasting whirlpool, a pillar)
 --   dash        lunge forward, damaging everything along the path: distance, width
 --   buff        timed self buff: duration, stats, stealth, aura, healPct
 --   heal        instant heal (healPct of max health), optional follow-up buff
 --
 -- effects (optional) on damaging abilities:
 --   slowPct/slowDuration, stun (seconds), poisonPct / burnPct (% of the hit dealt again
---   over a few seconds), knockback (studs/sec), lifestealBonus (% of damage healed)
+--   over a few seconds), knockback (studs/sec), pull (studs/sec toward the blast's middle),
+--   lifestealBonus (% of damage healed)
 
 local Abilities = {}
 
@@ -238,6 +244,112 @@ Abilities.ToxicDeluge = {
 	cooldown = 35, mult = 7, radius = 20, delay = 1.0, castRange = 100, style = "poison",
 	effects = { poisonPct = 100 },
 	desc = "Drown an area in a flood of toxic venom.",
+}
+
+---------------------------------------------------------------- Legendary dragons (Robux)
+-- Each has a signature (Game.SIGNATURE_LEVEL) and a `bonus` ability (Game.BONUS_LEVEL), plus
+-- its skill tree's abilities.
+
+-- Tidecaller
+Abilities.Riptide = {
+	id = "Riptide", name = "Riptide", icon = "🌀", kind = "strike", signature = true,
+	cooldown = 8, mult = 2.2, radius = 12, delay = 0.45, castRange = 90, style = "whirlpool",
+	effects = { pull = 28, slowPct = 30, slowDuration = 2 },
+	desc = "Open a whirlpool at your aim point that drags enemies into the middle and slows them.",
+}
+Abilities.TidalSurge = {
+	id = "TidalSurge", name = "Tidal Surge", icon = "🏄", kind = "projectile", bonus = true,
+	cooldown = 14, mult = 2.6, count = 1, speed = 55, range = 75, radius = 6, size = 3,
+	pierce = true, width = 20, ground = true,
+	effects = { knockback = 34 },
+	desc = "Raise a great wave that rolls ahead of you, crashing through everything in its path and sweeping it back.",
+}
+Abilities.Geyser = {
+	id = "Geyser", name = "Geyser", icon = "⛲", kind = "strike",
+	cooldown = 10, mult = 3.0, radius = 10, delay = 0.6, castRange = 90, style = "geyser",
+	effects = { stun = 0.8 },
+	desc = "A geyser bursts out of the ground at your aim point, blasting enemies and stunning them.",
+}
+Abilities.Maelstrom = {
+	id = "Maelstrom", name = "Maelstrom", icon = "⛈️", kind = "strike", ultimate = true,
+	cooldown = 35, mult = 1.6, radius = 22, delay = 0.6, castRange = 100, style = "maelstrom",
+	pulses = 5, interval = 0.6,
+	effects = { pull = 30, slowPct = 50, slowDuration = 1.2 },
+	desc = "Open a huge maelstrom at your aim point. For 3 seconds it drags everything into its heart and pounds it.",
+}
+Abilities.HealingTide = {
+	id = "HealingTide", name = "Healing Tide", icon = "💦", kind = "heal",
+	cooldown = 18, healPct = 25,
+	buff = { duration = 6, stats = { defensePct = 30, regen = 1 } },
+	desc = "Call a healing tide: heal 25% of max health, then +30% defense and +1% health a second for 6 seconds.",
+}
+Abilities.AbyssalShell = {
+	id = "AbyssalShell", name = "Abyssal Shell", icon = "🐚", kind = "buff", ultimate = true,
+	cooldown = 45, duration = 8, stats = { defensePct = 150, thorns = 25 }, healPct = 25,
+	desc = "Wrap yourself in a shell of deep water: heal 25%, +150% defense and reflect 25% of melee damage for 8 seconds.",
+}
+Abilities.Undertow = {
+	id = "Undertow", name = "Undertow", icon = "⚓", kind = "nova",
+	cooldown = 11, mult = 1.9, radius = 16,
+	effects = { pull = 30, slowPct = 40, slowDuration = 3 },
+	desc = "A swirling undertow drags nearby enemies in to you and slows them.",
+}
+Abilities.KrakensGrasp = {
+	id = "KrakensGrasp", name = "Kraken's Grasp", icon = "🐙", kind = "strike", ultimate = true,
+	cooldown = 40, mult = 8, radius = 16, delay = 0.9, castRange = 100, style = "kraken",
+	effects = { stun = 2.5 },
+	desc = "Great tentacles burst out of the ground at your aim point, crushing and holding everything there.",
+}
+
+-- Solaris
+Abilities.SolarFlare = {
+	id = "SolarFlare", name = "Solar Flare", icon = "🌞", kind = "nova", signature = true,
+	cooldown = 8, mult = 2.2, radius = 13,
+	effects = { burnPct = 40, stun = 0.6 },
+	desc = "Flare like the sun: scorch everything around you and blind it for a moment.",
+}
+Abilities.Sunfall = {
+	id = "Sunfall", name = "Sunfall", icon = "🌇", kind = "strike", bonus = true,
+	cooldown = 20, mult = 0.6, radius = 12, delay = 0.5, castRange = 90, style = "sunfall",
+	pulses = 8, interval = 0.5,
+	effects = { burnPct = 15 },
+	desc = "Call down a pillar of sunfire on your aim point. It burns everything inside it for 4 seconds.",
+}
+Abilities.Sunspear = {
+	id = "Sunspear", name = "Sunspear", icon = "🏹", kind = "projectile",
+	cooldown = 9, mult = 3.0, count = 1, speed = 220, range = 160, radius = 3, size = 1.2,
+	pierce = true, width = 5,
+	desc = "Hurl a spear of light that pierces through every enemy in a line.",
+}
+Abilities.Zenith = {
+	id = "Zenith", name = "Zenith", icon = "🌅", kind = "strike", ultimate = true,
+	cooldown = 35, mult = 9, radius = 18, delay = 1.2, castRange = 100, style = "zenith",
+	effects = { burnPct = 30 },
+	desc = "The sun at its height: a colossal column of light slams down on your aim point.",
+}
+Abilities.PhoenixFeathers = {
+	id = "PhoenixFeathers", name = "Phoenix Feathers", icon = "🐦", kind = "heal",
+	cooldown = 20, healPct = 30,
+	buff = { duration = 6, stats = { defensePct = 25, critChance = 10 } },
+	desc = "Burning feathers mend you: heal 30% of max health, then +25% defense and +10% crit chance for 6 seconds.",
+}
+Abilities.PhoenixForm = {
+	id = "PhoenixForm", name = "Phoenix Form", icon = "🦅", kind = "buff", ultimate = true,
+	cooldown = 45, duration = 10, stats = { attackPct = 35, speedPct = 25 }, healPct = 20,
+	aura = { radius = 14, mult = 0.5, interval = 0.5 },
+	desc = "Become a living phoenix: heal 20%, +35% attack, +25% speed, and burn everything near you for 10 seconds.",
+}
+Abilities.Dawnbreak = {
+	id = "Dawnbreak", name = "Dawnbreak", icon = "🌄", kind = "dash",
+	cooldown = 8, mult = 2.4, distance = 36, width = 9,
+	effects = { burnPct = 40 },
+	desc = "Streak forward like a comet at dawn, burning everything in your path.",
+}
+Abilities.Supernova = {
+	id = "Supernova", name = "Supernova", icon = "🎆", kind = "nova", ultimate = true,
+	cooldown = 45, mult = 6.5, radius = 26,
+	effects = { burnPct = 50 },
+	desc = "Explode like a dying star, blasting everything around you with sunfire.",
 }
 
 function Abilities.get(id: string)

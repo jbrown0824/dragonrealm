@@ -213,6 +213,15 @@ Zones.QuestGivers = {
 
 Zones.WarHorn = Vector3.new(28, 0, 74)
 
+-- The legendary (Robux) dragons on show at the south edge of the town square, either side of the
+-- road to the Forge, each on its own dais facing the square (WorldBuilder.buildShowcases). Their
+-- prompts open the showcase window. Keep them clear of the stalls and the villagers' walks.
+Zones.SHOWCASE_RADIUS = 13 -- the dais and its rim (pool, braziers)
+Zones.Showcases = {
+	{ classId = "Tidecaller", pos = Vector3.new(-40, 0, -64), facing = Vector3.new(0.55, 0, 0.84) },
+	{ classId = "Solaris", pos = Vector3.new(40, 0, -64), facing = Vector3.new(-0.55, 0, 0.84) },
+}
+
 -- Dragon houses you can walk into (Props.dragonHouse). `facing` points out of the front door.
 -- HouseSize: X = width (along the front), Y = wall height, Z = depth.
 -- The main road's two rows face each other across a 72-stud street, with 26-stud gaps between

@@ -89,6 +89,12 @@ function Windows.virtualSize(): Vector2
 	return Vector2.new(vp.X / s, vp.Y / s)
 end
 
+-- Height the HUD has to work with, in its own units: the screen under Roblox's top bar.
+function Windows.hudHeight(): number
+	local vp = workspace.CurrentCamera.ViewportSize
+	return (vp.Y - TOP_BAR) / (Windows.hudScale or Windows.scale or 1)
+end
+
 -- Shrink a window that doesn't fit the screen (small or short screens).
 function Windows.fit(name: string)
 	local entry = Windows.registry[name]

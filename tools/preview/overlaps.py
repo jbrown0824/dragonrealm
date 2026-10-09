@@ -56,7 +56,7 @@ def check(parts, is_subject, min_pen=0.3, ignore=lambda a, b: False):
     return hits
 
 BUILDINGS = ('DragonHouse', 'Armory', 'Exchange', 'Forge', 'Alchemist', 'Hatchery', 'TrainingDummy', 'SparringGolem',
-             'Longhouse', 'Hut', 'BigTent', 'Chest', 'Tent', 'WarHorn', 'Base')
+             'Longhouse', 'Hut', 'BigTent', 'Chest', 'Tent', 'WarHorn', 'Base', 'Showcase')
 
 def building_of(p):
     for seg in p['path'].split('.'):

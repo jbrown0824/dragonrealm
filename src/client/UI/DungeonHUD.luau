@@ -41,9 +41,10 @@ end
 
 local function place(height: number)
 	if App.Windows.mobile then
-		local hud = App.Windows.guis.HUD
-		local raidBar, raidPill, range = hud:FindFirstChild("RaidBar"), hud:FindFirstChild("RaidPill"), hud:FindFirstChild("RangePanel")
-		local lift = (raidBar and raidBar.Visible) and -72 or ((raidPill and raidPill.Visible) and -48 or -8)
+		local range = App.Windows.guis.HUD:FindFirstChild("RangePanel")
+		-- (above the raid bar and boss banner when they're docked down there: App.SideDock)
+		local stack = App.SideDock.phoneStackHeight()
+		local lift = stack > 0 and -(14 + stack) or -8
 		if range and range.Visible then
 			lift -= 66
 		end
@@ -62,7 +63,7 @@ local function hide()
 	mode = nil
 	if pushedToasts then
 		pushedToasts = false
-		App.Notifications.setTopInset(nil)
+		App.Notifications.setTopInset(nil, "dungeon")
 	end
 end
 
@@ -72,7 +73,7 @@ local function show(height: number, color: Color3)
 	pill.UIStroke.Color = color
 	if not App.Windows.mobile then
 		pushedToasts = true
-		App.Notifications.setTopInset(PILL_Y + height)
+		App.Notifications.setTopInset(PILL_Y + height, "dungeon")
 	end
 end
 
